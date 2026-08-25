@@ -219,4 +219,3 @@ __marimo__/
 
 # uv
 .venv/
-uv.lock

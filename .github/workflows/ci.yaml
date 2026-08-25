@@ -11,8 +11,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
+        # One entry per tool. Add a directory here when you add a package.
+        package: [ai-failure-notifier]
+        # The versions canonical/operator tests against, since that is where
+        # this code runs.
         python-version: ['3.10', '3.12', '3.14']
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -20,6 +28,9 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
           python-version: ${{ matrix.python-version }}
+      # --locked, so that a lockfile which no longer matches its pyproject.toml
+      # fails here rather than silently resolving to something else.
+      - run: uv sync --locked --group unit
       - run: uv run pytest
 
   lint:
@@ -29,9 +40,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
-      - run: uvx ruff check .
-      # No `ruff format --check` yet. The moved file is byte-identical to what
-      # is under review in canonical/operator#2663, and the ruff version that
-      # formatted it hugged brackets inside calls where current ruff does not.
-      # Reformatting would put a 230-line diff on a file two people are part
-      # way through reviewing. Worth turning on once that PR lands.
+      # Ruff is pinned in the root dependency group, and its configuration
+      # lives there too, so both run once across every package rather than
+      # per matrix entry.
+      - run: uv run --group lint ruff check .
+      - run: uv run --group lint ruff format --check .
