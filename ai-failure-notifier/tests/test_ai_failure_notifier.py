@@ -45,7 +45,7 @@ from charm_tech_code import ai_failure_notifier as afn
 FIXTURE_SIGNATURE = afn.RunSignature(
     run_id='28141163589',
     workflow_name='Broad Charm Compatibility Tests',
-    html_url='https://github.com/canonical/operator/actions/runs/28141163589',
+    html_url='https://github.com/example/repo/actions/runs/28141163589',
     created_at='2026-06-25T01:40:15Z',
     jobs=[
         afn.JobSignature(
@@ -174,7 +174,7 @@ FIXTURE_ENVELOPE: dict[str, Any] = {
     'target_issue': 9010,
     'body': (
         'Another occurrence: '
-        'https://github.com/canonical/operator/actions/runs/28141163589\n'
+        'https://github.com/example/repo/actions/runs/28141163589\n'
         '\n'
         '4 of the 5 failing charms match #9010 unchanged. New this run: '
         'canonical/charm-ubuntu is now also failing its unit tests.'
@@ -578,10 +578,10 @@ class MainFlowTests(unittest.TestCase):
 
     def setUp(self):
         self.env = {
-            'REPO': 'canonical/operator',
+            'REPO': 'example/repo',
             'RUN_ID': '28141163589',
             'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
-            'RUN_URL': 'https://github.com/canonical/operator/actions/runs/28141163589',
+            'RUN_URL': 'https://github.com/example/repo/actions/runs/28141163589',
             'OPENROUTER_API_KEY': 'test-key',
         }
 
@@ -698,29 +698,29 @@ class GhCallShapeTests(unittest.TestCase):
     def test_search_issue_numbers_passes_repo_as_a_flag(self):
         gh_calls = self._capture('[{"number": 2658}]')
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            numbers = afn.search_issue_numbers('canonical/operator', 'Example Charm Tests')
+            numbers = afn.search_issue_numbers('example/repo', 'Example Charm Tests')
         self.assertEqual(numbers, [2658])
         args = gh_calls.call_args.args
         self.assertEqual(args[:2], ('search', 'issues'))
         self.assertIn('--repo', args)
-        self.assertEqual(args[args.index('--repo') + 1], 'canonical/operator')
+        self.assertEqual(args[args.index('--repo') + 1], 'example/repo')
         # The query is a bare positional -- no `repo:` prefix, no added quotes.
         # `gh search issues` quotes each positional as one keyword, so folding
-        # the repo in produces `repo:"canonical/operator \"text\""`, which
+        # the repo in produces `repo:"example/repo \"text\""`, which
         # GitHub rejects with "Invalid search query".
         self.assertIn('Example Charm Tests', args)
         for arg in args:
-            self.assertNotIn('repo:canonical/operator', arg)
+            self.assertNotIn('repo:example/repo', arg)
 
     def test_search_candidates_passes_state_and_search_flags(self):
         gh_calls = self._capture('[]')
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            afn.search_candidates('canonical/operator', 'Example Charm Tests')
+            afn.search_candidates('example/repo', 'Example Charm Tests')
         states: list[str] = []
         for call in gh_calls.call_args_list:
             args = call.args
             self.assertEqual(args[:2], ('issue', 'list'))
-            self.assertEqual(args[args.index('--repo') + 1], 'canonical/operator')
+            self.assertEqual(args[args.index('--repo') + 1], 'example/repo')
             self.assertEqual(args[args.index('--search') + 1], '"Example Charm Tests"')
             states.append(args[args.index('--state') + 1])
         self.assertEqual(states, ['open', 'closed'])
@@ -728,7 +728,7 @@ class GhCallShapeTests(unittest.TestCase):
     def test_fetch_job_log_uses_the_rest_logs_endpoint(self):
         gh_calls = self._capture('2026-07-21T16:17:04Z some log line\n')
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            log = afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
+            log = afn.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertIn('some log line', log)
         # Without --allow-escape-sequences, gh 2.9x+ writes nothing at all for
         # a log with terminal escapes in it, which is every Actions log.
@@ -736,7 +736,7 @@ class GhCallShapeTests(unittest.TestCase):
             gh_calls.call_args.args,
             (
                 'api',
-                'repos/canonical/operator/actions/jobs/88693036489/logs',
+                'repos/example/repo/actions/jobs/88693036489/logs',
                 '--allow-escape-sequences',
             ),
         )
@@ -748,17 +748,17 @@ class GhCallShapeTests(unittest.TestCase):
         ]
         gh_calls = mock.Mock(side_effect=results)
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            log = afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
+            log = afn.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertIn('some log line', log)
         self.assertEqual(
             [call.args for call in gh_calls.call_args_list],
             [
                 (
                     'api',
-                    'repos/canonical/operator/actions/jobs/88693036489/logs',
+                    'repos/example/repo/actions/jobs/88693036489/logs',
                     '--allow-escape-sequences',
                 ),
-                ('api', 'repos/canonical/operator/actions/jobs/88693036489/logs'),
+                ('api', 'repos/example/repo/actions/jobs/88693036489/logs'),
             ],
         )
 
@@ -770,7 +770,7 @@ class GhCallShapeTests(unittest.TestCase):
             mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
             mock.patch.object(afn.summary, 'write_step_summary'),
         ):
-            afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
+            afn.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertEqual(gh_calls.call_count, 1)
 
     def test_fetch_job_log_reports_an_empty_log_instead_of_swallowing_it(self):
@@ -779,7 +779,7 @@ class GhCallShapeTests(unittest.TestCase):
             mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
             mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
-            log = afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
+            log = afn.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertEqual(log, '')
         summary.assert_called_once()
         self.assertIn('no log text', summary.call_args.args[0])
@@ -792,7 +792,7 @@ class GhCallShapeTests(unittest.TestCase):
             mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
             mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
-            afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
+            afn.fetch_job_log('example/repo', '29847889218', 88693036489)
         # A 404 (log not ready) and a 403 (no `actions: read`) are both exit 1,
         # so the status has to reach the summary for either to be diagnosable.
         self.assertIn('HTTP 404', summary.call_args.args[0])
@@ -803,7 +803,7 @@ class GhCallShapeTests(unittest.TestCase):
             mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
             mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
-            afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
+            afn.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertIn('no stderr', summary.call_args.args[0])
 
     def test_fetch_failed_jobs_requests_the_jobs_field(self):
@@ -812,7 +812,7 @@ class GhCallShapeTests(unittest.TestCase):
             ' "steps": [{"name": "s", "conclusion": "failure"}]}]}'
         )
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            jobs = afn.fetch_failed_jobs('canonical/operator', '29847889218')
+            jobs = afn.fetch_failed_jobs('example/repo', '29847889218')
         self.assertEqual(jobs, [afn.FailedJob(id=1, name='j', failed_step='s')])
         args = gh_calls.call_args.args
         self.assertEqual(args[:3], ('run', 'view', '29847889218'))
@@ -821,7 +821,7 @@ class GhCallShapeTests(unittest.TestCase):
     def test_existing_labels_requests_the_name_field(self):
         gh_calls = self._capture('[{"name": "tests"}, {"name": "docs"}]')
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            labels = afn.existing_labels('canonical/operator')
+            labels = afn.existing_labels('example/repo')
         self.assertEqual(labels, {'tests', 'docs'})
         args = gh_calls.call_args.args
         self.assertEqual(args[:2], ('label', 'list'))
@@ -854,13 +854,13 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
         ])
         gh_calls = self._gh([listing])
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
+            enriched, kind, number = afn.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
         # Exactly one call, and it is the list endpoint -- not search.
         self.assertEqual(gh_calls.call_count, 1)
         args = gh_calls.call_args.args
         self.assertEqual(args[:2], ('issue', 'list'))
-        self.assertEqual(args[args.index('--repo') + 1], 'canonical/operator')
+        self.assertEqual(args[args.index('--repo') + 1], 'example/repo')
         self.assertEqual(args[args.index('--state') + 1], 'all')
         self.assertEqual(args[args.index('--json') + 1], 'number,body,comments')
 
@@ -874,7 +874,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
             }
         ])
         with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing])):
-            enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
+            enriched, kind, number = afn.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'comment', 2601))
 
     def test_search_is_a_fallback_when_the_listing_misses(self):
@@ -886,7 +886,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
         })
         gh_calls = self._gh([listing, search, view])
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
+            enriched, kind, number = afn.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
         self.assertEqual(gh_calls.call_args_list[1].args[:2], ('search', 'issues'))
 
@@ -905,7 +905,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
             }
         ])
         with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing, '[]'])):
-            enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
+            enriched, kind, number = afn.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
 
     def test_rung_zero_sig_marker_is_found_in_the_listing(self):
@@ -917,7 +917,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
             }
         ])
         with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing])):
-            enriched, _, _ = afn.locate_run_markers('canonical/operator', '999')
+            enriched, _, _ = afn.locate_run_markers('example/repo', '999')
         self.assertEqual(enriched, 2658)
 
 
@@ -1014,7 +1014,7 @@ class CandidatePoolTests(unittest.TestCase):
             return 'sys', 'user'
 
         env = {
-            'REPO': 'canonical/operator',
+            'REPO': 'example/repo',
             'RUN_ID': '28141163589',
             'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
             'RUN_URL': 'https://example.invalid/run',
@@ -1070,7 +1070,7 @@ class BodyFooterTests(unittest.TestCase):
         entry: dict[str, Any] = {'action': 'comment', 'body': 'Another occurrence.'}
         with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             afn.apply_entry(
-                'canonical/operator', entry, '<!-- m -->', 'ops Smoke Tests', default_target=7
+                'example/repo', entry, '<!-- m -->', 'ops Smoke Tests', default_target=7
             )
         args = gh_calls.call_args.args
         self.assertEqual(args[:3], ('issue', 'comment', '7'))
@@ -1091,7 +1091,7 @@ class BodyFooterTests(unittest.TestCase):
             mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
             mock.patch.object(afn.github, 'existing_labels', return_value=set()),
         ):
-            afn.apply_entry('canonical/operator', entry, '<!-- m -->', 'ops Smoke Tests')
+            afn.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
         args = gh_calls.call_args.args
         self.assertIn('Workflow: ops Smoke Tests', args[args.index('--body') + 1])
 
@@ -1124,16 +1124,16 @@ class MainDegradationTests(unittest.TestCase):
 
     def setUp(self):
         self.env = {
-            'REPO': 'canonical/operator',
+            'REPO': 'example/repo',
             'RUN_ID': '28141163589',
             'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
-            'RUN_URL': 'https://github.com/canonical/operator/actions/runs/28141163589',
+            'RUN_URL': 'https://github.com/example/repo/actions/runs/28141163589',
         }
 
     def test_marker_lookup_failure_does_not_crash_main(self):
         gh_calls = mock.Mock(
             return_value=mock.Mock(
-                returncode=0, stdout='https://github.com/canonical/operator/issues/9999', stderr=''
+                returncode=0, stdout='https://github.com/example/repo/issues/9999', stderr=''
             )
         )
         with (
