@@ -1,0 +1,195 @@
+# Question battery for canonical/concierge AGENTS.md.
+# Schema: question-batteries.md in the charm-tech-baseline skill
+# (skills/engineering/charm-tech-baseline/references/), on
+# feat/add-charm-tech-baseline-skill in tonyandrewmeyer/charm-tech.
+#
+# NOTE: this file is staged here, not in the skill repo, because this
+# routine cannot push to tonyandrewmeyer/charm-tech (not attached as a
+# source). It needs moving into
+# skills/engineering/charm-tech-baseline/assets/question-batteries/
+# once the skill lands in its permanent home — see PROGRESS.md.
+schema_version: 1
+repo: concierge
+upstream: canonical/concierge
+source:
+  agents_md_ref: chore/agents-md-trim
+  agents_md_sha: b6d4afb8045ee93a29039eca982c865788f854a9
+  agents_md_sha256: af058c9133d01163ecc7c8c7915559064d364f3cf756735ab03b7ca00a3e7fc7
+  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, concierge trim)
+  seeded_on: 2026-08-26
+
+entries:
+  - id: build-binary
+    question: What command builds the concierge binary?
+    classification: cache
+    source_line: go build
+    answer:
+      grade: command
+      expect: go build
+    verify:
+      - kind: path_exists
+        path: main.go
+    ci_verifiable: true
+
+  - id: snapshot-release
+    question: How do you build a local snapshot release with goreleaser?
+    classification: cache
+    source_line: goreleaser build --clean --snapshot
+    answer:
+      grade: command
+      expect: goreleaser build --clean --snapshot
+    verify:
+      - kind: path_exists
+        path: .goreleaser.yaml
+    ci_verifiable: false
+    gated_by: >-
+      goreleaser must be installed first (CI does `sudo snap install --classic
+      goreleaser`) — not present in the check sandbox
+
+  - id: unit-tests
+    question: What command runs concierge's unit tests?
+    classification: cache
+    source_line: go test ./...
+    answer:
+      grade: command
+      expect: go test ./...
+    verify:
+      - kind: text_in_file
+        file: .github/workflows/_tests.yaml
+        pattern: go test -v -race \./\.\.\.
+    ci_verifiable: true
+    note: >-
+      CI runs `go test -v -race ./...` (adds -race and -v); AGENTS.md
+      documents the simpler form. Not stale — both are valid invocations of
+      the same package target — but noted since it's a real, if harmless,
+      divergence from what CI actually runs.
+
+  - id: integration-tests-lxd
+    question: How do you run all of concierge's integration tests locally?
+    classification: cache
+    source_line: "spread -v lxd:"
+    answer:
+      grade: command
+      expect: "spread -v lxd:"
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: "spread -v lxd:"
+    ci_verifiable: false
+    gated_by: LXD — needed to actually run the suite
+
+  - id: integration-tests-single
+    question: How do you run one specific spread integration test?
+    classification: cache
+    source_line: "spread -v lxd:ubuntu-24.04:tests/juju-model-defaults"
+    answer:
+      grade: command
+      expect: "spread -v lxd:ubuntu-24.04:tests/juju-model-defaults"
+    verify:
+      - kind: path_exists
+        path: tests/juju-model-defaults
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: "spread -v lxd:ubuntu-24\\.04:tests/juju-model-defaults"
+    ci_verifiable: false
+    gated_by: LXD — needed to actually run the suite
+
+  - id: integration-tests-github-ci
+    question: >-
+      How do you run concierge's integration tests on a pre-provisioned
+      machine instead of LXD VMs?
+    classification: cache
+    source_line: "spread -v github-ci:"
+    answer:
+      grade: command
+      expect: "spread -v github-ci:"
+    verify:
+      - kind: text_in_file
+        file: .github/workflows/_tests.yaml
+        pattern: 'spread -v "github-ci:ubuntu-24\.04:tests/\$\{SUITE\}"'
+    ci_verifiable: false
+    gated_by: >-
+      a github-ci-capable pre-provisioned host, and the spread binary
+      (installed via `go install`, not present in the check sandbox)
+
+  - id: sudo-required
+    question: Does the concierge binary need to be run with elevated privileges?
+    classification: cache
+    source_line: >-
+      Note: The binary must be run with `sudo` for most operations since it
+      installs system packages and configures providers.
+    answer:
+      grade: keywords
+      require:
+        - sudo
+    verify:
+      - kind: text_in_file
+        file: README.md
+        pattern: sudo concierge prepare
+    ci_verifiable: true
+
+  - id: no-direct-exec-command
+    question: >-
+      How must concierge's Go code invoke external commands, and why not
+      call exec.Command() directly?
+    classification: override
+    source_line: >-
+      **Never call `exec.Command()` directly.** Build commands with
+      `system.NewCommand(executable, []string{arg1, arg2})`, passing each
+      argument as a separate slice element (no string concatenation) — the
+      binary runs as root, so this avoids command injection.
+    answer:
+      grade: keywords
+      require:
+        - system.NewCommand
+    verify:
+      - kind: text_in_file
+        file: internal/system/command.go
+        pattern: func NewCommand
+    ci_verifiable: true
+    note: >-
+      Security-relevant: concierge runs as root, so an agent building a
+      command with exec.Command() and string-concatenated arguments opens a
+      command-injection surface. This is the design doc's own worked
+      "Symbol in path" example (system.NewCommand in
+      internal/system/command.go) — see scope decisions §4.
+
+  - id: runtime-config-cache
+    question: >-
+      Where does `prepare` record what it provisioned, and what reads that
+      record?
+    classification: cache
+    source_line: >-
+      During `prepare`, the merged configuration (including all overrides)
+      is saved to `~/.cache/concierge/concierge.yaml`; `restore` reads this
+      file to undo exactly what was provisioned.
+    answer:
+      grade: keywords
+      require:
+        - concierge.yaml
+        - restore
+    verify:
+      - kind: text_in_file
+        file: internal/concierge/manager.go
+        pattern: path\.Join\("\.cache", "concierge", "concierge\.yaml"\)
+    ci_verifiable: true
+
+  - id: snap-refresh-workaround
+    question: >-
+      What must you do before refreshing a snap to a different channel in
+      concierge's LXD provider?
+    classification: cache
+    source_line: >-
+      **Refreshing a snap to a different channel may require stopping it
+      first.** See `internal/providers/lxd.go` (`workaroundRefresh()`) for
+      the pattern.
+    answer:
+      grade: keywords
+      require:
+        - stop
+        - workaroundRefresh
+    verify:
+      - kind: text_in_file
+        file: internal/providers/lxd.go
+        pattern: func \(l \*LXD\) workaroundRefresh
+    ci_verifiable: true
