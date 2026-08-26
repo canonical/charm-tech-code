@@ -595,7 +595,7 @@ class MainFlowTests(unittest.TestCase):
             mock.patch.object(afn.github, 'locate_run_markers', return_value=locate_return),
             mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
             mock.patch.object(
-                afn, 'fetch_run_meta', return_value={'createdAt': '2026-06-25T01:40:15Z'}
+                afn.github, 'fetch_run_meta', return_value={'createdAt': '2026-06-25T01:40:15Z'}
             ),
             mock.patch.object(
                 afn.github, 'search_candidates', return_value=(FIXTURE_CANDIDATES, [])
@@ -653,7 +653,7 @@ class MainFlowTests(unittest.TestCase):
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
             mock.patch.object(
-                afn, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                afn.openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
             ),
             contextlib.ExitStack() as stack,
         ):
@@ -1163,7 +1163,7 @@ class MainDegradationTests(unittest.TestCase):
             mock.patch.object(afn.github, 'search_candidates', side_effect=RuntimeError('boom')),
             mock.patch.object(afn.github, 'existing_labels', return_value=set()),
             mock.patch.object(
-                afn, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                afn.openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
             ),
             mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
             mock.patch.object(afn.summary, 'write_step_summary') as summary,
