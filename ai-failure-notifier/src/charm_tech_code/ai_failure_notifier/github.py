@@ -26,8 +26,6 @@ from charm_tech_code.ai_failure_notifier import summary as _summary
 from charm_tech_code.ai_failure_notifier.constants import MARKER_PREFIX, RECENT_ISSUE_SCAN
 from charm_tech_code.ai_failure_notifier.models import CandidateIssue, FailedJob
 
-# --- I/O ---
-
 
 def gh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a `gh` subcommand, returning the completed process."""

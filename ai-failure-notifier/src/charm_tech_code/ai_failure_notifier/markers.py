@@ -23,8 +23,6 @@ from typing import Literal
 from charm_tech_code.ai_failure_notifier.constants import MARKER_PREFIX, MARKER_RE
 from charm_tech_code.ai_failure_notifier.models import RunSignature
 
-# --- Marker + signature hashing ---
-
 
 def signature_hash(signature: RunSignature) -> str:
     """Deterministic short fingerprint of a run signature.

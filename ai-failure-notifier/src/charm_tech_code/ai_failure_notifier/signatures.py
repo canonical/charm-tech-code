@@ -30,8 +30,6 @@ from charm_tech_code.ai_failure_notifier.constants import (
 )
 from charm_tech_code.ai_failure_notifier.models import JobSignature, PytestFailure, RunSignature
 
-# --- Signature extraction ---
-
 
 def strip_line(line: str) -> str:
     """Remove GHA timestamp and ANSI colours."""

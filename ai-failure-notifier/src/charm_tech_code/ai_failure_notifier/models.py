@@ -21,8 +21,6 @@ import dataclasses
 import json
 from typing import Any
 
-# --- Structured shapes ---
-#
 # The signature is built here, serialised into the prompt, and hashed for the
 # marker, so its shape is worth pinning down rather than passing dicts around.
 # `dataclasses.asdict` preserves field declaration order, which is what the

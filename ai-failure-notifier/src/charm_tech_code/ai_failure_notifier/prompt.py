@@ -19,8 +19,6 @@ from __future__ import annotations
 
 from charm_tech_code.ai_failure_notifier.models import RunSignature
 
-# --- Prompt building ---
-
 SYSTEM_PROMPT = """\
 You are the enrichment step of an internal CI failure-triage bot for the
 Canonical Charm Tech team. A scheduled GitHub Actions workflow just failed.

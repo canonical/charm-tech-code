@@ -25,8 +25,6 @@ from charm_tech_code.ai_failure_notifier.constants import (
 )
 from charm_tech_code.ai_failure_notifier.models import CandidateIssue
 
-# --- Candidate pool ---
-
 
 def within_window(iso_timestamp: str, now: datetime.datetime, days: int) -> bool:
     """Return whether `iso_timestamp` falls within `days` of `now`."""
