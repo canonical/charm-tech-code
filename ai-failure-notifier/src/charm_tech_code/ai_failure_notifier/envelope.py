@@ -13,16 +13,17 @@
 # limitations under the License.
 
 
-"""Validating the model's response envelope, hand-rolled on purpose."""
+"""Validating the model's response envelope.
+
+Hand-rolled deliberately, not the `jsonschema` package, so the script keeps
+needing nothing outside the stdlib. Mirrors ENVELOPE_JSON_SCHEMA below, which
+is what OpenRouter is asked to conform to; this re-checks it on the applier
+side.
+"""
 
 from __future__ import annotations
 
 from typing import Any
-
-# --- Envelope schema validation (hand-rolled -- deliberately not the
-# `jsonschema` package, so the script keeps needing nothing outside the stdlib.
-# Mirrors ENVELOPE_JSON_SCHEMA below, which is what OpenRouter is asked to
-# conform to; this re-checks it on the applier side.) ---
 
 _ENTRY_COMMON_REQUIRED = ('action', 'body', 'dedup_reason', 'confidence')
 _ENTRY_KNOWN_KEYS = {
