@@ -1314,8 +1314,10 @@ def main() -> int:
         return 0
 
     if origin_issue is None:
-        # Shouldn't happen -- the notifier always stamps a marker -- but
-        # don't lose the notification if it does.
+        # Either a caller that has not been migrated to pass the issue
+        # through, or a marker lookup that failed. The first is the normal
+        # state of a repo part way through adopting this, so don't treat it
+        # as an anomaly -- just don't lose the notification.
         write_step_summary(
             'No notifier marker found for this run id; falling back to a plain issue.'
         )
