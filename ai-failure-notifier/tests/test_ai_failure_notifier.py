@@ -592,15 +592,17 @@ class MainFlowTests(unittest.TestCase):
         gh_calls: mock.Mock,
     ) -> list[Any]:
         patches = [
-            mock.patch.object(afn, 'locate_run_markers', return_value=locate_return),
-            mock.patch.object(afn, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(afn.github, 'locate_run_markers', return_value=locate_return),
+            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
             mock.patch.object(
                 afn, 'fetch_run_meta', return_value={'createdAt': '2026-06-25T01:40:15Z'}
             ),
-            mock.patch.object(afn, 'search_candidates', return_value=(FIXTURE_CANDIDATES, [])),
-            mock.patch.object(afn, 'existing_labels', return_value={'tests', 'docs'}),
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'write_step_summary'),
+            mock.patch.object(
+                afn.github, 'search_candidates', return_value=(FIXTURE_CANDIDATES, [])
+            ),
+            mock.patch.object(afn.github, 'existing_labels', return_value={'tests', 'docs'}),
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.summary, 'write_step_summary'),
         ]
         return patches
 
@@ -609,7 +611,7 @@ class MainFlowTests(unittest.TestCase):
         patches = self._patch_common(locate_return=(9010, None, None), gh_calls=gh_calls)
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(afn, 'call_openrouter') as call_openrouter,
+            mock.patch.object(afn.openrouter, 'call_openrouter') as call_openrouter,
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
@@ -634,7 +636,7 @@ class MainFlowTests(unittest.TestCase):
         }
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(afn, 'call_openrouter', return_value=envelope),
+            mock.patch.object(afn.openrouter, 'call_openrouter', return_value=envelope),
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
@@ -670,7 +672,7 @@ class MainFlowTests(unittest.TestCase):
         env.pop('OPENROUTER_API_KEY')
         with (
             mock.patch.dict('os.environ', env, clear=True),
-            mock.patch.object(afn, 'call_openrouter') as call_openrouter,
+            mock.patch.object(afn.openrouter, 'call_openrouter') as call_openrouter,
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
@@ -695,7 +697,7 @@ class GhCallShapeTests(unittest.TestCase):
 
     def test_search_issue_numbers_passes_repo_as_a_flag(self):
         gh_calls = self._capture('[{"number": 2658}]')
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             numbers = afn.search_issue_numbers('canonical/operator', 'Example Charm Tests')
         self.assertEqual(numbers, [2658])
         args = gh_calls.call_args.args
@@ -712,7 +714,7 @@ class GhCallShapeTests(unittest.TestCase):
 
     def test_search_candidates_passes_state_and_search_flags(self):
         gh_calls = self._capture('[]')
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             afn.search_candidates('canonical/operator', 'Example Charm Tests')
         states: list[str] = []
         for call in gh_calls.call_args_list:
@@ -725,7 +727,7 @@ class GhCallShapeTests(unittest.TestCase):
 
     def test_fetch_job_log_uses_the_rest_logs_endpoint(self):
         gh_calls = self._capture('2026-07-21T16:17:04Z some log line\n')
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             log = afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
         self.assertIn('some log line', log)
         # Without --allow-escape-sequences, gh 2.9x+ writes nothing at all for
@@ -745,7 +747,7 @@ class GhCallShapeTests(unittest.TestCase):
             mock.Mock(returncode=0, stdout='2026-07-21T16:17:04Z some log line\n', stderr=''),
         ]
         gh_calls = mock.Mock(side_effect=results)
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             log = afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
         self.assertIn('some log line', log)
         self.assertEqual(
@@ -765,8 +767,8 @@ class GhCallShapeTests(unittest.TestCase):
             return_value=mock.Mock(returncode=1, stdout='', stderr='gh: Not Found (HTTP 404)')
         )
         with (
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'write_step_summary'),
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.summary, 'write_step_summary'),
         ):
             afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
         self.assertEqual(gh_calls.call_count, 1)
@@ -774,8 +776,8 @@ class GhCallShapeTests(unittest.TestCase):
     def test_fetch_job_log_reports_an_empty_log_instead_of_swallowing_it(self):
         gh_calls = self._capture('')
         with (
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'write_step_summary') as summary,
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
             log = afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
         self.assertEqual(log, '')
@@ -787,8 +789,8 @@ class GhCallShapeTests(unittest.TestCase):
             return_value=mock.Mock(returncode=1, stdout='', stderr='gh: Not Found (HTTP 404)\n')
         )
         with (
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'write_step_summary') as summary,
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
             afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
         # A 404 (log not ready) and a 403 (no `actions: read`) are both exit 1,
@@ -798,8 +800,8 @@ class GhCallShapeTests(unittest.TestCase):
     def test_fetch_job_log_says_so_when_gh_was_silent(self):
         gh_calls = self._capture('')
         with (
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'write_step_summary') as summary,
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
             afn.fetch_job_log('canonical/operator', '29847889218', 88693036489)
         self.assertIn('no stderr', summary.call_args.args[0])
@@ -809,7 +811,7 @@ class GhCallShapeTests(unittest.TestCase):
             '{"jobs": [{"databaseId": 1, "name": "j", "conclusion": "failure",'
             ' "steps": [{"name": "s", "conclusion": "failure"}]}]}'
         )
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             jobs = afn.fetch_failed_jobs('canonical/operator', '29847889218')
         self.assertEqual(jobs, [afn.FailedJob(id=1, name='j', failed_step='s')])
         args = gh_calls.call_args.args
@@ -818,7 +820,7 @@ class GhCallShapeTests(unittest.TestCase):
 
     def test_existing_labels_requests_the_name_field(self):
         gh_calls = self._capture('[{"name": "tests"}, {"name": "docs"}]')
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             labels = afn.existing_labels('canonical/operator')
         self.assertEqual(labels, {'tests', 'docs'})
         args = gh_calls.call_args.args
@@ -851,7 +853,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
             },
         ])
         gh_calls = self._gh([listing])
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
         # Exactly one call, and it is the list endpoint -- not search.
@@ -871,7 +873,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
                 'comments': [{'body': comment}],
             }
         ])
-        with mock.patch.object(afn, 'gh', side_effect=self._gh([listing])):
+        with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing])):
             enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
         self.assertEqual((enriched, kind, number), (None, 'comment', 2601))
 
@@ -883,7 +885,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
             'comments': [],
         })
         gh_calls = self._gh([listing, search, view])
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
         self.assertEqual(gh_calls.call_args_list[1].args[:2], ('search', 'issues'))
@@ -902,7 +904,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
                 'comments': [],
             }
         ])
-        with mock.patch.object(afn, 'gh', side_effect=self._gh([listing, '[]'])):
+        with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing, '[]'])):
             enriched, kind, number = afn.locate_run_markers('canonical/operator', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
 
@@ -914,7 +916,7 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
                 'comments': [],
             }
         ])
-        with mock.patch.object(afn, 'gh', side_effect=self._gh([listing])):
+        with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing])):
             enriched, _, _ = afn.locate_run_markers('canonical/operator', '999')
         self.assertEqual(enriched, 2658)
 
@@ -1020,15 +1022,17 @@ class CandidatePoolTests(unittest.TestCase):
         }
         with (
             mock.patch.dict(os.environ, env, clear=True),
-            mock.patch.object(afn, 'locate_run_markers', return_value=(None, origin_kind, 9010)),
-            mock.patch.object(afn, 'fetch_failed_jobs', return_value=[]),
-            mock.patch.object(afn, 'fetch_run_meta', return_value={'createdAt': ''}),
-            mock.patch.object(afn, 'search_candidates', return_value=(candidates, [])),
-            mock.patch.object(afn, 'existing_labels', return_value=set()),
-            mock.patch.object(afn, 'build_prompt', side_effect=fake_build_prompt),
-            mock.patch.object(afn, 'call_openrouter', return_value={'action': 'bogus'}),
-            mock.patch.object(afn, 'gh'),
-            mock.patch.object(afn, 'write_step_summary'),
+            mock.patch.object(
+                afn.github, 'locate_run_markers', return_value=(None, origin_kind, 9010)
+            ),
+            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(afn.github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(afn.github, 'search_candidates', return_value=(candidates, [])),
+            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
+            mock.patch.object(afn.prompt, 'build_prompt', side_effect=fake_build_prompt),
+            mock.patch.object(afn.openrouter, 'call_openrouter', return_value={'action': 'bogus'}),
+            mock.patch.object(afn.github, 'gh'),
+            mock.patch.object(afn.summary, 'write_step_summary'),
         ):
             afn.main()
         return captured['block']
@@ -1064,7 +1068,7 @@ class BodyFooterTests(unittest.TestCase):
     def test_applied_comment_body_has_the_footer(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
         entry: dict[str, Any] = {'action': 'comment', 'body': 'Another occurrence.'}
-        with mock.patch.object(afn, 'gh', side_effect=gh_calls):
+        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
             afn.apply_entry(
                 'canonical/operator', entry, '<!-- m -->', 'ops Smoke Tests', default_target=7
             )
@@ -1084,8 +1088,8 @@ class BodyFooterTests(unittest.TestCase):
             'issue_type': None,
         }
         with (
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'existing_labels', return_value=set()),
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
         ):
             afn.apply_entry('canonical/operator', entry, '<!-- m -->', 'ops Smoke Tests')
         args = gh_calls.call_args.args
@@ -1134,12 +1138,12 @@ class MainDegradationTests(unittest.TestCase):
         )
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(afn, 'locate_run_markers', side_effect=RuntimeError('boom')),
-            mock.patch.object(afn, 'fetch_failed_jobs', return_value=[]),
-            mock.patch.object(afn, 'fetch_run_meta', return_value={'createdAt': ''}),
-            mock.patch.object(afn, 'existing_labels', return_value=set()),
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'write_step_summary') as summary,
+            mock.patch.object(afn.github, 'locate_run_markers', side_effect=RuntimeError('boom')),
+            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(afn.github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
             rc = afn.main()
         self.assertEqual(rc, 0)
@@ -1153,16 +1157,16 @@ class MainDegradationTests(unittest.TestCase):
         env = dict(self.env, OPENROUTER_API_KEY='test-key')
         with (
             mock.patch.dict('os.environ', env, clear=True),
-            mock.patch.object(afn, 'locate_run_markers', return_value=(None, 'new', 4242)),
-            mock.patch.object(afn, 'fetch_failed_jobs', return_value=[]),
-            mock.patch.object(afn, 'fetch_run_meta', return_value={'createdAt': ''}),
-            mock.patch.object(afn, 'search_candidates', side_effect=RuntimeError('boom')),
-            mock.patch.object(afn, 'existing_labels', return_value=set()),
+            mock.patch.object(afn.github, 'locate_run_markers', return_value=(None, 'new', 4242)),
+            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(afn.github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(afn.github, 'search_candidates', side_effect=RuntimeError('boom')),
+            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
             mock.patch.object(
                 afn, 'call_openrouter', return_value={'action': 'not-a-real-action'}
             ),
-            mock.patch.object(afn, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn, 'write_step_summary') as summary,
+            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
+            mock.patch.object(afn.summary, 'write_step_summary') as summary,
         ):
             rc = afn.main()
         self.assertEqual(rc, 0)
@@ -1189,7 +1193,9 @@ class OpenRouterCallTests(unittest.TestCase):
     def test_posts_json_with_auth_and_schema(self):
         envelope = {'action': 'new', 'body': 'b'}
         with mock.patch.object(
-            afn.urllib.request, 'urlopen', return_value=self._response(json.dumps(envelope))
+            afn.openrouter.urllib.request,
+            'urlopen',
+            return_value=self._response(json.dumps(envelope)),
         ) as urlopen:
             result = afn.call_openrouter('sys', 'user', 'some/model', 'secret-key')
 
@@ -1226,7 +1232,7 @@ class OpenRouterCallTests(unittest.TestCase):
             io.BytesIO(b''),
         )
         self.addCleanup(error.close)
-        with mock.patch.object(afn.urllib.request, 'urlopen', side_effect=error):
+        with mock.patch.object(afn.openrouter.urllib.request, 'urlopen', side_effect=error):
             with self.assertRaises(urllib.error.HTTPError):
                 afn.call_openrouter('sys', 'user', 'm', 'k')
 
@@ -1236,8 +1242,8 @@ class ResolveOriginTests(unittest.TestCase):
 
     def test_passed_issue_is_used_without_any_lookup(self):
         with (
-            mock.patch.object(afn, 'fetch_issue_texts', return_value=['no markers here']),
-            mock.patch.object(afn, 'locate_run_markers') as locate,
+            mock.patch.object(afn.github, 'fetch_issue_texts', return_value=['no markers here']),
+            mock.patch.object(afn.github, 'locate_run_markers') as locate,
         ):
             enriched, kind, origin = afn.resolve_origin('o/r', '123', 4242, 'comment')
         self.assertEqual((enriched, kind, origin), (None, 'comment', 4242))
@@ -1246,7 +1252,7 @@ class ResolveOriginTests(unittest.TestCase):
 
     def test_passed_issue_wins_over_a_missing_marker(self):
         """A marker we cannot find does not make the issue the wrong issue."""
-        with mock.patch.object(afn, 'fetch_issue_texts', return_value=['']):
+        with mock.patch.object(afn.github, 'fetch_issue_texts', return_value=['']):
             _enriched, kind, origin = afn.resolve_origin('o/r', '123', 77, 'new')
         self.assertEqual((kind, origin), ('new', 77))
 
@@ -1254,20 +1260,22 @@ class ResolveOriginTests(unittest.TestCase):
         """The notifier cannot tell us this: it is a fact about an earlier
         run of *this* script, so the narrowed lookup still has to find it."""
         body = f'<!-- {afn.MARKER_PREFIX}:run=123:sig=abcdef0123456789 -->'
-        with mock.patch.object(afn, 'fetch_issue_texts', return_value=[body]):
+        with mock.patch.object(afn.github, 'fetch_issue_texts', return_value=[body]):
             enriched, _kind, origin = afn.resolve_origin('o/r', '123', 4242, 'new')
         self.assertEqual((enriched, origin), (4242, 4242))
 
     def test_rung_zero_ignores_a_marker_for_a_different_run(self):
         body = f'<!-- {afn.MARKER_PREFIX}:run=999:sig=abcdef0123456789 -->'
-        with mock.patch.object(afn, 'fetch_issue_texts', return_value=[body]):
+        with mock.patch.object(afn.github, 'fetch_issue_texts', return_value=[body]):
             enriched, _kind, _origin = afn.resolve_origin('o/r', '123', 4242, 'new')
         self.assertIsNone(enriched)
 
     def test_no_passed_issue_falls_back_to_the_repo_wide_scan(self):
         """An unmigrated caller, or a notifier that failed before opening an
         issue, has to keep working."""
-        with mock.patch.object(afn, 'locate_run_markers', return_value=(None, 'new', 9)) as locate:
+        with mock.patch.object(
+            afn.github, 'locate_run_markers', return_value=(None, 'new', 9)
+        ) as locate:
             result = afn.resolve_origin('o/r', '123', None, None)
         self.assertEqual(result, (None, 'new', 9))
         locate.assert_called_once_with('o/r', '123')
