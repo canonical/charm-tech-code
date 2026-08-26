@@ -1284,10 +1284,11 @@ def main() -> int:
             repo, run_id, notify_issue, notify_origin
         )
     except Exception as exc:  # search API rejection, rate limit, transient 5xx.
-        # The marker lookup is the first thing main() does, so an uncaught
-        # failure here takes out the whole enrich job and hands every run to
-        # the workflow-level plain-fallback -- losing enrichment silently
-        # rather than degrading through the script's own fallback path.
+        # Nothing catches this above us: there is no workflow-level fallback
+        # job any more, so an uncaught failure here loses the enrichment
+        # outright rather than degrading through the paths below. When the
+        # notifier told us its issue we can still carry on with that; without
+        # it we continue as though the run were un-marked.
         write_step_summary(f'Marker lookup failed ({exc}); treating this run as un-marked.')
         enriched_issue, origin_kind, origin_issue = None, notify_origin, notify_issue
 
