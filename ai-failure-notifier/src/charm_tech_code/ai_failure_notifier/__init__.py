@@ -13,11 +13,7 @@
 # limitations under the License.
 
 
-"""Triage and enrich the issue opened when a scheduled workflow fails.
-
-Split into modules along the boundaries the single file already had. The
-public names are re-exported here so that `from charm_tech_code import
-ai_failure_notifier` keeps working as it did."""
+"""Triage and enrich the issue opened when a scheduled workflow fails."""
 
 from charm_tech_code.ai_failure_notifier.apply import (
     apply_entry,
