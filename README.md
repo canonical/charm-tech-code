@@ -7,6 +7,7 @@ Each tool is its own package in its own top-level directory, with its own `pypro
 | directory | what it does |
 |---|---|
 | [`ai-failure-notifier`](ai-failure-notifier) | Triages and enriches the issue opened when a scheduled workflow fails. |
+| [`charm-tech-baseline`](charm-tech-baseline) | Audits a repository against the Charm Tech baseline, and applies the mechanical fixes. |
 
 Code here is consumed by workflow YAML in the repository that runs it, pinned by commit SHA:
 

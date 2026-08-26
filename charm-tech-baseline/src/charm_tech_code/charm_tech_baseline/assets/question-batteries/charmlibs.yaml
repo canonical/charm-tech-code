@@ -1,0 +1,432 @@
+# Question battery for canonical/charmlibs AGENTS.md.
+# Schema: question-batteries.md in the charm-tech-baseline skill
+# (skills/engineering/charm-tech-baseline/references/), on
+# feat/add-charm-tech-baseline-skill in tonyandrewmeyer/charm-tech.
+#
+# NOTE: this file is staged here, not in the skill repo, because this
+# routine cannot push to tonyandrewmeyer/charm-tech (not attached as a
+# source). It needs moving into
+# skills/engineering/charm-tech-baseline/assets/question-batteries/
+# once the skill lands in its permanent home — see PROGRESS.md.
+schema_version: 1
+repo: charmlibs
+upstream: canonical/charmlibs
+source:
+  agents_md_ref: chore/agents-md-trim
+  agents_md_sha: 53d9f2460529c0ce35c270d0aae795d590cae4af
+  agents_md_sha256: 5b592217687533d399dcadb2fc0f0c46b0fb30938ecb2a3023ccbe35bd3c61ad
+  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, charmlibs trim)
+  seeded_on: 2026-08-26
+
+entries:
+  - id: check-command
+    question: What single command runs the standard pre-commit check for a charmlibs library, and what does it do?
+    classification: cache
+    source_line: >-
+      This runs `just lint <package>`, `just unit <package>`, and `just docs
+      html <package>`. **Run this before every commit on the affected
+      package.**
+    answer:
+      grade: keywords
+      require:
+        - just check
+        - lint
+        - unit
+        - docs
+    verify:
+      - kind: text_in_file
+        file: .scripts/just.py
+        pattern: '"""`lint`, `unit` test, and build the `docs` for a package\."""'
+    ci_verifiable: true
+
+  - id: package-arg-format
+    question: When a charmlibs `just` command takes a `<package>` argument, what do you pass for it?
+    classification: cache
+    source_line: >-
+      The `<package>` argument is the path from the repo root, e.g. `pathops`
+      or `interfaces/tls-certificates`.
+    answer:
+      grade: keywords
+      require:
+        - path
+        - repo root
+    verify:
+      - kind: path_exists
+        path: pathops
+      - kind: path_exists
+        path: interfaces/tls-certificates
+    ci_verifiable: true
+
+  - id: lint-command
+    question: What does `just lint <package>` run in charmlibs?
+    classification: cache
+    source_line: "`just lint <package>` | ruff + pyright"
+    answer:
+      grade: keywords
+      require:
+        - ruff
+        - pyright
+      reject:
+        - codespell
+    verify:
+      - kind: text_in_file
+        file: .scripts/just.py
+        pattern: 'Run fast linting \(`ruff`\) and static analysis \(`pyright`\) for a package\.'
+    ci_verifiable: true
+    note: >-
+      Corrected during this trim: the pre-trim file said "ruff + codespell +
+      pyright". codespell is declared in pyproject.toml's fast-lint
+      dependency group but is not invoked by `_fast_lint()`, `lint()`, or any
+      current workflow — confirmed by grepping .scripts/, the justfiles, and
+      .github/workflows/ for an actual codespell invocation and finding none.
+      Layer 1 has no check for this (it is prose semantics, not a missing
+      tool/path/symbol), so this was only found by reading the code — the
+      same category as concierge's "Configuration Priority" finding.
+
+  - id: fast-lint-command
+    question: What does `just fast-lint [path]` run, and how is it different from `just lint`?
+    classification: cache
+    source_line: "`just fast-lint [path]` | ruff only, across the whole repo or a specific path"
+    answer:
+      grade: keywords
+      require:
+        - ruff
+    verify:
+      - kind: text_in_file
+        file: .scripts/just.py
+        pattern: "Run `ruff`, failing afterwards if any errors are found\\."
+    ci_verifiable: true
+
+  - id: never-run-functional-on-host
+    question: Where should you run charmlibs functional tests, and why not directly on your machine?
+    classification: override
+    source_line: >-
+      **Do not run functional tests directly on the host.** Use Workshop
+      instead (see below).
+    answer:
+      grade: keywords
+      require:
+        - Workshop
+        - host
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: isolated container instead of running them directly on your host
+    ci_verifiable: true
+    note: >-
+      Destructive-relevant override: functional tests may install or remove
+      system packages, matching the design doc's "wrong without, right with"
+      case for irreversible-local-action prohibitions (concierge's
+      exec.Command() ban is the precedent).
+
+  - id: workshop-image-names
+    question: Which Workshop image do you use to run functional tests against Ubuntu 24.04?
+    classification: cache
+    source_line: >-
+      workshop exec noble -- sudo just functional <package>       # Ubuntu
+      24.04
+    answer:
+      grade: command
+      expect: workshop exec noble -- sudo just functional <package>
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: "workshop exec resolute -- sudo just functional"
+    ci_verifiable: true
+    note: >-
+      The resolute/noble/jammy → 26.04/24.04/22.04 mapping is not written
+      down anywhere else in the tree — cache value is the lookup, not the
+      existence of Workshop itself.
+
+  - id: no-direct-uv-add
+    question: How do you add a dependency to a charmlibs library, and why not `uv add` directly?
+    classification: override
+    source_line: >-
+      **Always use `just add <package> <dep>` instead of calling `uv add`
+      directly.** This applies repo-level version constraints from
+      `test-requirements.txt`, which is necessary to keep the lockfile
+      consistent:
+    answer:
+      grade: keywords
+      require:
+        - just add
+        - test-requirements.txt
+      reject:
+        - uv add
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: rather than calling `uv add` directly
+    ci_verifiable: true
+
+  - id: test-type-directory-gate
+    question: How do you make charmlibs skip a test type (e.g. functional) for a library entirely?
+    classification: cache
+    source_line: >-
+      A test type is only executed if the corresponding `tests/`
+      subdirectory exists. Remove a directory to skip that test type
+      entirely.
+    answer:
+      grade: keywords
+      require:
+        - tests/
+        - remove
+    verify:
+      - kind: text_in_file
+        file: .github/workflows/test-package.yaml
+        pattern: hashFiles\(format\('\{0\}/tests/integration/pack\.sh'
+    ci_verifiable: true
+    note: >-
+      Anchored on the integration case (CI gates the pack/deploy jobs on
+      `hashFiles(.../tests/integration/pack.sh)`); unit and functional follow
+      the same directory-presence pattern in .scripts/just.py's package
+      discovery but without one single grep-able line as clean as this one.
+
+  - id: pr-title-becomes-commit
+    question: What becomes the commit message when a charmlibs pull request is merged?
+    classification: override
+    source_line: >-
+      **PRs are squash-merged.** The PR title becomes the single commit
+      message on `main`.
+    answer:
+      grade: keywords
+      require:
+        - PR title
+        - squash
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: "PRs are squash-merged, so your PR title becomes the single commit message"
+    ci_verifiable: true
+
+  - id: pr-title-scope-convention
+    question: When a charmlibs PR affects a single library, what scope do you use in the conventional-commit PR title?
+    classification: override
+    source_line: >-
+      When a PR affects a single library, use the distribution package name
+      without the leading `charmlibs-` as the scope
+    answer:
+      grade: keywords
+      require:
+        - distribution package name
+        - charmlibs-
+    verify:
+      - kind: text_in_file
+        file: .github/workflows/conventional-pr-title.yaml
+        pattern: conventional-pr-title
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: without the leading `charmlibs-`
+    ci_verifiable: true
+
+  - id: one-library-per-pr
+    question: How many libraries should a single charmlibs PR normally touch, and why?
+    classification: override
+    source_line: >-
+      **One PR should normally touch only one library.** The CI uses changed
+      files to determine which packages to test and, on merge, which
+      packages to publish.
+    answer:
+      grade: keywords
+      require:
+        - one library
+        - changed files
+    verify:
+      - kind: path_exists
+        path: .github/get-changed.py
+      - kind: text_in_file
+        file: .github/workflows/ci.yaml
+        pattern: get-changed\.py
+    ci_verifiable: true
+
+  - id: changelog-gate
+    question: What must you update in the same PR as a non-dev version bump, and what happens if you don't?
+    classification: override
+    source_line: >-
+      When bumping to a non-dev version, you **must** also update
+      `CHANGELOG.md`. CI will block the merge otherwise.
+    answer:
+      grade: keywords
+      require:
+        - CHANGELOG.md
+        - block
+    verify:
+      - kind: text_in_file
+        file: .github/workflows/ci.yaml
+        pattern: CHANGELOG\.md must be updated before merging
+    ci_verifiable: true
+
+  - id: dev-version-exclusion
+    question: How do you land in-progress work on a library without triggering a release?
+    classification: cache
+    source_line: >-
+      Dev versions (`X.Y.Z.devN`) are excluded from release CI — safe for
+      in-progress work.
+    answer:
+      grade: keywords
+      require:
+        - dev
+        - release
+    verify:
+      - kind: text_in_file
+        file: .scripts/ls.py
+        pattern: Excludes changes where the new version is a dev version\.
+    ci_verifiable: true
+
+  - id: interface-naming
+    question: What determines the directory name of an interface library in charmlibs?
+    classification: override
+    source_line: >-
+      Live under `interfaces/<interface-name>/`, named exactly as the
+      interface name appears in `charmcraft.yaml`.
+    answer:
+      grade: keywords
+      require:
+        - charmcraft.yaml
+    verify:
+      - kind: text_in_file
+        file: interfaces/tls-certificates/tests/integration/charms/provider/charmcraft.yaml
+        pattern: "interface: tls-certificates"
+      - kind: text_in_file
+        file: .scripts/just.py
+        pattern: "The project name should be the canonical interface"
+    ci_verifiable: true
+
+  - id: interface-no-functional-tests
+    question: Which of the three test types do charmlibs interface libraries typically NOT have, and why?
+    classification: cache
+    source_line: >-
+      Typically have unit and integration tests but no functional tests (all
+      meaningful interaction is through Juju).
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must say interface libraries typically lack
+        functional tests, and that this is because interfaces only interact
+        through Juju relation data, not real external processes — the thing
+        functional tests exercise. A reply that only names "no functional
+        tests" without the reason has not saved the agent from later adding
+        a needless functional/ directory.
+    verify:
+      - kind: none
+        reason: >-
+          A repo-wide absence claim (no interface library currently has a
+          tests/functional/ directory) is not expressible with the existing
+          verify kinds, which assert presence, not absence. Confirmed by
+          hand: `find interfaces -maxdepth 3 -type d -name functional`
+          (excluding the .example/.template scaffolds) returns nothing
+          across all 74 interfaces.
+    ci_verifiable: false
+    gated_by: >-
+      no verify kind for "does not exist anywhere in a set of directories" —
+      would need a repo-wide scan, which the battery schema deliberately
+      keeps out of scope (see references/question-batteries.md's note that
+      assertions are static single-file checks)
+
+  - id: init-interface-scaffold
+    question: How do you scaffold a new interface library in charmlibs?
+    classification: cache
+    source_line: "Use `just init --interface` to scaffold."
+    answer:
+      grade: command
+      expect: just init --interface
+    verify:
+      - kind: text_in_file
+        file: .scripts/just.py
+        pattern: "'--interface',"
+    ci_verifiable: true
+
+  - id: docstrings-appear-verbatim
+    question: What should you keep in mind when writing or editing a docstring in a charmlibs library's `__init__.py`?
+    classification: override
+    source_line: >-
+      remember they appear verbatim in the published reference at
+      [canonical.com/juju/docs/charmlibs](https://canonical.com/juju/docs/charmlibs).
+      Keep them informative for library users, not implementation notes.
+    answer:
+      grade: keywords
+      require:
+        - verbatim
+        - published
+      reject:
+        - implementation
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: appears verbatim in the published reference
+    ci_verifiable: true
+
+  - id: no-blockquote-read-more
+    question: >-
+      What markdown form does charmlibs use for a "Read more" /
+      "See also" cross-reference line in docs, and what form should you
+      avoid?
+    classification: override
+    source_line: >-
+      Don't use block quotes (`>`) for "Read more", "See also", or similar
+      cross-reference sections. Instead, use bare text
+    answer:
+      grade: keywords
+      require:
+        - bare text
+      reject:
+        - "> Read more"
+    verify:
+      - kind: none
+        reason: >-
+          No repo-level linter enforces this (a .docs/ vale config exists
+          but its rule set was not confirmed to cover this specific case);
+          the only evidence is that existing docs pages (e.g.
+          .docs/tutorial.md) consistently use the bare-text form in
+          practice, which a text_in_file assertion can't distinguish from
+          coincidence.
+    ci_verifiable: false
+    gated_by: no confirmed linter rule; a style convention enforced by review, not tooling
+
+  - id: no-unnecessary-refactoring
+    question: >-
+      Why should you avoid adding features or refactoring code beyond what
+      a charmlibs task asks for?
+    classification: override
+    source_line: >-
+      **Don't add unnecessary features or refactor code beyond what's
+      asked** — this is a multi-team monorepo with careful versioning;
+      unintended public API changes require major version bumps.
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must connect the prohibition to its actual cost:
+        this is a multi-team monorepo, so an unintended public API change on
+        a shared library forces a major version bump that affects every
+        consuming team, not just a local style preference.
+    verify:
+      - kind: none
+        reason: >-
+          No file states or enforces a scope-discipline rule; CI does not
+          gate on "did this PR change more than it needed to". Behavioral
+          norm only.
+    ci_verifiable: false
+    gated_by: not represented in the tree at all — an editorial norm, not a checked rule
+
+  - id: integration-test-tooling
+    question: >-
+      What tool do charmlibs integration tests use to drive Juju, and what
+      sets up the Juju environment in CI?
+    classification: cache
+    source_line: >-
+      Integration tests use [Jubilant](https://canonical.com/juju/docs/jubilant/)
+      as the Juju test client, and CI provisions the Juju environment with
+      [Concierge](https://raw.githubusercontent.com/canonical/concierge/refs/heads/main/README.md).
+    answer:
+      grade: keywords
+      require:
+        - Jubilant
+        - Concierge
+    verify:
+      - kind: text_in_file
+        file: pathops/tests/integration/conftest.py
+        pattern: import jubilant
+      - kind: text_in_file
+        file: .github/workflows/test-package.yaml
+        pattern: concierge
+    ci_verifiable: true
