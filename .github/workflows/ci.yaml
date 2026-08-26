@@ -15,8 +15,6 @@ jobs:
       matrix:
         # One entry per tool. Add a directory here when you add a package.
         package: [ai-failure-notifier]
-        # The versions canonical/operator tests against, since that is where
-        # this code runs.
         python-version: ['3.10', '3.12', '3.14']
     defaults:
       run:
