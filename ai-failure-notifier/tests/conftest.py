@@ -20,15 +20,6 @@ moves that function to a different module -- the attribute is still there to
 be patched, it is just no longer the one the call sites resolve. The suite
 then shells out to the real `gh`, authenticated as whoever is running it,
 against whatever repository the fixtures name.
-
-That is not hypothetical. On 2026-08-26, splitting this package into modules
-did exactly that, and the suite opened two issues and posted two comments on
-a live repository before anyone noticed. The only visible symptom was the run
-taking 35 seconds instead of a tenth of one.
-
-So: any unpatched call fails loudly here, at the boundary, instead of
-quietly succeeding somewhere real. A test that needs one of these mocks it
-itself, which overrides this fixture for that test.
 """
 
 from __future__ import annotations
