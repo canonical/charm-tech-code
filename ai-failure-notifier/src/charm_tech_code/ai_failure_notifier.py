@@ -1066,6 +1066,42 @@ def locate_run_markers(repo: str, run_id: str) -> tuple[int | None, str | None, 
     return find_run_markers(texts, run_id)
 
 
+def resolve_origin(
+    repo: str, run_id: str, notify_issue: int | None, notify_origin: str | None
+) -> tuple[int | None, str | None, int | None]:
+    """Work out which artefact this run should upgrade.
+
+    Returns the same triple as `find_run_markers`.
+
+    When the notifier tells us the issue it created or commented on, that is
+    authoritative for `origin_issue`/`origin_kind` and we never search for it.
+    That removes the read-your-writes hazard `locate_run_markers` exists to
+    work around: the notifier stamps its marker moments before this job runs,
+    and GitHub's issue *search* index lags, so a marker that has not been
+    indexed yet reads as "no notifier marker found" and main() opens a second
+    issue for a run that already has one. A number passed directly through the
+    workflow cannot be stale.
+
+    Rung zero still needs a lookup, and the notifier's output cannot supply
+    it: "this run id was already fully enriched" is a fact about an *earlier
+    run of this script*, not about what the notifier just did. But knowing the
+    issue narrows that lookup from a scan of the repo's recently-updated
+    issues to reading the one issue we were handed.
+
+    With no `notify_issue` -- the notifier failed, or a caller has not been
+    migrated -- this falls back to the original repo-wide scan, so the script
+    still works when it is not told anything.
+    """
+    if notify_issue is None:
+        return locate_run_markers(repo, run_id)
+
+    texts = [(notify_issue, text) for text in fetch_issue_texts(repo, notify_issue)]
+    enriched_issue, origin_kind, origin_issue = find_run_markers(texts, run_id)
+    # The passed-in values win: a marker we failed to find on the issue does
+    # not make the issue the wrong one.
+    return enriched_issue, notify_origin or origin_kind, notify_issue
+
+
 def search_candidates(
     repo: str, workflow_name: str
 ) -> tuple[list[CandidateIssue], list[CandidateIssue]]:
@@ -1239,16 +1275,23 @@ def main() -> int:
     run_url = os.environ['RUN_URL']
     api_key = os.environ.get('OPENROUTER_API_KEY', '')
     model = os.environ.get('OPENROUTER_MODEL') or DEFAULT_MODEL
+    # What the notifier did, when it tells us. Both are optional: an
+    # unmigrated caller, or a notifier that failed before it got as far as an
+    # issue, leaves them empty and we go looking instead.
+    notify_issue = int(os.environ['NOTIFY_ISSUE']) if os.environ.get('NOTIFY_ISSUE') else None
+    notify_origin = os.environ.get('NOTIFY_ORIGIN') or None
 
     try:
-        enriched_issue, origin_kind, origin_issue = locate_run_markers(repo, run_id)
+        enriched_issue, origin_kind, origin_issue = resolve_origin(
+            repo, run_id, notify_issue, notify_origin
+        )
     except Exception as exc:  # search API rejection, rate limit, transient 5xx.
         # The marker lookup is the first thing main() does, so an uncaught
         # failure here takes out the whole enrich job and hands every run to
         # the workflow-level plain-fallback -- losing enrichment silently
         # rather than degrading through the script's own fallback path.
         write_step_summary(f'Marker lookup failed ({exc}); treating this run as un-marked.')
-        enriched_issue, origin_kind, origin_issue = None, None, None
+        enriched_issue, origin_kind, origin_issue = None, notify_origin, notify_issue
 
     if enriched_issue is not None:
         # Rung zero: this run id was already fully enriched once -- a re-run of

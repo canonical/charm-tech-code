@@ -1229,3 +1229,45 @@ class OpenRouterCallTests(unittest.TestCase):
         with mock.patch.object(afn.urllib.request, 'urlopen', side_effect=error):
             with self.assertRaises(urllib.error.HTTPError):
                 afn.call_openrouter('sys', 'user', 'm', 'k')
+
+
+class ResolveOriginTests(unittest.TestCase):
+    """`notify` hands us the issue it touched; we only go looking without it."""
+
+    def test_passed_issue_is_used_without_any_lookup(self):
+        with (
+            mock.patch.object(afn, 'fetch_issue_texts', return_value=['no markers here']),
+            mock.patch.object(afn, 'locate_run_markers') as locate,
+        ):
+            enriched, kind, origin = afn.resolve_origin('o/r', '123', 4242, 'comment')
+        self.assertEqual((enriched, kind, origin), (None, 'comment', 4242))
+        # The read-your-writes hazard is gone because nothing is searched for.
+        locate.assert_not_called()
+
+    def test_passed_issue_wins_over_a_missing_marker(self):
+        """A marker we cannot find does not make the issue the wrong issue."""
+        with mock.patch.object(afn, 'fetch_issue_texts', return_value=['']):
+            _enriched, kind, origin = afn.resolve_origin('o/r', '123', 77, 'new')
+        self.assertEqual((kind, origin), ('new', 77))
+
+    def test_rung_zero_still_detected_on_the_passed_issue(self):
+        """The notifier cannot tell us this: it is a fact about an earlier
+        run of *this* script, so the narrowed lookup still has to find it."""
+        body = f'<!-- {afn.MARKER_PREFIX}:run=123:sig=abcdef0123456789 -->'
+        with mock.patch.object(afn, 'fetch_issue_texts', return_value=[body]):
+            enriched, _kind, origin = afn.resolve_origin('o/r', '123', 4242, 'new')
+        self.assertEqual((enriched, origin), (4242, 4242))
+
+    def test_rung_zero_ignores_a_marker_for_a_different_run(self):
+        body = f'<!-- {afn.MARKER_PREFIX}:run=999:sig=abcdef0123456789 -->'
+        with mock.patch.object(afn, 'fetch_issue_texts', return_value=[body]):
+            enriched, _kind, _origin = afn.resolve_origin('o/r', '123', 4242, 'new')
+        self.assertIsNone(enriched)
+
+    def test_no_passed_issue_falls_back_to_the_repo_wide_scan(self):
+        """An unmigrated caller, or a notifier that failed before opening an
+        issue, has to keep working."""
+        with mock.patch.object(afn, 'locate_run_markers', return_value=(None, 'new', 9)) as locate:
+            result = afn.resolve_origin('o/r', '123', None, None)
+        self.assertEqual(result, (None, 'new', 9))
+        locate.assert_called_once_with('o/r', '123')
