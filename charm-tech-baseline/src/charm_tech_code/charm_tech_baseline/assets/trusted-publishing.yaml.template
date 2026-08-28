@@ -6,6 +6,10 @@
 #   - REPLACE_WITH_PROJECT_NAME (PyPI project slug, appears in environment.url)
 #   - Tag pattern under `on.push.tags` (default: v*; operator uses [1-3].*)
 #
+# Register the trusted publisher twice, once on PyPI and once on TestPyPI,
+# both against THIS workflow's filename, with environments publish-pypi and
+# publish-testpypi respectively.
+#
 # Before committing: modernise every SHA-pinned action below. For each `uses:`
 # line, look up the latest release on GitHub, replace the SHA with the current
 # commit SHA of that release, and update the trailing `# vX.Y.Z` version
@@ -28,22 +32,33 @@
 # SBOM, and the two predicates cannot come from one call. (attest-build-provenance
 # and attest-sbom are both just wrappers over actions/attest now; new workflows
 # should call it directly.)
+#
+# A tag push publishes to PyPI and a manual run publishes to TestPyPI, from one
+# workflow so that a rehearsal exercises the same steps as a real release. Do
+# not split this into a reusable workflow called by two thin wrappers: PyPI
+# validates the job_workflow_ref OIDC claim, so a reusable workflow cannot be
+# the workflow in a trusted publisher (warehouse#11096).
+#
+# The manual run needs the .dev suffix because TestPyPI refuses a version it
+# has already seen, so without it, rehearsing the same release twice burns a
+# version number.
 
 name: Publish
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions: {}
 
 jobs:
   publish:
-    name: Build and publish to PyPI (Trusted Publishing)
+    name: Build and publish to ${{ github.event_name == 'push' && 'PyPI' || 'TestPyPI' }} (Trusted Publishing)
     runs-on: ubuntu-latest
     environment:
-      name: publish-pypi
-      url: https://pypi.org/p/REPLACE_WITH_PROJECT_NAME
+      name: ${{ github.event_name == 'push' && 'publish-pypi' || 'publish-testpypi' }}
+      url: ${{ github.event_name == 'push' && 'https://pypi.org/p/REPLACE_WITH_PROJECT_NAME' || 'https://test.pypi.org/p/REPLACE_WITH_PROJECT_NAME' }}
     permissions:
       id-token: write      # OIDC to PyPI + sigstore for attestations.
       attestations: write  # Write build-provenance + SBOM predicates.
@@ -52,6 +67,29 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           persist-credentials: false
+
+      - name: Check the tag matches the project version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match pyproject.toml version $version (expected v$version)."
+            exit 1
+          fi
+
+      - name: Give the build a .dev suffix
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          sed -i -E "0,/^version = \"([^\"]+)\"/s//version = \"\\1.dev${RUN_NUMBER}\"/" pyproject.toml
+          version="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          case "$version" in
+            *.dev"$RUN_NUMBER") echo "Building $version" ;;
+            *) echo "::error::Failed to add a .dev suffix; version is $version." ; exit 1 ;;
+          esac
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
         with:
@@ -85,5 +123,7 @@ jobs:
           path: sbom.cdx.json
           if-no-files-found: error
 
-      - name: Publish to PyPI
+      - name: Publish
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
+        with:
+          repository-url: ${{ github.event_name == 'push' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}

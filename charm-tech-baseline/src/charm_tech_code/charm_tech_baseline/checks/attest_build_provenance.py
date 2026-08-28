@@ -42,19 +42,27 @@ PUBLISH_ACTIONS = (
     'softprops/action-gh-release',
 )
 TEST_PYPI_HOSTS = ('test.pypi.org', 'testpypi.org')
+# Deliberately not a bare 'pypi.org': that is a substring of 'test.pypi.org',
+# as is 'pypi.org/legacy' of 'test.pypi.org/legacy'.
+PYPI_HOSTS = ('upload.pypi.org',)
 
 
 def _targets_test_pypi(step: dict) -> bool:
     with_block = step.get('with') or {}
-    url = with_block.get('repository-url') or with_block.get('repository_url') or ''
-    if any(h in url for h in TEST_PYPI_HOSTS):
-        return True
-    run_str = step.get('run') or ''
-    if any(h in run_str for h in TEST_PYPI_HOSTS):
-        return True
     env = step.get('env') or {}
-    url2 = env.get('TWINE_REPOSITORY_URL') or env.get('TWINE_REPOSITORY') or ''
-    return any(h in url2 for h in TEST_PYPI_HOSTS)
+    candidates = (
+        with_block.get('repository-url') or with_block.get('repository_url') or '',
+        step.get('run') or '',
+        env.get('TWINE_REPOSITORY_URL') or env.get('TWINE_REPOSITORY') or '',
+    )
+    text = ' '.join(candidates)
+    if not any(h in text for h in TEST_PYPI_HOSTS):
+        return False
+    # One step can name both hosts and choose between them at runtime from the
+    # trigger, which is the shape the trusted-publishing templates use so that a
+    # manual TestPyPI run rehearses the real release. That step does publish to
+    # PyPI, so it is not a TestPyPI-only step and still needs an attestation.
+    return not any(h in text for h in PYPI_HOSTS)
 
 
 def is_publish_step(step) -> bool:
