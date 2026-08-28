@@ -1,4 +1,4 @@
-"""Check: actions/attest-build-provenance present in release / publish workflows,
+"""Check: a build-provenance attestation is present in release / publish workflows,
 with a `subject-path:` input, AND ordered to run *before* the publish step.
 Tier coverage: product, canonical.
 
@@ -30,7 +30,11 @@ from ..common import (
 CHECK_ID = 'attest-build-provenance'
 APPLIES = 'product,canonical'
 
-ATTEST = 'actions/attest-build-provenance'
+# actions/attest is the current action; attest-build-provenance is a thin
+# wrapper over it, still accepted for repos that have not migrated yet.
+# attest-sbom is deliberately absent: it attests an SBOM, not provenance, and
+# the attest-sbom-deprecated check covers it.
+ATTEST_ACTIONS = ('actions/attest', 'actions/attest-build-provenance')
 PUBLISH_ACTIONS = (
     'pypa/gh-action-pypi-publish',
     'snapcore/action-publish',
@@ -71,7 +75,10 @@ def is_attest_step(step) -> bool:
     if not isinstance(step, dict):
         return False
     uses = step.get('uses') or ''
-    return ATTEST in uses
+    # Compare the action name exactly: 'actions/attest' is a prefix of both
+    # 'actions/attest-build-provenance' and 'actions/attest-sbom', so a
+    # substring test would quietly accept the SBOM action here.
+    return uses.split('@', 1)[0].strip() in ATTEST_ACTIONS
 
 
 def needs_of(job) -> list[str]:
@@ -241,7 +248,7 @@ def main() -> int:
         {
             'kind': 'judgement',
             'human_review': (
-                'Wire actions/attest-build-provenance@<sha> BEFORE the publish step in the same '
+                'Wire actions/attest@<sha> BEFORE the publish step in the same '
                 'job, or in an upstream job in the publish jobs `needs:` chain. Set '
                 '`with.subject-path` to the published artefact glob (e.g. dist/*). Concierge skip '
                 'applies until goreleaser build/publish split lands.'
