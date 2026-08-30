@@ -1,0 +1,36 @@
+[project]
+name = "charm-tech-code-ai-failure-notifier"
+version = "0.1.0"
+description = "Triage and enrich the issues opened when a scheduled workflow fails."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "The Charm Tech team at Canonical Ltd."},
+]
+license = "Apache-2.0"
+# Deliberately none. The tool is invoked by `uvx --from git+...` on a GitHub
+# runner, so every dependency added here is paid on every failed scheduled
+# run, in a workflow whose whole point is to still work when things are
+# broken. It talks to GitHub through `gh`, which the runner already has, and
+# to OpenRouter through urllib.
+dependencies = []
+
+[project.scripts]
+ai-failure-notifier = "charm_tech_code.ai_failure_notifier:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/charm_tech_code"]
+
+[dependency-groups]
+unit = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Ruff configuration is at the root of the monorepo, deliberately not repeated
+# here: ruff uses the closest config it finds rather than merging, so a
+# [tool.ruff] block in this file would silently override the shared one.
