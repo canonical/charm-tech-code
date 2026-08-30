@@ -21,9 +21,9 @@ import json
 import subprocess
 from typing import Any
 
-from charm_tech_code.ai_failure_notifier import markers as _markers
-from charm_tech_code.ai_failure_notifier import summary as _summary
+from charm_tech_code.ai_failure_notifier import summary
 from charm_tech_code.ai_failure_notifier.constants import MARKER_PREFIX, RECENT_ISSUE_SCAN
+from charm_tech_code.ai_failure_notifier.markers import find_run_markers
 from charm_tech_code.ai_failure_notifier.models import CandidateIssue, FailedJob
 
 
@@ -84,7 +84,7 @@ def fetch_job_log(repo: str, run_id: str, job_id: int) -> str:
         # telling a log that is not ready yet from a token that has lost
         # `actions: read`, and the two want opposite fixes.
         detail = ' '.join((result.stderr or '').split())[:200] or 'no stderr'
-        _summary.write_step_summary(
+        summary.write_step_summary(
             f'Warning: no log text for job {job_id} of run {run_id} '
             f'(gh exit {result.returncode}: {detail}); '
             f'signature will be based on the job name alone.'
@@ -180,7 +180,7 @@ def locate_run_markers(repo: str, run_id: str) -> tuple[int | None, str | None, 
     busy enough that more than `RECENT_ISSUE_SCAN` issues were updated in
     between, where a stale index still beats no lookup at all.
     """
-    markers = _markers.find_run_markers(recent_issue_texts(repo), run_id)
+    markers = find_run_markers(recent_issue_texts(repo), run_id)
     if markers != (None, None, None):
         return markers
 
@@ -189,7 +189,7 @@ def locate_run_markers(repo: str, run_id: str) -> tuple[int | None, str | None, 
     for number in hits:
         for text in fetch_issue_texts(repo, number):
             texts.append((number, text))
-    return _markers.find_run_markers(texts, run_id)
+    return find_run_markers(texts, run_id)
 
 
 def resolve_origin(
@@ -222,7 +222,7 @@ def resolve_origin(
         return locate_run_markers(repo, run_id)
 
     texts = [(notify_issue, text) for text in fetch_issue_texts(repo, notify_issue)]
-    enriched_issue, origin_kind, origin_issue = _markers.find_run_markers(texts, run_id)
+    enriched_issue, origin_kind, origin_issue = find_run_markers(texts, run_id)
     # The passed-in values win: a marker we failed to find on the issue does
     # not make the issue the wrong one.
     return enriched_issue, notify_origin or origin_kind, notify_issue
