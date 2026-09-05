@@ -1,0 +1,496 @@
+# Question battery for canonical/operator AGENTS.md.
+# Schema: question-batteries.md in the charm-tech-baseline skill
+# (skills/engineering/charm-tech-baseline/references/), on
+# feat/add-charm-tech-baseline-skill in tonyandrewmeyer/charm-tech.
+#
+# NOTE: this file is staged here, not in the skill repo, because this
+# routine cannot push to tonyandrewmeyer/charm-tech (not attached as a
+# source). It needs moving into
+# src/charm_tech_code/charm_tech_baseline/assets/question-batteries/
+# in charm-tech-code once the skill lands in its permanent home - see
+# PROGRESS.md.
+schema_version: 1
+repo: operator
+upstream: canonical/operator
+source:
+  agents_md_ref: chore/agents-md-trim
+  agents_md_sha: 3fd6b4af3125c2e6faff0e85b2b0c32da0387559
+  agents_md_sha256: 653bfec0ff562dea1f51bf0db5bc15b9e67bcf966beec84d0db643d7ef5910e3
+  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, operator review-and-seed)
+  seeded_on: 2026-08-27
+
+entries:
+  - id: ops-tests-location
+    question: In the ops/ (core framework) component of this monorepo, where do the unit tests live?
+    classification: cache
+    source_line: >-
+      - **`ops/`** - Core framework providing the event system, charm base
+      classes, and model abstractions. Note that the tests are in a
+      top-level folder `test`
+    answer:
+      grade: keywords
+      require:
+        - test/
+    verify:
+      - kind: path_exists
+        path: test/
+    ci_verifiable: true
+
+  - id: testing-src-layout
+    question: >-
+      What directory layout does testing/ (the ops-scenario package) use, and
+      how is it imported by charm code?
+    classification: cache
+    source_line: >-
+      - **`testing/`** - The `ops-scenario` state transition testing
+      framework (accessed as `ops.testing`). This uses src-layout.
+    answer:
+      grade: keywords
+      require:
+        - src-layout
+        - ops.testing
+    verify:
+      - kind: path_exists
+        path: testing/src/scenario
+    ci_verifiable: true
+
+  - id: tracing-tests-location
+    question: Where do tracing/'s (the ops-tracing package) tests live?
+    classification: cache
+    source_line: >-
+      - **`tracing/`** - The `ops-tracing` observability integration. The
+      tests are in a subfolder called `test`.
+    answer:
+      grade: keywords
+      require:
+        - test
+    verify:
+      - kind: path_exists
+        path: tracing/test
+    ci_verifiable: true
+
+  - id: backward-compatibility
+    question: >-
+      Can you change or remove behaviour in one of ops's public APIs, even if
+      it looks like an improvement, without treating it as a breaking change?
+    classification: override
+    source_line: "- **Always** preserve backward compatibility in public APIs"
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply says no: backward compatibility in public APIs must
+        always be preserved, and existing behaviour must be kept unless the
+        change is fixing a bug. A reply that treats a behaviour change as
+        routine, without flagging it as a compatibility concern, misses the
+        point of the line.
+    verify:
+      - kind: none
+        reason: >-
+          A team policy enforced through code review, not represented as a
+          rule anywhere else in the tree (no CONTRIBUTING.md/STYLE.md/
+          HACKING.md section states it explicitly - grepped all three for
+          "backward"/"breaking" and found nothing).
+    ci_verifiable: false
+    gated_by: review norm, not represented anywhere else in the tree
+
+  - id: document-breaking-changes
+    question: How should a breaking change to ops's public API be reflected in the commit history?
+    classification: override
+    source_line: "- **Document** all breaking changes in commit messages"
+    answer:
+      grade: keywords
+      require:
+        - breaking
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: "fix!:"
+    ci_verifiable: true
+    note: >-
+      Anchored to CONTRIBUTING.md's `fix!:` breaking-change PR title
+      convention. PRs squash to a single commit on merge (CONTRIBUTING.md's
+      "Branch updates" section), so the PR title becomes the commit message
+      - the same reasoning pytest-jubilant's pr-title-becomes-commit entry
+      uses for its own repo.
+
+  - id: key-files-code
+    question: >-
+      Which files define CharmBase and the charm event types, the core event
+      system (Handle/Object/Framework), Juju model abstractions, the Pebble
+      API, and ops's public API exports, respectively?
+    classification: cache
+    source_line: "| `ops/charm.py` | CharmBase, event types, metadata parsing |"
+    answer:
+      grade: keywords
+      require:
+        - ops/charm.py
+        - ops/framework.py
+        - ops/model.py
+        - ops/pebble.py
+        - ops/__init__.py
+    verify:
+      - kind: text_in_file
+        file: ops/charm.py
+        pattern: "^class CharmBase"
+      - kind: text_in_file
+        file: ops/framework.py
+        pattern: "^class Framework"
+      - kind: text_in_file
+        file: ops/model.py
+        pattern: "^class Model:"
+      - kind: text_in_file
+        file: ops/pebble.py
+        pattern: "^class Client"
+      - kind: text_in_file
+        file: ops/__init__.py
+        pattern: "^__all__"
+    ci_verifiable: true
+    note: >-
+      One entry for the five ops/*.py rows of the Key Files Reference table
+      - they're one classification unit (an orientation map for a large
+      monorepo), not five independently interesting facts.
+
+  - id: key-files-docs
+    question: >-
+      Which document has the team's Python style guide, which has the PR and
+      contribution process, and which has detailed development setup and
+      workflow instructions?
+    classification: cache
+    source_line: "| `STYLE.md` | Team Python style guide |"
+    answer:
+      grade: keywords
+      require:
+        - STYLE.md
+        - CONTRIBUTING.md
+        - HACKING.md
+    verify:
+      - kind: path_exists
+        path: STYLE.md
+      - kind: path_exists
+        path: CONTRIBUTING.md
+      - kind: path_exists
+        path: HACKING.md
+    ci_verifiable: true
+    note: The three doc-file rows of the Key Files Reference table, combined.
+
+  - id: verify-with-tox
+    question: What single command should you run after making a change to check both linting and unit tests pass?
+    classification: cache
+    source_line: >-
+      3. **Verify changes** - execute `tox` after changes to ensure linting
+      and unit tests pass
+    answer:
+      grade: command
+      expect: tox
+    verify:
+      - kind: text_in_file
+        file: tox.ini
+        pattern: "envlist = lint, unit"
+    ci_verifiable: true
+    note: >-
+      Ran clean in this session (`tox -e lint` and `tox -e unit` separately,
+      matching the envlist bare `tox` would run).
+
+  - id: ruff-format
+    question: What command formats ops's Python code, and what tool does it use?
+    classification: cache
+    source_line: "- Use Ruff for formatting (`tox -e format`)"
+    answer:
+      grade: command
+      expect: tox -e format
+    verify:
+      - kind: text_in_file
+        file: tox.ini
+        pattern: "\\[testenv:format\\]"
+    ci_verifiable: true
+
+  - id: python-floor-type-hints
+    question: What is the minimum Python version ops supports, and what type-hint requirement applies to new code?
+    classification: override
+    source_line: >-
+      - Python 3.10+ with **full type hints** required (check with `tox -e
+      lint`)
+    answer:
+      grade: keywords
+      require:
+        - "3.10"
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'requires-python = ">=3\.10"'
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'pythonVersion = "3.10"'
+    ci_verifiable: true
+
+  - id: modern-union-syntax
+    question: Should new code annotate an optional parameter as `Optional[int]` or `int | None`?
+    classification: override
+    source_line: >-
+      - Use modern `x: int | None` annotations, not old-style `x:
+      Optional[int]`
+    answer:
+      grade: keywords
+      require:
+        - "int | None"
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'target-version = "py310"'
+    ci_verifiable: true
+    note: >-
+      Weak anchor: confirms the py310 target that makes the `|` syntax valid
+      and that ruff's pyupgrade ("UP") rules are selected (which flag
+      `Optional`/`Union` usage), not the annotation style directly - ruff has
+      no rule name that maps 1:1 to this English sentence.
+
+  - id: return-type-required
+    question: Do function and method signatures need a return type annotation in this codebase, and what are the two exceptions?
+    classification: override
+    source_line: "- Always provide a return type, other than for `__init__` and in test code"
+    answer:
+      grade: keywords
+      require:
+        - __init__
+        - test
+    verify:
+      - kind: text_in_file
+        file: STYLE.md
+        pattern: other than for `__init__` or in test code
+    ci_verifiable: true
+    note: >-
+      Restated from STYLE.md's "Provide return type annotations" section
+      (kept anyway - the rule is short and CI-adjacent enough to be worth
+      surfacing directly). Checked whether this is actually enforced by
+      pyright's strict mode: it is not - a scratch function with a missing
+      return type and no other issues passed `tox -e lint` cleanly in this
+      session. So this is a review-time convention, not a CI gate; the
+      AGENTS.md line doesn't claim otherwise.
+
+  - id: import-modules-not-objects
+    question: >-
+      Should new code write `from ops import CharmBase, PebbleReadyEvent` or
+      `import ops` and then refer to `ops.CharmBase`? Is there an exception?
+    classification: override
+    source_line: "# DO: Import modules, not objects (except typing)"
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must state the default (import the module, use
+        `ops.CharmBase` etc., not `from ops import CharmBase`) and the
+        exception (names from `typing` may be imported directly). A reply
+        naming only one half misses the exception the line exists to record.
+    verify:
+      - kind: text_in_file
+        file: STYLE.md
+        pattern: "### Import modules, not objects"
+    ci_verifiable: true
+
+  - id: comment-style
+    question: In this codebase, should comments explain what the code is doing or why it is doing it, and what format should they be in?
+    classification: override
+    source_line: >-
+      Comments are always full sentences that end with punctuation. Avoid
+      using comments to explain *what* the code is *doing*, use them
+      (sparingly, as required) to explain *why* the code is doing what it is
+      doing.
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply says comments should explain why, not what, be used
+        sparingly, and be written as full sentences ending with punctuation.
+        A reply describing comments that narrate what the code does, or that
+        are sentence fragments, is wrong.
+    verify:
+      - kind: none
+        reason: >-
+          Not documented anywhere else in the tree - grepped STYLE.md,
+          CONTRIBUTING.md and HACKING.md for "comment" and found no matching
+          convention there.
+    ci_verifiable: false
+    gated_by: house convention stated only in AGENTS.md
+
+  - id: docstring-google-style
+    question: What docstring convention does ops use, and why does it matter beyond just style?
+    classification: override
+    source_line: >-
+      Use Google-style docstrings for all public APIs, with proper
+      formatting. The text is used to generate reference documentation with
+      Sphinx so must be appropriate ReST.
+    answer:
+      grade: keywords
+      require:
+        - Google
+        - Sphinx
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'convention = "google"'
+    ci_verifiable: true
+
+  - id: juju-version-directives
+    question: How do you note, in a docstring, that a feature needs a specific Juju version?
+    classification: cache
+    source_line: ".. jujuadded:: 3.5"
+    answer:
+      grade: keywords
+      require:
+        - jujuadded
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: "\\.\\. jujuadded:: x\\.y"
+    ci_verifiable: true
+
+  - id: no-ops-version-in-docstrings
+    question: Should a docstring mention which ops version added a feature?
+    classification: override
+    source_line: "Don't document Ops version changes in docstrings - that's in the changelog."
+    answer:
+      grade: keywords
+      require:
+        - changelog
+      reject:
+        - jujuadded
+    verify:
+      - kind: path_exists
+        path: CHANGES.md
+    ci_verifiable: true
+    note: >-
+      Weak anchor: confirms the changelog file the line points at exists, not
+      that no docstring currently violates the rule.
+
+  - id: pr-title-types-and-scopes
+    question: What conventional-commit types are valid in an ops PR title, and are scopes allowed?
+    classification: override
+    source_line: "The project does not use conventional commit \"scopes\"."
+    answer:
+      grade: keywords
+      require:
+        - feat
+        - fix
+        - docs
+        - refactor
+        - perf
+        - test
+        - chore
+        - ci
+        - revert
+      reject:
+        - scope
+    verify:
+      - kind: text_in_file
+        file: .github/check-conventional-pr-title.py
+        pattern: "'chore',\\s*'ci',\\s*'docs',\\s*'feat',\\s*'fix',\\s*'perf',\\s*'refactor',\\s*'revert',\\s*'test',"
+      - kind: text_in_file
+        file: .github/check-conventional-pr-title.py
+        pattern: "Scopes must not be used"
+    ci_verifiable: true
+    note: >-
+      This is the fix this pass made. The pre-trim line enumerated only
+      feat/fix/docs/refactor/test/chore/ci, omitting perf and revert - both
+      of which .github/check-conventional-pr-title.py's _TYPES set actually
+      accepts. Layer 1 has no check for an enumerated-list-vs-script
+      mismatch; only found by reading the enforcement script.
+
+  - id: full-lint-command
+    question: What single command runs all of ops's static checks (formatting check, spelling, and type checking)?
+    classification: cache
+    source_line: "4. Run `tox -e lint` to check linting and types"
+    answer:
+      grade: command
+      expect: tox -e lint
+    verify:
+      - kind: text_in_file
+        file: tox.ini
+        pattern: "\\[testenv:lint\\]"
+    ci_verifiable: true
+    note: >-
+      Ran in this session: ruff check, ruff format --check, codespell and
+      pyright all passed clean against the pre-rework file.
+
+  - id: unit-tests-coverage
+    question: What command runs ops's unit tests, and what alternate command checks for coverage drops?
+    classification: cache
+    source_line: >-
+      5. Run `tox -e unit` to verify unit tests pass - avoid drops in
+      coverage (`tox -e coverage`)
+    answer:
+      grade: keywords
+      require:
+        - tox -e unit
+        - tox -e coverage
+    verify:
+      - kind: text_in_file
+        file: tox.ini
+        pattern: "\\[testenv:unit\\]"
+      - kind: text_in_file
+        file: tox.ini
+        pattern: "\\[testenv:coverage\\]"
+    ci_verifiable: true
+    note: "tox -e unit ran clean in this session: 2368 passed, 54 skipped."
+
+  - id: build-docs
+    question: How do you check that ops's documentation still builds, before submitting a PR?
+    classification: cache
+    source_line: >-
+      6. Run `make html` in the `docs` folder to ensure that the
+      documentation can be generated
+    answer:
+      grade: command
+      expect: make html
+    verify:
+      - kind: text_in_file
+        file: docs/Makefile
+        pattern: "^html: install"
+    ci_verifiable: true
+
+  - id: doc-impact-check
+    question: >-
+      After making a code change, besides running the docs build, what
+      should you check about the docs/ folder before submitting?
+    classification: override
+    source_line: >-
+      7. Search the explanation, how-to, and tutorial documentation in the
+      `docs` folder for topics related to the changes, then suggest places
+      that might need expanding/altering
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply says to search the explanation, how-to, and tutorial
+        docs for content related to the change and flag places that may need
+        updating. A reply that stops at "make sure the docs build" or
+        "update docstrings" misses this - it's about the hand-written guides,
+        not the generated reference.
+    verify:
+      - kind: none
+        reason: >-
+          An editorial practice, not a fact represented in the tree - no
+          linter checks whether prose documentation was considered.
+    ci_verifiable: false
+    gated_by: editorial practice, not represented in the tree
+
+  - id: environment-gated-tests
+    question: >-
+      Beyond unit tests, what two additional test suites should you run if a
+      virtual environment or sandbox is available?
+    classification: cache
+    source_line: >-
+      8. If a virtual environment or sandbox is available, run `tox -e
+      pebble` and `tox -e integration`
+    answer:
+      grade: keywords
+      require:
+        - tox -e pebble
+        - tox -e integration
+    verify:
+      - kind: text_in_file
+        file: tox.ini
+        pattern: "\\[testenv:pebble\\]"
+      - kind: text_in_file
+        file: tox.ini
+        pattern: "\\[testenv:integration\\]"
+    ci_verifiable: false
+    gated_by: >-
+      a real Pebble binary (pebble) and a Juju controller/packed charms
+      (integration) - neither present in the check sandbox
