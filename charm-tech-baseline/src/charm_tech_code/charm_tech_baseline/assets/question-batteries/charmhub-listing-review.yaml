@@ -1,0 +1,513 @@
+# Question battery for canonical/charmhub-listing-review AGENTS.md.
+# Schema: question-batteries.md in the charm-tech-baseline skill
+# (skills/engineering/charm-tech-baseline/references/), on
+# feat/add-charm-tech-baseline-skill in tonyandrewmeyer/charm-tech.
+#
+# NOTE: this file is staged here, not in the package, because this
+# routine cannot push to tonyandrewmeyer/charm-tech-code (not attached
+# as a source). It needs moving into
+# src/charm_tech_code/charm_tech_baseline/assets/question-batteries/
+# once landed - see PROGRESS.md. question-batteries-pending/ was empty
+# before this file: jubilant.yaml, operator.yaml and hyrum.yaml (the
+# three siblings scheduled in the same window) were moved into the
+# package on 2026-08-27, ahead of this routine finishing.
+schema_version: 1
+repo: charmhub-listing-review
+upstream: canonical/charmhub-listing-review
+source:
+  agents_md_ref: chore/agents-md-trim
+  agents_md_sha: fda55bd3933686e7f70356e721666294a0ed123c
+  agents_md_sha256: c017ef66e1c1180f483ea163ea00eec5493ada49dfafe07c16491c139fdb76ee
+  seeded_from: >-
+    roadmap/26.10/repo-setup/agents-md-validation.md (implementation
+    follow-up 4, charmhub-listing-review review-and-seed)
+  seeded_on: 2026-08-27
+
+entries:
+  - id: avoid-head-tail
+    question: >-
+      Should you pipe `make lint` or `make unit` output through `head`
+      or `tail` to keep the output short?
+    classification: override
+    source_line: >-
+      Avoid using `head` and `tail` with these commands, as that masks
+      issues.
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must say no, and that piping through head/tail
+        risks masking a failure that appears outside the truncated
+        window. A reply that treats truncating output as a harmless
+        convenience is wrong.
+    verify:
+      - kind: none
+        reason: >-
+          A documented agent-behaviour correction, not a fact
+          represented anywhere in the tree. (Its origin is anchored in
+          git history, not the working tree: PR #61's description says
+          "Claude seems to have picked up a habit of adding `| tail -n
+          x` to tox commands" and adds this line in response - a real,
+          observed failure mode, not generic advice.)
+    ci_verifiable: false
+    gated_by: a documented agent-behaviour rule with no static repo anchor
+
+  - id: make-all
+    question: What single command runs both linting and the unit tests?
+    classification: cache
+    source_line: "# Run linting and unit tests make all"
+    answer:
+      grade: command
+      expect: make all
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^all: lint unit"
+    ci_verifiable: true
+
+  - id: make-lint
+    question: >-
+      What command lints this repo, and what four things does it
+      check?
+    classification: cache
+    source_line: >-
+      # Perform linting, spell checking, and static type checks make
+      lint
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must name the command `make lint` and cover
+        linting, formatting, spell checking and static type checking.
+        A reply that names only ruff, or only the command with no
+        sense of what it covers, has not saved the trip to the
+        Makefile.
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^lint:"
+    ci_verifiable: true
+
+  - id: make-unit
+    question: What command runs this repo's unit tests?
+    classification: cache
+    source_line: "# Run unit tests make unit"
+    answer:
+      grade: command
+      expect: make unit
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^unit:"
+    ci_verifiable: true
+
+  - id: make-unit-single-test
+    question: How do you run a single unit test via `make unit`?
+    classification: cache
+    source_line: >-
+      # Run a single test make unit
+      ARGS='tests/unit/test_evaluate.py::test_check_charm_name'
+    answer:
+      grade: command
+      expect: make unit ARGS='tests/unit/test_evaluate.py::test_check_charm_name'
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: \$\(ARGS\)
+      - kind: path_exists
+        path: tests/unit/test_evaluate.py
+    ci_verifiable: true
+
+  - id: make-format
+    question: What command formats this repo's Python code?
+    classification: cache
+    source_line: "# Format the Python code make format"
+    answer:
+      grade: command
+      expect: make format
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^format:"
+    ci_verifiable: true
+    note: >-
+      Verifiable per scope decisions §1 - tree-mutating commands are
+      run, then asserted diff-clean and restored, rather than gated.
+      Settled but not yet implemented in agents-md-content.py, which
+      still routes `make format` environment-gated (confirmed in this
+      run's own evidence: reported under `environment_gated`, not
+      `runnable_checked`).
+
+  - id: make-fix
+    question: >-
+      What command auto-fixes linting and formatting issues, and how
+      does it differ from `make format`?
+    classification: cache
+    source_line: "# Auto-fix linting and formatting issues make fix"
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must name `make fix` and say it also runs
+        `ruff check --fix` before formatting (not just formatting
+        alone, which is `make format`). A reply that treats the two
+        commands as equivalent misses the distinction.
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^fix:"
+    ci_verifiable: true
+    note: Same scope-decisions §1 note as make-format.
+
+  - id: pre-commit-install
+    question: How do you install this repo's pre-commit hooks?
+    classification: cache
+    source_line: "# Install pre-commit hooks pre-commit install"
+    answer:
+      grade: command
+      expect: pre-commit install
+    verify:
+      - kind: path_exists
+        path: .pre-commit-config.yaml
+    ci_verifiable: false
+    gated_by: >-
+      installs a git hook (side-effecting), and `pre-commit` itself is
+      not a declared project dependency, so it is not guaranteed
+      present in a check sandbox either - confirmed in this run's own
+      evidence (`missing_tools: pre-commit`).
+
+  - id: entry-point-update-issue
+    question: >-
+      Which file implements the `update-issue` console-script entry
+      point?
+    classification: cache
+    source_line: >-
+      `update-issue`: Updates GitHub issues with review checklists
+      (`src/charmhub_listing_review/update_issue.py`)
+    answer:
+      grade: keywords
+      require:
+        - src/charmhub_listing_review/update_issue.py
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'update-issue = "charmhub_listing_review.update_issue:main"'
+    ci_verifiable: true
+
+  - id: entry-point-self-review
+    question: >-
+      Which file implements the `self-review` console-script entry
+      point?
+    classification: cache
+    source_line: >-
+      `self-review`: CLI tool for charm authors to self-check before
+      submitting (`src/charmhub_listing_review/self_review.py`)
+    answer:
+      grade: keywords
+      require:
+        - src/charmhub_listing_review/self_review.py
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'self-review = "charmhub_listing_review.self_review:main"'
+    ci_verifiable: true
+
+  - id: evaluate-module
+    question: >-
+      At a high level, what does `evaluate.py` do, and where does it
+      get the charm's content from to check it?
+    classification: cache
+    source_line: >-
+      **`src/charmhub_listing_review/evaluate.py`** - Automated charm
+      evaluation against listing criteria. Functions clone the charm
+      repo, check `charmcraft.yaml`, validate naming conventions,
+      verify URLs, and return Markdown checklist items
+      (ticked/unticked based on pass/fail).
+    answer:
+      grade: keywords
+      require:
+        - clone
+        - charmcraft.yaml
+    verify:
+      - kind: text_in_file
+        file: src/charmhub_listing_review/evaluate.py
+        pattern: "def _clone_repo\\("
+      - kind: text_in_file
+        file: src/charmhub_listing_review/evaluate.py
+        pattern: "def _get_charmcraft_yaml\\("
+    ci_verifiable: true
+    note: >-
+      `charmcraft.yaml` here is the target charm's file, cloned into a
+      temp dir by `_clone_repo` - not a path in this repo. Layer 1's
+      path checker flags it as a missing local path regardless
+      (checker noise on a real, well-known filename in backticks, not
+      staleness); left as-is rather than de-styled purely to clear the
+      finding, since removing the backticks would cost real clarity
+      for no correctness gain.
+
+  - id: update-issue-module
+    question: >-
+      Where does the reviewer checklist's best-practices content come
+      from, and what does `update_issue.py` use to post to GitHub?
+    classification: cache
+    source_line: >-
+      **`src/charmhub_listing_review/update_issue.py`** - GitHub issue
+      management. Extracts data from listing request issues, generates
+      reviewer checklists (including best practices fetched from
+      canonical/operator), assigns reviewers from `reviewers.yaml`,
+      and posts/updates comments via `gh` CLI.
+    answer:
+      grade: keywords
+      require:
+        - canonical/operator
+        - gh
+    verify:
+      - kind: text_in_file
+        file: src/charmhub_listing_review/update_issue.py
+        pattern: BEST_PRACTICE_SOURCE
+      - kind: text_in_file
+        file: src/charmhub_listing_review/update_issue.py
+        pattern: canonical/operator
+    ci_verifiable: true
+
+  - id: self-review-module
+    question: >-
+      What is `self_review.py` for, and how does its output differ
+      from `update-issue`'s?
+    classification: cache
+    source_line: >-
+      **`src/charmhub_listing_review/self_review.py`** -
+      Console-friendly version of the evaluation for charm authors to
+      run locally before submitting.
+    answer:
+      grade: keywords
+      require:
+        - console
+        - locally
+    verify:
+      - kind: text_in_file
+        file: src/charmhub_listing_review/self_review.py
+        pattern: console in a user-friendly format
+    ci_verifiable: true
+
+  - id: reviewer-assignment
+    question: >-
+      How is a reviewer chosen for a listing request - is it
+      round-robin, or something else?
+    classification: cache
+    source_line: >-
+      `reviewers.yaml` maps GitHub usernames to charming teams. The
+      `assign_review()` function randomly selects a team, then a
+      reviewer from that team.
+    answer:
+      grade: keywords
+      require:
+        - random
+        - team
+    verify:
+      - kind: text_in_file
+        file: reviewers.yaml
+        pattern: "team:"
+      - kind: text_in_file
+        file: src/charmhub_listing_review/update_issue.py
+        pattern: "def assign_review\\("
+      - kind: text_in_file
+        file: src/charmhub_listing_review/update_issue.py
+        pattern: random\.choice
+    ci_verifiable: true
+
+  - id: python-floor
+    question: What is the minimum Python version this repo supports?
+    classification: override
+    source_line: "Python 3.12+, uses uv for dependency management"
+    answer:
+      grade: keywords
+      require:
+        - "3.12"
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'requires-python = ">=3\.12"'
+    ci_verifiable: true
+
+  - id: uv-dependency-mgmt
+    question: >-
+      What tool manages dependencies in this repo - should you reach
+      for `pip install` or `poetry`?
+    classification: override
+    source_line: "Python 3.12+, uses uv for dependency management"
+    answer:
+      grade: keywords
+      require:
+        - uv
+      reject:
+        - poetry
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: uv-build
+      - kind: text_in_file
+        file: Makefile
+        pattern: uv run
+    ci_verifiable: true
+
+  - id: quote-style
+    question: Single or double quotes for Python strings in this repo?
+    classification: override
+    source_line: "Ruff for linting/formatting with single quotes"
+    answer:
+      grade: keywords
+      require:
+        - single
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'quote-style = "single"'
+    ci_verifiable: true
+
+  - id: type-checker
+    question: Which type checker does this repo use?
+    classification: override
+    source_line: "Type checking via ty"
+    answer:
+      grade: keywords
+      require:
+        - ty
+      reject:
+        - mypy
+        - pyright
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: '"ty",'
+      - kind: text_in_file
+        file: Makefile
+        pattern: ty check
+    ci_verifiable: true
+    note: >-
+      Same override shape as api_demo_server's type-checker entry - an
+      agent defaults to mypy or pyright without this line.
+
+  - id: docstring-style
+    question: What docstring convention does this repo use?
+    classification: override
+    source_line: "Google-style docstrings"
+    answer:
+      grade: keywords
+      require:
+        - Google
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'convention = "google"'
+    ci_verifiable: true
+
+  - id: commit-types
+    question: >-
+      Name at least two of the conventional-commit types this repo's
+      commit messages use.
+    classification: override
+    source_line: "Conventional commit messages (feat, fix, docs, ci, chore, etc.)"
+    answer:
+      grade: keywords
+      require:
+        - feat
+        - fix
+    verify:
+      - kind: text_in_file
+        file: .github/check-conventional-pr-title.py
+        pattern: "'feat',"
+      - kind: text_in_file
+        file: .github/check-conventional-pr-title.py
+        pattern: "'fix',"
+    ci_verifiable: true
+
+  - id: copyright-header
+    question: >-
+      What must a new source file's copyright header say, and under
+      what license?
+    classification: override
+    source_line: "New files need Apache 2.0 copyright header with current year"
+    answer:
+      grade: keywords
+      require:
+        - Apache
+        - current year
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: current year
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: '"CPY",'
+    ci_verifiable: true
+    note: >-
+      Forward guidance for new files, not a claim that every existing
+      file complies: read against the (unshallowed) repo history,
+      `src/charmhub_listing_review/sphinx_refs.py` (added 2026-01-21)
+      and `.github/check-conventional-pr-title.py` (added 2026-06-10,
+      copied from operator) both still carry "Copyright 2025" headers.
+      Neither is this pass's to fix (out of scope, and CONTRIBUTING.md
+      says existing files' copyright years are not updated on
+      modification) - noted here because it is the kind of thing
+      Layer 1 cannot see and a re-tester should not be surprised by.
+
+  - id: pr-title-no-scopes
+    question: Do PR titles in this repo use conventional-commit scopes?
+    classification: override
+    source_line: "PR titles use conventional commit format without scopes"
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must establish both halves: conventional
+        commit format, and that scopes are not used. A reply offering
+        `feat(evaluate): …` as an example title is wrong.
+    verify:
+      - kind: text_in_file
+        file: .github/check-conventional-pr-title.py
+        pattern: disallows scopes
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: too small to use scopes
+    ci_verifiable: true
+
+  - id: rebase-then-merge-commits
+    question: >-
+      Before requesting review, should you rebase or merge onto main?
+      What about bringing in changes after review has started?
+    classification: override
+    source_line: >-
+      Rebase onto `main` before requesting review; use merge commits
+      for subsequent updates
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must say rebase onto main before the first
+        review request, then switch to merge commits (not further
+        rebases) once review is under way. A reply recommending
+        rebasing throughout is wrong.
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: please use a merge commit
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: rebase your pull request onto the .{0,10}main
+    ci_verifiable: true
+
+  - id: pr-title-becomes-commit
+    question: What becomes the commit message when a PR is merged here?
+    classification: override
+    source_line: "Squash merge to `main` using PR title as commit message"
+    answer:
+      grade: keywords
+      require:
+        - PR title
+        - squash
+    verify:
+      - kind: text_in_file
+        file: CONTRIBUTING.md
+        pattern: squashed into a single commit
+    ci_verifiable: false
+    gated_by: >-
+      the repo's actual GitHub squash-merge configuration, readable
+      only via repo settings or the API, not from a checkout -
+      CONTRIBUTING.md states the policy, but nothing in the tree
+      confirms GitHub is actually configured to enforce it.
