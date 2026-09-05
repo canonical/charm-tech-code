@@ -1,0 +1,462 @@
+# Question battery for canonical/jubilant AGENTS.md.
+# Schema: question-batteries.md in the charm-tech-baseline skill
+# (skills/engineering/charm-tech-baseline/references/), on
+# feat/add-charm-tech-baseline-skill in tonyandrewmeyer/charm-tech.
+#
+# NOTE: this file is staged here, not in the skill repo, because this
+# routine cannot push to tonyandrewmeyer/charm-tech (not attached as a
+# source). It needs moving into
+# skills/engineering/charm-tech-baseline/assets/question-batteries/
+# once the skill lands in its permanent home - see PROGRESS.md.
+schema_version: 1
+repo: jubilant
+upstream: canonical/jubilant
+source:
+  agents_md_ref: chore/agents-md-trim
+  agents_md_sha: 67396cbb0799a23d3a2283189406459832a21e5e
+  agents_md_sha256: a51ae65a7c8bcc25b3d5f182cd1bc2663323e14d3403b13beefc2ef3ef9d1efb
+  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, jubilant review-and-seed)
+  seeded_on: 2026-08-27
+
+entries:
+  - id: make-all-before-commit
+    question: What single command should you run before committing, and what three things does it do?
+    classification: cache
+    source_line: "make all                    # Format, lint, and unit test (run before committing)"
+    answer:
+      grade: command
+      expect: make all
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^all: format lint unit"
+    ci_verifiable: true
+    note: >-
+      Tree-mutating (depends on `format`, which runs `ruff format`), so per
+      scope decisions §1 it should be run-assert-clean-restore rather than
+      gated. Actually run in this session (`make all`, then `git status`
+      confirmed no file changes - the formatter was already a no-op) but the
+      current `agents-md-content.py` doesn't recognise `make all` as a safe
+      command shape at all and reports it verify-manually, which is a
+      classifier gap rather than a repo problem.
+
+  - id: unit-tests-all
+    question: What command runs jubilant's unit tests with coverage?
+    classification: cache
+    source_line: "make unit                   # Unit tests with coverage"
+    answer:
+      grade: command
+      expect: make unit
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "--cov=jubilant"
+    ci_verifiable: true
+    note: Ran clean in this session - 335 passed, 98% coverage.
+
+  - id: unit-tests-single-or-named
+    question: How do you run just one unit test file, or select tests by name, via `make unit`?
+    classification: cache
+    source_line: "make unit ARGS='tests/unit/test_deploy.py'           # Single test file"
+    answer:
+      grade: command
+      expect: make unit ARGS='tests/unit/test_deploy.py'
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: \$\(ARGS\)
+    ci_verifiable: true
+    note: >-
+      One entry covers both the single-file form shown here and the
+      `-k test_defaults` name-pattern form a few lines below it in
+      AGENTS.md - both are the same `$(ARGS)` passthrough, not two separate
+      facts.
+
+  - id: pre-commit-permission-fallback
+    question: >-
+      If the user won't let you install pre-commit, what must you do
+      instead before committing?
+    classification: override
+    source_line: >-
+      Ensure that `pre-commit` is installed (with the user's permission) so
+      that style is enforced with every commit. If the user does not permit
+      using `pre-commit`, *always* ensure that `make all` shows no issues
+      before committing.
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must establish both halves: ask before installing
+        pre-commit, and if that's refused, run `make all` clean before
+        committing instead. A reply that only mentions one half misses the
+        conditional structure the line exists to enforce.
+    verify:
+      - kind: path_exists
+        path: .pre-commit-config.yaml
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^all: format lint unit"
+    ci_verifiable: true
+    note: >-
+      The override is asking permission before installing dev tooling, and
+      falling back to local verification rather than skipping it - not the
+      default behaviour of an agent left to itself.
+
+  - id: style-guide-link
+    question: >-
+      Where's the detailed style guide to check when the AGENTS.md bullet
+      list isn't enough, especially for documentation patterns?
+    classification: cache
+    source_line: >-
+      Read [the Charm Tech style guide](https://github.com/canonical/operator/blob/main/STYLE.md)
+      if more clarification is required, and for details on documentation
+      patterns.
+    answer:
+      grade: keywords
+      require:
+        - STYLE.md
+        - operator
+    verify:
+      - kind: none
+        reason: >-
+          Points at canonical/operator's STYLE.md, a different repo not
+          present in a jubilant checkout - nothing here can confirm it
+          resolves. Checked manually 2026-08-27: the file exists, titled
+          "Ops Python style guide", and does cover documentation practices.
+    ci_verifiable: false
+    gated_by: a cross-repo reference (canonical/operator), not resolvable from within a jubilant checkout
+
+  - id: docs-left-to-humans
+    question: Should an AI agent write jubilant's project documentation?
+    classification: override
+    source_line: >-
+      Avoiding writing documentation: that is a task for humans. When
+      reviewing documentation pay particular attention to ensuring that all
+      documentation across the project is consistent, and that the patterns
+      in the Charm Tech style guide are followed.
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must say documentation authoring is left to humans,
+        while agents may still review existing documentation for
+        consistency with the style guide. A reply that says agents should
+        write docs, or that agents have no role at all, is wrong.
+    verify:
+      - kind: none
+        reason: >-
+          An editorial policy about human/agent division of labour, not a
+          fact represented anywhere in the tree.
+    ci_verifiable: false
+    gated_by: a team practice not represented in the checkout
+
+  - id: juju-class-wait-exception
+    question: >-
+      In the `Juju` class, which public method does *not* correspond
+      directly to a single Juju CLI command, and how are the CLI commands
+      actually invoked under the hood?
+    classification: cache
+    source_line: >-
+      The `Juju` class is the main entry point. Every public method except
+      `wait` corresponds to a Juju CLI command. All commands are executed
+      via `subprocess.run()` through the private `_cli()` method. Errors
+      raise `CLIError` (subclass of `CalledProcessError`).
+    answer:
+      grade: keywords
+      require:
+        - wait
+        - _cli
+    verify:
+      - kind: text_in_file
+        file: jubilant/_juju.py
+        pattern: "def wait\\("
+      - kind: text_in_file
+        file: jubilant/_juju.py
+        pattern: "def _cli\\("
+      - kind: text_in_file
+        file: jubilant/_juju.py
+        pattern: class CLIError
+    ci_verifiable: true
+
+  - id: generated-dataclasses-family
+    question: >-
+      Which files hold jubilant's structured-output dataclasses that mirror
+      the Juju Go structs, and is it safe for an AI agent to restructure
+      them?
+    classification: override
+    source_line: >-
+      Frozen dataclasses representing structured Juju output. Each has a
+      `_from_dict()` class method for parsing JSON. These were originally
+      generated from the Juju Go code (see the header comment in each file
+      for the regeneration branch) and are hand-maintained since - treat
+      them as a stable contract and never restructure them as AI.
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must name statustypes.py, modeltypes.py and
+        unittypes.py, and say an AI agent should not restructure them
+        because they mirror a Go source of truth. A reply that includes
+        secrettypes.py in this set, or omits unittypes.py, has the file
+        list wrong.
+    verify:
+      - kind: text_in_file
+        file: jubilant/statustypes.py
+        pattern: originally generated from the Go structs
+      - kind: text_in_file
+        file: jubilant/modeltypes.py
+        pattern: originally generated from the Go structs
+      - kind: text_in_file
+        file: jubilant/unittypes.py
+        pattern: originally generated from the Go structs
+    ci_verifiable: true
+    note: >-
+      This is the correction this pass made. The pre-trim line listed
+      jubilant/secrettypes.py in this family (it carries no such header
+      comment - it's hand-written) and omitted jubilant/unittypes.py
+      (which does carry it). Layer 1 can't see this; it only surfaced as
+      three ambiguous missing-path findings from the bare
+      `modeltypes.py`/`secrettypes.py` spellings, which is a different,
+      unrelated bug (also fixed) that happened to point at the same line.
+
+  - id: wait-helpers
+    question: >-
+      How does `Juju.wait()` decide when to stop polling, and name two of
+      its built-in helper conditions.
+    classification: cache
+    source_line: >-
+      `Juju.wait(condition)` polls status until a callable condition
+      returns True. Built-in helpers: `all_active()`, `any_blocked()`,
+      `all_agents_idle()`, etc. Supports custom lambdas.
+    answer:
+      grade: keywords
+      require:
+        - all_active
+        - any_blocked
+    verify:
+      - kind: text_in_file
+        file: jubilant/_all_any.py
+        pattern: "def all_active\\("
+      - kind: text_in_file
+        file: jubilant/_all_any.py
+        pattern: "def any_blocked\\("
+      - kind: text_in_file
+        file: jubilant/_all_any.py
+        pattern: "def all_agents_idle\\("
+    ci_verifiable: true
+
+  - id: public-api-export-point
+    question: Where must a new public symbol be added for it to become part of jubilant's public API?
+    classification: override
+    source_line: >-
+      Everything public is exported from `jubilant/__init__.py`. Internal
+      modules use leading underscores. Do not add public symbols without
+      updating `jubilant/__init__.py`.
+    answer:
+      grade: keywords
+      require:
+        - __init__.py
+    verify:
+      - kind: text_in_file
+        file: jubilant/__init__.py
+        pattern: "__all__ = \\["
+    ci_verifiable: true
+
+  - id: backwards-compatibility
+    question: Can jubilant make a breaking change to its public API?
+    classification: override
+    source_line: "**Always** ensure backwards compatibility of the public API."
+    answer:
+      grade: keywords
+      require:
+        - backward
+    verify:
+      - kind: text_in_file
+        file: README.md
+        pattern: avoid making breaking changes
+    ci_verifiable: true
+    note: >-
+      README states the commitment dates from the 1.0.0 release (April
+      2025); this line is the same policy restated as an instruction to
+      agents rather than a fact about the project's history.
+
+  - id: unit-test-mocking
+    question: How do jubilant's unit tests avoid calling the real Juju CLI?
+    classification: cache
+    source_line: "Mock `subprocess.run` using the custom `mocks.Run` helper in `tests/unit/mocks.py`"
+    answer:
+      grade: keywords
+      require:
+        - mocks.Run
+    verify:
+      - kind: text_in_file
+        file: tests/unit/mocks.py
+        pattern: "class Run"
+    ci_verifiable: true
+
+  - id: machine-marker
+    question: >-
+      What pytest marker identifies integration tests that need a machine
+      model rather than a K8s one?
+    classification: cache
+    source_line: "Machine-specific tests use `@pytest.mark.machine` marker"
+    answer:
+      grade: keywords
+      require:
+        - pytest.mark.machine
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: "machine: integration tests"
+      - kind: text_in_file
+        file: tests/integration/test_machine.py
+        pattern: pytest\.mark\.machine
+    ci_verifiable: true
+
+  - id: temp-model-fixture
+    question: How does an integration test get a Juju model to run against?
+    classification: cache
+    source_line: "Each test module gets a temporary Juju model via fixture"
+    answer:
+      grade: keywords
+      require:
+        - temp_model
+    verify:
+      - kind: text_in_file
+        file: jubilant/_test_helpers.py
+        pattern: "def temp_model"
+      - kind: text_in_file
+        file: tests/integration/conftest.py
+        pattern: temp_model
+    ci_verifiable: true
+    note: >-
+      Confirming the pattern is used doesn't need a live controller, only
+      confirming the fixture actually connects to one does - the
+      "requires a running Juju controller" bullet just above this one in
+      AGENTS.md is the reason none of these three integration-test entries
+      can be exercised end-to-end here.
+
+  - id: pack-test-charms
+    question: Before running integration tests locally, what must you do with the test charms first?
+    classification: cache
+    source_line: "Test charms live in `tests/integration/charms/` and must be packed with `make pack`"
+    answer:
+      grade: command
+      expect: make pack
+    verify:
+      - kind: path_exists
+        path: tests/integration/charms
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^pack:"
+    ci_verifiable: false
+    gated_by: charmcraft, not installed in the check sandbox
+
+  - id: line-length
+    question: What line length does jubilant enforce for Python code?
+    classification: override
+    source_line: "**Line length**: 99 characters"
+    answer:
+      grade: keywords
+      require:
+        - "99"
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: "line-length = 99"
+    ci_verifiable: true
+    note: Neither ruff's 88-column default nor a common 79/80/100/120 guess.
+
+  - id: quote-style
+    question: Single or double quotes for Python strings in this repo?
+    classification: override
+    source_line: "**Quotes**: Single quotes"
+    answer:
+      grade: keywords
+      require:
+        - single
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'quote-style = "single"'
+    ci_verifiable: true
+
+  - id: docstring-style
+    question: What docstring convention does jubilant use?
+    classification: override
+    source_line: "**Docstrings**: Google style"
+    answer:
+      grade: keywords
+      require:
+        - Google
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'convention = "google"'
+    ci_verifiable: true
+
+  - id: type-hints-strict
+    question: >-
+      How strict is jubilant's type checking, and what future-import must
+      appear in every file?
+    classification: override
+    source_line: >-
+      **Type hints**: Strict pyright mode; `from __future__ import
+      annotations` in every file
+    answer:
+      grade: keywords
+      require:
+        - strict
+        - from __future__ import annotations
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'typeCheckingMode = "strict"'
+      - kind: text_in_file
+        file: jubilant/_juju.py
+        pattern: from __future__ import annotations
+    ci_verifiable: true
+
+  - id: import-style
+    question: >-
+      When should you import a module rather than a specific name from it
+      in this codebase, and what's the exception?
+    classification: cache
+    source_line: >-
+      **Imports**: Import modules, not other objects, unless they are only
+      used for type annotations
+    answer:
+      grade: judgement
+      rubric: >-
+        A correct reply must state the default (import the module, not
+        names out of it) and the exception (names used only for type
+        annotations may be imported directly). Stating only one half
+        misses the exception structure the line exists to record.
+    verify:
+      - kind: text_in_file
+        file: jubilant/__init__.py
+        pattern: "from \\. import modeltypes"
+    ci_verifiable: true
+    note: >-
+      Weak anchor - it confirms one example of the module-import pattern
+      exists, not that the convention holds project-wide, since no
+      selected ruff rule (no flake8-tidy-imports/TID) enforces it
+      mechanically.
+
+  - id: python-floor
+    question: What is the minimum Python version jubilant supports?
+    classification: override
+    source_line: "**Target Python**: 3.10+"
+    answer:
+      grade: keywords
+      require:
+        - "3.10"
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'requires-python = ">=3\.10"'
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'target-version = "py310"'
+    ci_verifiable: true
+    note: >-
+      pytest-jubilant's own AGENTS.md inherits this exact floor from
+      jubilant (see pytest-jubilant.yaml's python-floor entry) - this is
+      the source of that constraint, not a copy of it.
