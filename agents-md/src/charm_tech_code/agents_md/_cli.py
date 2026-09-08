@@ -1,3 +1,17 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Check runner. Dispatches every check that applies to the resolved tier and
 emits a single JSON report.
 
@@ -21,10 +35,10 @@ import pkgutil
 import sys
 from types import ModuleType
 
-from . import checks as checks_pkg
-from . import fixes as fixes_pkg
-from . import tier as tier_mod
-from .common import collecting, origin_url
+from . import _checks as checks_pkg
+from . import _fixes as fixes_pkg
+from . import _tier as tier_mod
+from ._common import collecting, origin_url
 
 
 def _modules(package: ModuleType) -> dict[str, ModuleType]:
@@ -98,10 +112,10 @@ def _check(argv: list[str]) -> int:
     notes: list[str] = []
     saved_argv = sys.argv
     for check_id, module in selected.items():
-        # Each check reads its own flags off sys.argv, as it did when it was a
-        # standalone script. Set it explicitly rather than letting the check
-        # read the runner's own command line, so that a *detected* tier
-        # reaches the check just as an overridden one does.
+        # Each check reads its own flags off sys.argv. Set it explicitly
+        # rather than letting the check read the runner's own command line, so
+        # that a *detected* tier reaches the check just as an overridden one
+        # does.
         sys.argv = [check_id, f'--tier={tier}', *passthrough]
         # A check that raises is a bug in the check, not a finding about the
         # repo, so it becomes a note rather than a fail.
@@ -160,8 +174,7 @@ def _fix(argv: list[str]) -> int:
     if name not in available:
         print(f'Unknown fix: {name}', file=sys.stderr)
         return 2
-    # The fix scripts read sys.argv directly, as they did when each was its
-    # own script.
+    # The fixes read sys.argv directly.
     sys.argv = [f'agents-md fix {name}', *rest]
     return available[name].main()
 
