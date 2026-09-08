@@ -1,12 +1,6 @@
 # agents-md
 
-Keeps the `AGENTS.md` files across the Charm Tech estate current and
-load-bearing. It implements the deterministic half of the validation design in
-the repo-setup notes: a line in `AGENTS.md` earns its place either as an
-*override* (the agent would confidently do the wrong thing without it) or as a
-*cache* (the agent would get there eventually, by reading the Makefile, tox
-config and CI every session). A stale line is worse than a missing one, because
-agents trust the file over the repo.
+Keeps the `AGENTS.md` files across the Charm Tech estate current and load-bearing. It implements the deterministic half of the validation design in the repo-setup notes: a line in `AGENTS.md` earns its place either as an *override* (the agent would confidently do the wrong thing without it) or as a *cache* (the agent would get there eventually, by reading the Makefile, tox config and CI every session). A stale line is worse than a missing one, because agents trust the file over the repo.
 
 ## Checks
 
@@ -26,14 +20,8 @@ uvx --from charm-tech-code-agents-md agents-md check --only=agents-md-content --
 uvx --from charm-tech-code-agents-md agents-md list
 ```
 
-The tier (`product`, `canonical`, `personal`) is detected from the repo's
-origin remote, following a fork to its upstream, and decides which checks
-apply. Pass `--tier=` to override it.
+The tier (`product`, `canonical`, `personal`) is detected from the repo's origin remote, following a fork to its upstream, and decides which checks apply. Pass `--tier=` to override it.
 
 ## Question batteries
 
-`assets/question-batteries/*.yaml`, one per repo, keyed by upstream name. They
-live here rather than in the skill so that the check and the data it reads ship
-together. Each entry carries the question, the answer that counts as correct,
-and the line of `AGENTS.md` it came from, so a battery failure points at the
-line to fix.
+`assets/question-batteries/*.yaml`, one per repo, keyed by upstream name. They live here rather than in the skill so that the check and the data it reads ship together. Each entry carries the question, the answer that counts as correct, and the line of `AGENTS.md` it came from, so a battery failure points at the line to fix.
