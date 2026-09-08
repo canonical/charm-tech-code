@@ -32,21 +32,21 @@ CLI = 'agents-md'
 
 @pytest.fixture
 def run_check(tmp_path, monkeypatch):
-    """Return ``run(check_name, tier, files)`` -> parsed JSON dict.
+    """Return ``run(check_name, files)`` -> parsed JSON dict.
 
     ``files`` is a mapping of repo-relative path -> file contents. Parent
     directories are created as needed. ``args`` are extra CLI flags passed
     after ``--only``. The check runs with cwd = tmp_path.
     """
 
-    def _run(name: str, tier: str, files: dict[str, str], args: tuple[str, ...] = ()) -> dict:
+    def _run(name: str, files: dict[str, str], args: tuple[str, ...] = ()) -> dict:
         for rel, body in files.items():
             dest = tmp_path / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(body)
         monkeypatch.chdir(tmp_path)
         proc = subprocess.run(
-            [CLI, 'check', f'--tier={tier}', f'--only={name}', '--format=json', *args],
+            [CLI, 'check', f'--only={name}', '--format=json', *args],
             capture_output=True,
             text=True,
             check=False,

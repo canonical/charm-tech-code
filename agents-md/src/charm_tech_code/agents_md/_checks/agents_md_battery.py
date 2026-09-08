@@ -13,7 +13,6 @@
 # limitations under the License.
 
 """Check: this repo's AGENTS.md question battery still describes the repo.
-Tier coverage: product, canonical, personal.
 
 A question battery (assets/question-batteries/<repo>.yaml) records, for each
 AGENTS.md line that earns its place, the question an agent would be asked, the
@@ -57,12 +56,9 @@ from .._common import (
     cd_repo_root,
     emit_check,
     origin_url,
-    parse_tier,
-    tier_applies,
 )
 
 CHECK_ID = 'agents-md-battery'
-APPLIES = 'product,canonical,personal'
 
 BATTERIES_DIR = ASSETS / 'question-batteries'
 
@@ -215,11 +211,6 @@ def run_assertion(assertion: dict, entry_id: str, root: Path) -> dict | None:
 
 
 def main() -> int:
-    tier = parse_tier()
-    if not tier_applies(APPLIES, tier):
-        emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
-        return EXIT_NA
-
     root = cd_repo_root()
 
     path = battery_path()

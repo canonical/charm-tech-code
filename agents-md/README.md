@@ -20,7 +20,7 @@ uvx --from charm-tech-code-agents-md agents-md check --only=agents-md-content --
 uvx --from charm-tech-code-agents-md agents-md list
 ```
 
-The tier (`product`, `canonical`, `personal`) is detected from the repo's origin remote, following a fork to its upstream, and decides which checks apply. Pass `--tier=` to override it.
+Every check applies to every repository. A well-maintained `AGENTS.md` is worth the same in a personal fork as in a product repository, so there is no tier system here and nothing to configure per repo beyond the battery.
 
 ## Question batteries
 

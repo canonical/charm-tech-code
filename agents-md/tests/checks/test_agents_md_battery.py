@@ -83,7 +83,6 @@ def battery() -> str:
 def run(run_check, files: dict[str, str], battery_text: str) -> dict:
     return run_check(
         'agents-md-battery',
-        'canonical',
         {**files, 'battery.yaml': battery_text},
         ('--battery=battery.yaml',),
     )
@@ -92,7 +91,7 @@ def run(run_check, files: dict[str, str], battery_text: str) -> dict:
 def test_na_when_no_battery_for_repo(run_check):
     # No --battery and no origin remote to name one: not a gap, just a repo
     # that hasn't been through the Layer 2 authoring gate.
-    r = run_check('agents-md-battery', 'canonical', TREE)
+    r = run_check('agents-md-battery', TREE)
     assert r['status'] == 'na'
 
 

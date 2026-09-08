@@ -26,14 +26,12 @@ def test_only_dispatches_selected_check(tmp_path):
         'Run the unit tests with `python -m pytest`.\n'
     )
     proc = subprocess.run(
-        ['agents-md', 'check', '--tier=canonical', '--only=agents-md'],
+        ['agents-md', 'check', '--only=agents-md'],
         capture_output=True,
         text=True,
         check=True,
         cwd=tmp_path,
     )
     report = json.loads(proc.stdout)
-    assert report['tier'] == 'canonical'
-    assert report['tier_source'] == 'override'
     assert [c['id'] for c in report['checks']] == ['agents-md']
     assert report['checks'][0]['status'] == 'pass'

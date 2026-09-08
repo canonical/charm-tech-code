@@ -33,14 +33,13 @@ CLEAN = textwrap.dedent("""\
 
 
 def test_na_when_agents_md_missing(run_check):
-    r = run_check('agents-md-content', 'canonical', {})
+    r = run_check('agents-md-content', {})
     assert r['status'] == 'na'
 
 
 def test_pass_when_content_clean(run_check):
     r = run_check(
         'agents-md-content',
-        'canonical',
         {
             'AGENTS.md': CLEAN,
             'HACKING.md': '# Hacking\n',
@@ -56,7 +55,6 @@ def test_module_path_not_flagged_as_missing_file(run_check):
     # reported missing just because it contains a '/'.
     r = run_check(
         'agents-md-content',
-        'canonical',
         {
             'AGENTS.md': CLEAN,
             'HACKING.md': '# Hacking\n',
@@ -71,7 +69,6 @@ def test_environment_gated_command_not_executed(run_check):
     # overall check still passing (see test_pass_when_content_clean).
     r = run_check(
         'agents-md-content',
-        'canonical',
         {
             'AGENTS.md': CLEAN,
             'HACKING.md': '# Hacking\n',
@@ -88,7 +85,7 @@ def test_fail_when_referenced_path_missing(run_check):
 
         See [BOGUS.md](BOGUS.md) for details.
         """)
-    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md})
+    r = run_check('agents-md-content', {'AGENTS.md': md})
     assert r['status'] == 'fail'
     assert 'BOGUS.md' in r['evidence']['missing_paths']
 
@@ -101,7 +98,7 @@ def test_fail_when_command_tool_missing(run_check):
         definitelynotarealbinary123 --check   # lint
         ```
         """)
-    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md})
+    r = run_check('agents-md-content', {'AGENTS.md': md})
     assert r['status'] == 'fail'
     assert any(m['tool'] == 'definitelynotarealbinary123' for m in r['evidence']['missing_tools'])
 
@@ -114,7 +111,7 @@ def test_fail_when_runnable_command_fails(run_check):
         false --check   # lint gate
         ```
         """)
-    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md})
+    r = run_check('agents-md-content', {'AGENTS.md': md})
     assert r['status'] == 'fail'
     assert r['evidence']['runnable_failed']
     assert r['evidence']['runnable_failed'][0]['command'].startswith('false')
@@ -132,7 +129,6 @@ def test_suite_not_found_in_package_flags_finding(run_check):
         """)
     r = run_check(
         'agents-md-content',
-        'canonical',
         {
             'AGENTS.md': md,
             'internals/cli/other_test.go': 'package cli\n\nfunc TestSomethingElse() {}\n',
@@ -156,7 +152,6 @@ def test_suite_found_in_package_no_finding(run_check):
         """)
     r = run_check(
         'agents-md-content',
-        'canonical',
         {
             'AGENTS.md': md,
             'internals/cli/suite_test.go': 'package cli\n\ntype MySuite struct{}\n',
@@ -173,7 +168,7 @@ def test_scope_lint_flags_harness_content(run_check):
 
         Co-Authored-By: Claude <noreply@example.invalid>
         """)
-    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md})
+    r = run_check('agents-md-content', {'AGENTS.md': md})
     assert r['status'] == 'fail'
     assert r['evidence']['scope_lint_findings']
 
@@ -182,7 +177,6 @@ def test_version_pin_drift_flagged(run_check):
     md = '# AGENTS.md\n\nPinned tool: widget/cmd/widget@v1.0.0 (see CI).\n'
     r = run_check(
         'agents-md-content',
-        'canonical',
         {
             'AGENTS.md': md,
             '.github/workflows/lint.yaml': (
@@ -201,7 +195,6 @@ def test_version_pin_matches_ci(run_check):
     md = '# AGENTS.md\n\nPinned tool: widget/cmd/widget@v1.0.0 (see CI).\n'
     r = run_check(
         'agents-md-content',
-        'canonical',
         {
             'AGENTS.md': md,
             '.github/workflows/lint.yaml': (

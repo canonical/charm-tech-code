@@ -13,7 +13,6 @@
 # limitations under the License.
 
 """Check: AGENTS.md present (best-of-class; agent-onboarding entry point).
-Tier coverage: product, canonical. Personal-tier: informational only.
 
 Convention: keep it minimal — a short pointer file, not an encyclopaedia.
 """
@@ -25,24 +24,15 @@ from pathlib import Path
 
 from .._common import (
     EXIT_FAIL,
-    EXIT_NA,
     EXIT_PASS,
     cd_repo_root,
     emit_check,
-    parse_tier,
-    tier_applies,
 )
 
 CHECK_ID = 'agents-md'
-APPLIES = 'product,canonical,personal'
 
 
 def main() -> int:
-    tier = parse_tier()
-    if not tier_applies(APPLIES, tier):
-        emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
-        return EXIT_NA
-
     cd_repo_root()
 
     p = Path('AGENTS.md')

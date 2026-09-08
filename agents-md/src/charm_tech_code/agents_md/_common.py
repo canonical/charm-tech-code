@@ -24,7 +24,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -122,30 +122,6 @@ def emit_check(
     # Single-line JSON, for a check invoked on its own.
     sys.stdout.write(json.dumps(payload, separators=(',', ':')))
     sys.stdout.write('\n')
-
-
-def tier_applies(check_tiers: str | Iterable[str], current_tier: str) -> bool:
-    """True when the current tier is in the check's applicable tiers.
-
-    check_tiers may be a comma-separated string ("product,canonical") or
-    any iterable of strings.
-    """
-    if isinstance(check_tiers, str):
-        tiers = {t.strip() for t in check_tiers.split(',') if t.strip()}
-    else:
-        tiers = set(check_tiers)
-    return current_tier in tiers
-
-
-def parse_tier(argv: list[str] | None = None) -> str:
-    """Extract --tier=<value> from argv. Returns empty string if absent.
-
-    Unknown flags are ignored (each check only cares about --tier)."""
-    args = argv if argv is not None else sys.argv[1:]
-    for arg in args:
-        if arg.startswith('--tier='):
-            return arg[len('--tier=') :]
-    return ''
 
 
 def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:

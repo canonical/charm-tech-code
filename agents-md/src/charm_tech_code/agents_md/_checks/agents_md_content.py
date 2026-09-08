@@ -13,7 +13,6 @@
 # limitations under the License.
 
 """Check: AGENTS.md content is trustworthy (Layer 1 staleness checks).
-Tier coverage: product, canonical, personal.
 
 Implements the five Layer 1 checks from
 roadmap/26.10/repo-setup/agents-md-validation.md (canonical-work-queue):
@@ -55,13 +54,10 @@ from .._common import (
     EXIT_PASS,
     cd_repo_root,
     emit_check,
-    parse_tier,
     run,
-    tier_applies,
 )
 
 CHECK_ID = 'agents-md-content'
-APPLIES = 'product,canonical,personal'
 
 RUNNABLE_TIMEOUT_SECONDS = 180
 
@@ -279,11 +275,6 @@ def scope_lint(text: str) -> list[str]:
 
 
 def main() -> int:
-    tier = parse_tier()
-    if not tier_applies(APPLIES, tier):
-        emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
-        return EXIT_NA
-
     root = cd_repo_root()
 
     p = Path('AGENTS.md')
