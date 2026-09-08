@@ -31,6 +31,7 @@ unit = ["pytest"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
-# Ruff configuration is at the root of the monorepo, deliberately not repeated
-# here: ruff uses the closest config it finds rather than merging, so a
-# [tool.ruff] block in this file would silently override the shared one.
+# The real ruff configuration is at the root of the monorepo; extending it
+# means a setting added here overrides one key rather than the whole config.
+[tool.ruff]
+extend = "../pyproject.toml"
