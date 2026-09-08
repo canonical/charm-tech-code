@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md-trim
   agents_md_sha: b6d4afb8045ee93a29039eca982c865788f854a9
   agents_md_sha256: af058c9133d01163ecc7c8c7915559064d364f3cf756735ab03b7ca00a3e7fc7
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, concierge trim)
   seeded_on: 2026-08-26
 
 entries:

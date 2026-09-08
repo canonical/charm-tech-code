@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md
   agents_md_sha: 46276b0fe118266f61ad45f0e1c59116cd884b57
   agents_md_sha256: c00f361f0304fa22a6e6f16da30c015a6085ac8cccf98406ed43cdc54865a589
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (pytest-jubilant table)
   seeded_on: 2026-08-19
 
 entries:
@@ -28,7 +27,7 @@ entries:
         pattern: uv tool install tox --with tox-uv
     ci_verifiable: false
     gated_by: >-
-      installs a tool into the environment — Layer 1 check 2 classifies
+      installs a tool into the environment — the agents-md-content check classifies
       `uv tool install` as side-effecting and does not execute it
 
   - id: lint-command

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""AGENTS.md question battery validation (Layer 2 seed data, checked statically)."""
+"""AGENTS.md question battery validation, checked statically."""
 
 from __future__ import annotations
 
@@ -40,7 +40,6 @@ BATTERY = textwrap.dedent("""\
       agents_md_ref: chore/agents-md
       agents_md_sha: deadbeef
       agents_md_sha256: {digest}
-      seeded_from: design doc
       seeded_on: 2026-08-19
     entries:
       - id: single-suite
@@ -90,7 +89,7 @@ def run(run_check, files: dict[str, str], battery_text: str) -> dict:
 
 def test_na_when_no_battery_for_repo(run_check):
     # No --battery and no origin remote to name one: not a gap, just a repo
-    # that hasn't been through the Layer 2 authoring gate.
+    # that hasn't been through the authoring gate.
     r = run_check('agents-md-battery', TREE)
     assert r['status'] == 'na'
 
@@ -118,7 +117,7 @@ def test_fail_when_source_line_no_longer_in_agents_md(run_check):
 
 
 def test_fail_when_suite_no_longer_in_named_package(run_check):
-    # The canonical Layer 1 case, carried into the battery: pebble's
+    # The canonical staleness case, carried into the battery: pebble's
     # PebbleSuite documented against a package it has moved out of.
     files = {**TREE}
     files.pop('internals/cli/suite_test.go')
@@ -190,7 +189,7 @@ def test_fail_when_agents_md_absent_but_battery_present(run_check):
 
 
 def test_digest_change_is_evidence_not_failure(run_check):
-    # A changed AGENTS.md is a Layer 2 re-test trigger, not a defect — the file
+    # A changed AGENTS.md is a re-test trigger, not a defect — the file
     # may have improved. Surfaced as evidence, never as a fail on its own.
     files = {**TREE, 'AGENTS.md': AGENTS_MD + '\nAn extra, harmless sentence.\n'}
     r = run(run_check, files, battery())

@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md-trim
   agents_md_sha: 53d9f2460529c0ce35c270d0aae795d590cae4af
   agents_md_sha256: 5b592217687533d399dcadb2fc0f0c46b0fb30938ecb2a3023ccbe35bd3c61ad
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, charmlibs trim)
   seeded_on: 2026-08-26
 
 entries:
@@ -75,7 +74,7 @@ entries:
       dependency group but is not invoked by `_fast_lint()`, `lint()`, or any
       current workflow — confirmed by grepping .scripts/, the justfiles, and
       .github/workflows/ for an actual codespell invocation and finding none.
-      Layer 1 has no check for this (it is prose semantics, not a missing
+      agents-md-content has no check for this (it is prose semantics, not a missing
       tool/path/symbol), so this was only found by reading the code — the
       same category as concierge's "Configuration Priority" finding.
 

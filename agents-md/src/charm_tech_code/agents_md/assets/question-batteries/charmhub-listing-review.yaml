@@ -11,9 +11,6 @@ source:
   agents_md_ref: chore/agents-md-trim
   agents_md_sha: fda55bd3933686e7f70356e721666294a0ed123c
   agents_md_sha256: c017ef66e1c1180f483ea163ea00eec5493ada49dfafe07c16491c139fdb76ee
-  seeded_from: >-
-    roadmap/26.10/repo-setup/agents-md-validation.md (implementation
-    follow-up 4, charmhub-listing-review review-and-seed)
   seeded_on: 2026-08-27
 
 entries:
@@ -228,7 +225,7 @@ entries:
     ci_verifiable: true
     note: >-
       `charmcraft.yaml` here is the target charm's file, cloned into a
-      temp dir by `_clone_repo` - not a path in this repo. Layer 1's
+      temp dir by `_clone_repo` - not a path in this repo. agents-md-content's
       path checker flags it as a missing local path regardless
       (checker noise on a real, well-known filename in backticks, not
       staleness); left as-is rather than de-styled purely to clear the
@@ -440,7 +437,7 @@ entries:
       Neither is this pass's to fix (out of scope, and CONTRIBUTING.md
       says existing files' copyright years are not updated on
       modification) - noted here because it is the kind of thing
-      Layer 1 cannot see and a re-tester should not be surprised by.
+      agents-md-content cannot see and a re-tester should not be surprised by.
 
   - id: pr-title-no-scopes
     question: Do PR titles in this repo use conventional-commit scopes?

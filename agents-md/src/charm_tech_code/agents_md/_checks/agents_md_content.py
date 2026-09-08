@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Check: AGENTS.md content is trustworthy (Layer 1 staleness checks).
+"""Check: AGENTS.md content is trustworthy.
 
-Implements the five Layer 1 checks from
-roadmap/26.10/repo-setup/agents-md-validation.md (canonical-work-queue):
+Staleness detection, in five parts. A stale line is worse than a missing one,
+because agents trust the file over the repo, so this is the part of the scheme
+that has to be cheap enough to run on every change:
 
 1. Commands parse and their entry-point tool resolves in a dev environment.
 2. Safe commands actually pass: runnable (lint/format-check/unit-test/build)
@@ -34,9 +35,8 @@ roadmap/26.10/repo-setup/agents-md-validation.md (canonical-work-queue):
 This is a content check, not a presence check — see agents-md.py for
 presence/length. If AGENTS.md is absent this check is n/a.
 
-Convention: one script emits exactly one JSON result (see lib/common.py);
-all five sub-checks are folded into a single pass/fail with per-sub-check
-evidence, following check.py's one-line-of-JSON-per-script contract.
+One check emits exactly one JSON result (see _common.emit_check), so all five
+sub-checks fold into a single pass/fail carrying per-sub-check evidence.
 """
 
 from __future__ import annotations

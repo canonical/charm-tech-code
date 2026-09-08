@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md-trim
   agents_md_sha: 3fd6b4af3125c2e6faff0e85b2b0c32da0387559
   agents_md_sha256: 653bfec0ff562dea1f51bf0db5bc15b9e67bcf966beec84d0db643d7ef5910e3
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, operator review-and-seed)
   seeded_on: 2026-08-27
 
 entries:
@@ -385,7 +384,7 @@ entries:
       This is the fix this pass made. The pre-trim line enumerated only
       feat/fix/docs/refactor/test/chore/ci, omitting perf and revert - both
       of which .github/check-conventional-pr-title.py's _TYPES set actually
-      accepts. Layer 1 has no check for an enumerated-list-vs-script
+      accepts. agents-md-content has no check for an enumerated-list-vs-script
       mismatch; only found by reading the enforcement script.
 
   - id: full-lint-command

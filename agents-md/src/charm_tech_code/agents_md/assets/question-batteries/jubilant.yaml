@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md-trim
   agents_md_sha: 67396cbb0799a23d3a2283189406459832a21e5e
   agents_md_sha256: a51ae65a7c8bcc25b3d5f182cd1bc2663323e14d3403b13beefc2ef3ef9d1efb
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, jubilant review-and-seed)
   seeded_on: 2026-08-27
 
 entries:
@@ -207,7 +206,7 @@ entries:
       This is the correction this pass made. The pre-trim line listed
       jubilant/secrettypes.py in this family (it carries no such header
       comment - it's hand-written) and omitted jubilant/unittypes.py
-      (which does carry it). Layer 1 can't see this; it only surfaced as
+      (which does carry it). agents-md-content can't see this; it only surfaced as
       three ambiguous missing-path findings from the bare
       `modeltypes.py`/`secrettypes.py` spellings, which is a different,
       unrelated bug (also fixed) that happened to point at the same line.

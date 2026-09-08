@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md
   agents_md_sha: 64de5286216bcae8e88022e340da0e8ee791f797
   agents_md_sha256: 2e9924552dc340e268f425606e62d23e7e84287eaab42aecba9b1c415a8a3266
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (api_demo_server table)
   seeded_on: 2026-08-19
 
 entries:
@@ -62,7 +61,7 @@ entries:
         file: Makefile
         pattern: "^integration:"
     ci_verifiable: false
-    gated_by: Docker — no daemon in the check sandbox, and none in the Layer 1 runner
+    gated_by: Docker — no daemon in the check sandbox, and none in the agents-md-content runner
 
   - id: exact-pinned-runtime-deps
     question: How are this repo's runtime dependencies versioned, and may you relax them?

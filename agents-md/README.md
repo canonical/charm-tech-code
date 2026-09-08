@@ -1,6 +1,6 @@
 # agents-md
 
-Keeps the `AGENTS.md` files across the Charm Tech estate current and load-bearing. It implements the deterministic half of the validation design in the repo-setup notes: a line in `AGENTS.md` earns its place either as an *override* (the agent would confidently do the wrong thing without it) or as a *cache* (the agent would get there eventually, by reading the Makefile, tox config and CI every session). A stale line is worse than a missing one, because agents trust the file over the repo.
+Keeps the `AGENTS.md` files across the Charm Tech estate current and load-bearing. It implements the deterministic half of the scheme for doing that: a line in `AGENTS.md` earns its place either as an *override* (the agent would confidently do the wrong thing without it) or as a *cache* (the agent would get there eventually, by reading the Makefile, tox config and CI every session). A stale line is worse than a missing one, because agents trust the file over the repo.
 
 ## Checks
 

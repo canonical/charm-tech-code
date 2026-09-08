@@ -14,9 +14,10 @@
 
 """Keep the estate's AGENTS.md files honest.
 
-Three checks and one fix, plus the per-repo question batteries they read.
-The design they implement is `agents-md-validation.md` in the repo-setup
-notes: layer 1 is deterministic staleness detection, layer 2 is the
-behavioural battery. The agent-facing half lives in the
+Three checks and one fix, plus the per-repo question batteries they read. A
+line in AGENTS.md earns its place either as an override (the agent would
+confidently do the wrong thing without it) or as a cache (the agent would get
+there eventually, by reading the Makefile, tox config and CI every session).
+The checks here test both, and the agent-facing half lives in the
 `charm-tech-baseline` skill in `canonical/charm-tech`.
 """

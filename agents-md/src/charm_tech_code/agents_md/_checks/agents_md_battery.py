@@ -17,9 +17,10 @@
 A question battery (assets/question-batteries/<repo>.yaml) records, for each
 AGENTS.md line that earns its place, the question an agent would be asked, the
 checkable answer, the source line it derives from, and the override/cache
-classification. It makes Layer 2 behavioural re-tests mechanical to run when
-Layer 1 or Layer 3 triggers them. Schema and rationale:
-references/question-batteries.md.
+classification. It makes a behavioural re-test mechanical to run whenever
+something triggers one: a staleness finding, or a mistake mined from a month of
+agent-authored PRs. Schema and rationale: question-batteries.md in the
+charm-tech-baseline skill.
 
 This check validates the battery against the repo:
 
@@ -29,14 +30,14 @@ This check validates the battery against the repo:
 3. Assertions — every `verify` assertion still holds: paths resolve, patterns
    match, named gocheck suites still live in the named package.
 
-Assertions are static by design. Layer 1's agents-md-content check already
+Assertions are static by design. The agents-md-content check already
 classifies and executes the commands; running them here too would double the
 runtime and the environment surface for no new signal.
 
-Batteries exist only for repos that have been through the Layer 2 authoring
+Batteries exist only for repos that have been through the authoring
 gate. A repo with no battery is `na`, not a gap.
 
-Convention: one script emits exactly one JSON result (see lib/common.py).
+One check emits exactly one JSON result (see _common.emit_check).
 """
 
 from __future__ import annotations
@@ -211,7 +212,8 @@ def main() -> int:
             CHECK_ID,
             'na',
             'No question battery for this repo — it has not been through the '
-            'Layer 2 authoring gate (see references/question-batteries.md).',
+            'authoring gate (see question-batteries.md in the '
+            'charm-tech-baseline skill).',
         )
         return _common.EXIT_NA
 
@@ -307,7 +309,7 @@ def main() -> int:
                 'kind': 'judgement',
                 'human_review': (
                     'A drifted source line or failed assertion means the repo '
-                    'moved under the battery. Re-run the Layer 2 gate for the '
+                    'moved under the battery. Re-run the authoring gate for the '
                     'affected entries, then update AGENTS.md and the battery '
                     'together.'
                 ),

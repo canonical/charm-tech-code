@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md
   agents_md_sha: 40e3936c1a07ea3d2e1b792471d1aeaa2a76aa29
   agents_md_sha256: 44d99acdc5011e872b66633b1e19186f3cae489ebb3de68223203c866a5f044e
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (pebble table)
   seeded_on: 2026-08-19
 
 entries:
@@ -31,7 +30,7 @@ entries:
       Passes on a non-root runner. As root without PEBBLE_TEST_USER/
       PEBBLE_TEST_GROUP set, servstate.TestUserGroup takes its non-skip branch
       and fails — an environment artifact, not staleness (see the 2026-07-28
-      Layer 1 build log).
+      agents-md-content build log).
 
   - id: single-gocheck-suite
     question: How do you run just the PebbleSuite gocheck suite?

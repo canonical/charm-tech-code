@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md-trim
   agents_md_sha: e1803004b19a1db17580d74e080cf4b1b5ba2d13
   agents_md_sha256: bd26161dd06a11737a5eaf26efd0c71741668990a0a80145a5baf7d228c7843b
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, hyrum review-and-seed)
   seeded_on: 2026-08-27
 
 entries:
@@ -205,7 +204,7 @@ entries:
       This is the fix this pass made. The pre-review line said "a Click
       group"; `click` was dropped from dependencies in #33
       ("refactor: drop click, rich, and pyyaml dependencies"), well before
-      AGENTS.md was added. Layer 1 has no check for a wrong framework name
+      AGENTS.md was added. agents-md-content has no check for a wrong framework name
       in prose - found only by reading `_cli.py`'s imports. An agent
       extending the CLI on the old advice would reach for `@click.command`
       decorators against a codebase that has none.
@@ -327,7 +326,7 @@ entries:
       `VendoredLibPatcher` as a hypothetical "future charm-library
       patcher" and didn't mention `GenericDepPatcher` or `CharmlibPatcher`
       at all - all three already existed (#59, #25, #60). Found by reading
-      src/hyrum/_patchers/, not by Layer 1.
+      src/hyrum/_patchers/, not by agents-md-content.
 
   - id: make-runner-nq-probe
     question: >-
@@ -522,5 +521,5 @@ entries:
       This is the fourth fix this pass made: the pre-review line named the
       helper `_run_lock` (with a leading underscore); the real symbol is
       `run_lock`, imported into both ops_source.py and generic.py from
-      _common.py. Not a path/command Layer 1 checks, so only found by
+      _common.py. Not a path/command agents-md-content checks, so only found by
       reading the test monkeypatch targets.

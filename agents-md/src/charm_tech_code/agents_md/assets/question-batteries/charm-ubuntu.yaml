@@ -11,7 +11,6 @@ source:
   agents_md_ref: chore/agents-md
   agents_md_sha: 6350aa338ba5a9b7fcfc0131cf44fa4576c14d16
   agents_md_sha256: f874b13341c375e0675b2d2df402466604d866d2099e3c172271c85a3654bd19
-  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (charm-ubuntu table)
   seeded_on: 2026-08-19
 
 entries:
