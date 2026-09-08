@@ -41,21 +41,14 @@ evidence, following check.py's one-line-of-JSON-per-script contract.
 
 from __future__ import annotations
 
+import pathlib
 import re
 import shlex
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
-from .._common import (
-    EXIT_FAIL,
-    EXIT_NA,
-    EXIT_PASS,
-    cd_repo_root,
-    emit_check,
-    run,
-)
+from .. import _common
 
 CHECK_ID = 'agents-md-content'
 
@@ -234,7 +227,7 @@ def extract_referenced_paths(text: str) -> set[str]:
     return paths
 
 
-def workflow_texts(root: Path) -> dict[str, str]:
+def workflow_texts(root: pathlib.Path) -> dict[str, str]:
     wf_dir = root / '.github' / 'workflows'
     out: dict[str, str] = {}
     if not wf_dir.is_dir():
@@ -275,16 +268,16 @@ def scope_lint(text: str) -> list[str]:
 
 
 def main() -> int:
-    root = cd_repo_root()
+    root = _common.cd_repo_root()
 
-    p = Path('AGENTS.md')
+    p = pathlib.Path('AGENTS.md')
     if not p.is_file():
-        emit_check(
+        _common.emit_check(
             CHECK_ID,
             'na',
             'No AGENTS.md to content-check (see agents-md check for presence).',
         )
-        return EXIT_NA
+        return _common.EXIT_NA
 
     text = p.read_text(errors='replace')
 
@@ -312,7 +305,7 @@ def main() -> int:
             runnable_results.append({'command': cmd, 'status': 'unparseable'})
             continue
         try:
-            proc = run(tokens, cwd=root, timeout=RUNNABLE_TIMEOUT_SECONDS)
+            proc = _common.run(tokens, cwd=root, timeout=RUNNABLE_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             runnable_results.append({'command': cmd, 'status': 'timeout'})
             continue
@@ -418,7 +411,7 @@ def main() -> int:
     }
 
     if problems:
-        emit_check(
+        _common.emit_check(
             CHECK_ID,
             'fail',
             'AGENTS.md content check: ' + '; '.join(problems) + '.',
@@ -434,9 +427,9 @@ def main() -> int:
                 ),
             },
         )
-        return EXIT_FAIL
+        return _common.EXIT_FAIL
 
-    emit_check(
+    _common.emit_check(
         CHECK_ID,
         'pass',
         f'AGENTS.md content verified: {len(commands)} command(s) parsed '
@@ -446,7 +439,7 @@ def main() -> int:
         'no scope-lint findings.',
         evidence,
     )
-    return EXIT_PASS
+    return _common.EXIT_PASS
 
 
 if __name__ == '__main__':

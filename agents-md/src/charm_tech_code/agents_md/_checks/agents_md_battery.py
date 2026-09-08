@@ -42,25 +42,17 @@ Convention: one script emits exactly one JSON result (see lib/common.py).
 from __future__ import annotations
 
 import hashlib
+import pathlib
 import re
 import sys
-from pathlib import Path
 
 import yaml
 
-from .._common import (
-    ASSETS,
-    EXIT_FAIL,
-    EXIT_NA,
-    EXIT_PASS,
-    cd_repo_root,
-    emit_check,
-    origin_url,
-)
+from .. import _common
 
 CHECK_ID = 'agents-md-battery'
 
-BATTERIES_DIR = ASSETS / 'question-batteries'
+BATTERIES_DIR = _common.ASSETS / 'question-batteries'
 
 CLASSIFICATIONS = {'override', 'cache'}
 GRADES = {'command', 'keywords', 'judgement'}
@@ -84,14 +76,14 @@ def parse_flag(name: str) -> str:
     return ''
 
 
-def battery_path() -> Path | None:
+def battery_path() -> pathlib.Path | None:
     """Explicit --battery=<path> wins; otherwise the battery named after the
     repo the origin URL points at."""
     explicit = parse_flag('battery')
     if explicit:
-        p = Path(explicit)
+        p = pathlib.Path(explicit)
         return p if p.is_file() else None
-    url = origin_url()
+    url = _common.origin_url()
     if not url:
         return None
     name = url.rstrip('/').split('/')[-1]
@@ -144,7 +136,7 @@ def validate_schema(entry: dict, index: int) -> list[str]:
     return problems
 
 
-def run_assertion(assertion: dict, entry_id: str, root: Path) -> dict | None:
+def run_assertion(assertion: dict, entry_id: str, root: pathlib.Path) -> dict | None:
     """Return a finding dict when the assertion fails, else None."""
     kind = assertion['kind']
     if kind == 'none':
@@ -211,28 +203,28 @@ def run_assertion(assertion: dict, entry_id: str, root: Path) -> dict | None:
 
 
 def main() -> int:
-    root = cd_repo_root()
+    root = _common.cd_repo_root()
 
     path = battery_path()
     if path is None:
-        emit_check(
+        _common.emit_check(
             CHECK_ID,
             'na',
             'No question battery for this repo — it has not been through the '
             'Layer 2 authoring gate (see references/question-batteries.md).',
         )
-        return EXIT_NA
+        return _common.EXIT_NA
 
     try:
         battery = yaml.safe_load(path.read_text()) or {}
     except yaml.YAMLError as exc:
-        emit_check(CHECK_ID, 'fail', f'Battery {path.name} is not valid YAML: {exc}')
-        return EXIT_FAIL
+        _common.emit_check(CHECK_ID, 'fail', f'Battery {path.name} is not valid YAML: {exc}')
+        return _common.EXIT_FAIL
 
     entries = battery.get('entries') or []
     agents_md = root / 'AGENTS.md'
     if not agents_md.is_file():
-        emit_check(
+        _common.emit_check(
             CHECK_ID,
             'fail',
             f'Battery {path.name} describes {len(entries)} AGENTS.md line(s), '
@@ -240,7 +232,7 @@ def main() -> int:
             {'battery': path.name, 'entries_total': len(entries)},
             {'kind': 'judgement', 'human_review': 'Restore AGENTS.md or retire the battery.'},
         )
-        return EXIT_FAIL
+        return _common.EXIT_FAIL
 
     md_text = agents_md.read_text(errors='replace')
     md_collapsed = collapse(md_text)
@@ -306,7 +298,7 @@ def main() -> int:
         problems.append(f'{len(verify_findings)} verify assertion(s) failed')
 
     if problems:
-        emit_check(
+        _common.emit_check(
             CHECK_ID,
             'fail',
             f'Question battery {path.name}: ' + '; '.join(problems) + '.',
@@ -321,9 +313,9 @@ def main() -> int:
                 ),
             },
         )
-        return EXIT_FAIL
+        return _common.EXIT_FAIL
 
-    emit_check(
+    _common.emit_check(
         CHECK_ID,
         'pass',
         f'Question battery {path.name} matches AGENTS.md: {len(entries)} '
@@ -331,7 +323,7 @@ def main() -> int:
         f'{len(not_ci_verifiable)} not confirmable by an automated run.',
         evidence,
     )
-    return EXIT_PASS
+    return _common.EXIT_PASS
 
 
 if __name__ == '__main__':

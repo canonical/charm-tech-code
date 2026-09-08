@@ -19,28 +19,28 @@ template is intentionally a skeleton, not a working file.
 
 from __future__ import annotations
 
+import pathlib
 import shutil
 import sys
-from pathlib import Path
 
-from .._common import ASSETS, repo_root
+from .. import _common
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
 
 def main() -> int:
     try:
         import os
 
-        os.chdir(repo_root())
+        os.chdir(_common.repo_root())
     except OSError:
         return 3
 
-    if Path('AGENTS.md').exists():
+    if pathlib.Path('AGENTS.md').exists():
         sys.stderr.write('AGENTS.md already exists; refusing to overwrite.\n')
         return 1
 
-    template = ASSETS / 'AGENTS.md.template'
+    template = _common.ASSETS / 'AGENTS.md.template'
     if not template.is_file():
         sys.stderr.write('Template missing.\n')
         return 3

@@ -19,27 +19,22 @@ Convention: keep it minimal — a short pointer file, not an encyclopaedia.
 
 from __future__ import annotations
 
+import pathlib
 import sys
-from pathlib import Path
 
-from .._common import (
-    EXIT_FAIL,
-    EXIT_PASS,
-    cd_repo_root,
-    emit_check,
-)
+from .. import _common
 
 CHECK_ID = 'agents-md'
 
 
 def main() -> int:
-    cd_repo_root()
+    _common.cd_repo_root()
 
-    p = Path('AGENTS.md')
+    p = pathlib.Path('AGENTS.md')
     if p.is_file():
         lines = p.read_text().count('\n')
         if lines > 200:
-            emit_check(
+            _common.emit_check(
                 CHECK_ID,
                 'fail',
                 f"AGENTS.md present but at {lines} lines is well past the 'keep it minimal' "
@@ -53,16 +48,16 @@ def main() -> int:
                     ),
                 },
             )
-            return EXIT_FAIL
-        emit_check(
+            return _common.EXIT_FAIL
+        _common.emit_check(
             CHECK_ID,
             'pass',
             f'AGENTS.md present ({lines} lines).',
             {'path': 'AGENTS.md', 'lines': lines},
         )
-        return EXIT_PASS
+        return _common.EXIT_PASS
 
-    emit_check(
+    _common.emit_check(
         CHECK_ID,
         'fail',
         'No AGENTS.md found.',
@@ -74,7 +69,7 @@ def main() -> int:
             'just).',
         },
     )
-    return EXIT_FAIL
+    return _common.EXIT_FAIL
 
 
 if __name__ == '__main__':

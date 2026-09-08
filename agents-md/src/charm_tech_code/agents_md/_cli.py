@@ -30,20 +30,20 @@ import datetime
 import importlib
 import pkgutil
 import sys
-from types import ModuleType
+import types
 
 from . import _checks as checks_pkg
+from . import _common
 from . import _fixes as fixes_pkg
-from ._common import collecting, origin_url
 
 
-def _modules(package: ModuleType) -> dict[str, ModuleType]:
+def _modules(package: types.ModuleType) -> dict[str, types.ModuleType]:
     """Import every module in a subpackage, keyed by its declared ID.
 
     Checks carry a CHECK_ID; fixes have no such constant, so their module
     name with underscores turned back into hyphens is the name.
     """
-    found: dict[str, ModuleType] = {}
+    found: dict[str, types.ModuleType] = {}
     for info in pkgutil.iter_modules(package.__path__):
         module = importlib.import_module(f'{package.__name__}.{info.name}')
         found[getattr(module, 'CHECK_ID', info.name.replace('_', '-'))] = module
@@ -97,7 +97,7 @@ def _check(argv: list[str]) -> int:
         # A check that raises is a bug in the check, not a finding about the
         # repo, so it becomes a note rather than a fail.
         try:
-            with collecting() as collected:
+            with _common.collecting() as collected:
                 module.main()
         except Exception as exc:  # noqa: BLE001
             notes.append(f'check {check_id} raised {type(exc).__name__}: {exc}')
@@ -110,7 +110,7 @@ def _check(argv: list[str]) -> int:
         results.extend(collected)
 
     generated_at = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    repo = origin_url()
+    repo = _common.origin_url()
 
     if fmt == 'json':
         import json

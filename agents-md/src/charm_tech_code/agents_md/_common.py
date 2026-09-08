@@ -22,15 +22,15 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import pathlib
 import subprocess
 import sys
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 # Templates and question batteries ship with the package rather than sitting
 # beside the skill, so a `uvx --from git+...` invocation carries them too.
-ASSETS = Path(__file__).parent / 'assets'
+ASSETS = pathlib.Path(__file__).parent / 'assets'
 
 
 # Exit codes. Every check script exits with one of these.
@@ -40,7 +40,7 @@ EXIT_NA = 2
 EXIT_UNKNOWN = 3
 
 
-def repo_root() -> Path:
+def repo_root() -> pathlib.Path:
     """Return the repo root. Falls back to CWD when not inside a git tree
     (the skill can be invoked against an unpacked tarball, for example)."""
     try:
@@ -51,10 +51,10 @@ def repo_root() -> Path:
             check=True,
         ).stdout.strip()
         if out:
-            return Path(out)
+            return pathlib.Path(out)
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
-    return Path.cwd()
+    return pathlib.Path.cwd()
 
 
 def origin_url() -> str:
@@ -134,7 +134,7 @@ def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, **kwargs)
 
 
-def cd_repo_root() -> Path:
+def cd_repo_root() -> pathlib.Path:
     """Chdir to the repo root and return it. Exits EXIT_UNKNOWN if the
     root cannot be reached (matches the shell behaviour of `cd || exit 3`)."""
     root = repo_root()
