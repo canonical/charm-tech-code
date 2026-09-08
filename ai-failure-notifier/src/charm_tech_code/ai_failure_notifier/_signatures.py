@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from charm_tech_code.ai_failure_notifier.constants import (
+from charm_tech_code.ai_failure_notifier._constants import (
     ANSI,
     ERROR_MARKER,
     GO_FAIL,
@@ -28,7 +28,7 @@ from charm_tech_code.ai_failure_notifier.constants import (
     TRACEBACK_END,
     TS,
 )
-from charm_tech_code.ai_failure_notifier.models import JobSignature, PytestFailure, RunSignature
+from charm_tech_code.ai_failure_notifier._models import JobSignature, PytestFailure, RunSignature
 
 
 def strip_line(line: str) -> str:

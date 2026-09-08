@@ -20,8 +20,8 @@ from __future__ import annotations
 import hashlib
 from typing import Literal
 
-from charm_tech_code.ai_failure_notifier.constants import MARKER_PREFIX, MARKER_RE
-from charm_tech_code.ai_failure_notifier.models import RunSignature
+from charm_tech_code.ai_failure_notifier._constants import MARKER_PREFIX, MARKER_RE
+from charm_tech_code.ai_failure_notifier._models import RunSignature
 
 
 def signature_hash(signature: RunSignature) -> str:

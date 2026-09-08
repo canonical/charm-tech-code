@@ -14,7 +14,3 @@
 
 
 """Triage and enrich the issue opened when a scheduled workflow fails."""
-
-from charm_tech_code.ai_failure_notifier.cli import main
-
-__all__ = ['main']

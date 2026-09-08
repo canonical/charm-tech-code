@@ -21,10 +21,10 @@ import json
 import subprocess
 from typing import Any
 
-from charm_tech_code.ai_failure_notifier import summary
-from charm_tech_code.ai_failure_notifier.constants import MARKER_PREFIX, RECENT_ISSUE_SCAN
-from charm_tech_code.ai_failure_notifier.markers import find_run_markers
-from charm_tech_code.ai_failure_notifier.models import CandidateIssue, FailedJob
+from charm_tech_code.ai_failure_notifier import _summary
+from charm_tech_code.ai_failure_notifier._constants import MARKER_PREFIX, RECENT_ISSUE_SCAN
+from charm_tech_code.ai_failure_notifier._markers import find_run_markers
+from charm_tech_code.ai_failure_notifier._models import CandidateIssue, FailedJob
 
 
 def gh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -84,7 +84,7 @@ def fetch_job_log(repo: str, run_id: str, job_id: int) -> str:
         # telling a log that is not ready yet from a token that has lost
         # `actions: read`, and the two want opposite fixes.
         detail = ' '.join((result.stderr or '').split())[:200] or 'no stderr'
-        summary.write_step_summary(
+        _summary.write_step_summary(
             f'Warning: no log text for job {job_id} of run {run_id} '
             f'(gh exit {result.returncode}: {detail}); '
             f'signature will be based on the job name alone.'

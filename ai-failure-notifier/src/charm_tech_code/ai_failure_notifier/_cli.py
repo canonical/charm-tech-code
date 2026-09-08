@@ -23,14 +23,21 @@ import os
 import sys
 from typing import Any
 
-from charm_tech_code.ai_failure_notifier import github, openrouter, prompt, summary
-from charm_tech_code.ai_failure_notifier.apply import apply_entry, plain_fallback_body, render_body
-from charm_tech_code.ai_failure_notifier.candidates import build_candidates_block
-from charm_tech_code.ai_failure_notifier.constants import DEFAULT_MODEL, MARKER_PREFIX
-from charm_tech_code.ai_failure_notifier.envelope import normalise_envelope, validate_envelope
-from charm_tech_code.ai_failure_notifier.markers import render_enriched_marker
-from charm_tech_code.ai_failure_notifier.models import RunSignature
-from charm_tech_code.ai_failure_notifier.signatures import build_job_signature, build_run_signature
+from charm_tech_code.ai_failure_notifier import _github, _openrouter, _prompt, _summary
+from charm_tech_code.ai_failure_notifier._apply import (
+    apply_entry,
+    plain_fallback_body,
+    render_body,
+)
+from charm_tech_code.ai_failure_notifier._candidates import build_candidates_block
+from charm_tech_code.ai_failure_notifier._constants import DEFAULT_MODEL, MARKER_PREFIX
+from charm_tech_code.ai_failure_notifier._envelope import normalise_envelope, validate_envelope
+from charm_tech_code.ai_failure_notifier._markers import render_enriched_marker
+from charm_tech_code.ai_failure_notifier._models import RunSignature
+from charm_tech_code.ai_failure_notifier._signatures import (
+    build_job_signature,
+    build_run_signature,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -67,7 +74,7 @@ def _read_config() -> _RunConfig:
 def _resolve_origin(config: _RunConfig) -> tuple[int | None, str | None, int | None]:
     """Locate the run's marker, degrading to "un-marked" if the lookup fails."""
     try:
-        return github.resolve_origin(
+        return _github.resolve_origin(
             config.repo, config.run_id, config.notify_issue, config.notify_origin
         )
     except Exception as exc:  # search API rejection, rate limit, transient 5xx.
@@ -76,7 +83,7 @@ def _resolve_origin(config: _RunConfig) -> tuple[int | None, str | None, int | N
         # outright rather than degrading through the paths below. When the
         # notifier told us its issue we can still carry on with that; without
         # it we continue as though the run were un-marked.
-        summary.write_step_summary(
+        _summary.write_step_summary(
             f'Marker lookup failed ({exc}); treating this run as un-marked.'
         )
         return None, config.notify_origin, config.notify_issue
@@ -89,7 +96,7 @@ def _comment_on_rerun(config: _RunConfig, enriched_issue: int) -> None:
     scheduled failures this rung accounted for half the real duplicate pairs,
     making it the highest-value one.
     """
-    github.gh(
+    _github.gh(
         'issue',
         'comment',
         str(enriched_issue),
@@ -99,7 +106,7 @@ def _comment_on_rerun(config: _RunConfig, enriched_issue: int) -> None:
         f'Re-run attempt still failing: {config.run_url}\n\n'
         f'<!-- {MARKER_PREFIX}:run={config.run_id} -->',
     )
-    summary.write_step_summary(
+    _summary.write_step_summary(
         f'Rung zero: run {config.run_id} already enriched on #{enriched_issue}; '
         'commented re-run note.'
     )
@@ -113,10 +120,10 @@ def _create_placeholder_issue(config: _RunConfig) -> tuple[int, str]:
     way through adopting this, so don't treat it as an anomaly -- just don't
     lose the notification.
     """
-    summary.write_step_summary(
+    _summary.write_step_summary(
         'No notifier marker found for this run id; falling back to a plain issue.'
     )
-    result = github.gh(
+    result = _github.gh(
         'issue',
         'create',
         '--repo',
@@ -133,17 +140,17 @@ def _create_placeholder_issue(config: _RunConfig) -> tuple[int, str]:
 
 def _build_run_signature(config: _RunConfig) -> RunSignature:
     """Fetch the run's failed jobs and metadata, and reduce them to a signature."""
-    failed_jobs = github.fetch_failed_jobs(config.repo, config.run_id)
+    failed_jobs = _github.fetch_failed_jobs(config.repo, config.run_id)
     jobs_sig = [
         build_job_signature(
             job.id,
             job.name,
             job.failed_step,
-            github.fetch_job_log(config.repo, config.run_id, job.id),
+            _github.fetch_job_log(config.repo, config.run_id, job.id),
         )
         for job in failed_jobs
     ]
-    meta = github.fetch_run_meta(config.repo, config.run_id)
+    meta = _github.fetch_run_meta(config.repo, config.run_id)
     return build_run_signature(
         config.run_id, config.workflow_name, config.run_url, meta.get('createdAt', ''), jobs_sig
     )
@@ -182,11 +189,11 @@ def _apply_plain_fallback(
 def _search_candidates(config: _RunConfig, origin_kind: str | None, origin_issue: int) -> str:
     """Build the {{CANDIDATES_BLOCK}} for the prompt, degrading to "none" on search failure."""
     try:
-        open_candidates, closed_candidates = github.search_candidates(
+        open_candidates, closed_candidates = _github.search_candidates(
             config.repo, config.workflow_name
         )
     except Exception as exc:  # as above: degrade to "no candidates", don't crash.
-        summary.write_step_summary(
+        _summary.write_step_summary(
             f'Candidate search failed ({exc}); proceeding with no candidates.'
         )
         open_candidates, closed_candidates = [], []
@@ -208,23 +215,23 @@ def _fetch_envelope(
 ) -> Any:
     """Ask the LLM to triage the failure, returning `None` on any failure along the way."""
     candidates_block = _search_candidates(config, origin_kind, origin_issue)
-    system_prompt, user_prompt = prompt.build_prompt(
+    system_prompt, user_prompt = _prompt.build_prompt(
         config.workflow_name, config.run_url, signature, candidates_block
     )
 
     try:
-        envelope = openrouter.call_openrouter(
+        envelope = _openrouter.call_openrouter(
             system_prompt, user_prompt, config.model, config.api_key
         )
     except Exception as exc:  # network error, non-2xx, bad JSON, and so on.
-        summary.write_step_summary(
+        _summary.write_step_summary(
             f'OpenRouter call failed ({exc}); using the plain fallback body.'
         )
         return None
 
     envelope, dropped_fields = normalise_envelope(envelope)
     if dropped_fields:
-        summary.write_step_summary(
+        _summary.write_step_summary(
             'Ignored fields that do not apply to the chosen action: '
             + ', '.join(dropped_fields)
             + '.'
@@ -232,7 +239,7 @@ def _fetch_envelope(
 
     errors = validate_envelope(envelope)
     if errors:
-        summary.write_step_summary(
+        _summary.write_step_summary(
             'LLM output failed schema validation:\n' + '\n'.join(f'- {e}' for e in errors)
         )
         return None
@@ -250,8 +257,8 @@ def _apply_envelope(
     """Act on a validated LLM envelope: upgrade, comment, or open a new issue."""
     if envelope['action'] == 'new' and origin_kind == 'new':
         # Upgrade the placeholder in place rather than creating a duplicate.
-        available = github.existing_labels(config.repo)
-        labels = github.filter_labels(envelope.get('labels') or [], available)
+        available = _github.existing_labels(config.repo)
+        labels = _github.filter_labels(envelope.get('labels') or [], available)
         edit_args = [
             'issue',
             'edit',
@@ -265,7 +272,7 @@ def _apply_envelope(
         ]
         for label in labels:
             edit_args += ['--add-label', label]
-        github.gh(*edit_args)
+        _github.gh(*edit_args)
     elif envelope['action'] == 'comment' and envelope.get('target_issue') == origin_issue:
         apply_entry(
             config.repo,
@@ -278,7 +285,7 @@ def _apply_envelope(
         # LLM picked a different candidate than the notifier's coarse match.
         apply_entry(config.repo, envelope, enriched_marker, config.workflow_name)
         if origin_kind == 'comment':
-            github.gh(
+            _github.gh(
                 'issue',
                 'comment',
                 str(origin_issue),
@@ -292,7 +299,7 @@ def _apply_envelope(
         # action == "new" but origin_kind == "comment": the coarse title
         # match landed on an unrelated older issue; this is genuinely new.
         apply_entry(config.repo, envelope, enriched_marker, config.workflow_name)
-        github.gh(
+        _github.gh(
             'issue',
             'comment',
             str(origin_issue),
@@ -324,7 +331,7 @@ def main() -> int:
     enriched_marker = render_enriched_marker(config.run_id, signature)
 
     if not config.api_key:
-        summary.write_step_summary(
+        _summary.write_step_summary(
             'No OPENROUTER_API_KEY configured -- using the plain fallback body.'
         )
         _apply_plain_fallback(config, origin_kind, origin_issue, enriched_marker)

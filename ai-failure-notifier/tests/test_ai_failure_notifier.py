@@ -36,34 +36,47 @@ import urllib.error
 from typing import Any
 from unittest import mock
 
-from charm_tech_code import ai_failure_notifier as afn
+from charm_tech_code.ai_failure_notifier import (
+    _apply,
+    _candidates,
+    _cli,
+    _constants,
+    _envelope,
+    _github,
+    _markers,
+    _models,
+    _openrouter,
+    _prompt,
+    _signatures,
+    _summary,
+)
 
 # The signature, candidate issue and envelope from a real failing scheduled run
 # (28141163589, "Broad Charm Compatibility Tests", 2026-06-25). The tail_excerpt
 # lists are trimmed for size; pytest_failures and traceback_top_error are
 # verbatim, since those are what the dedup and schema logic exercise.
-FIXTURE_SIGNATURE = afn.models.RunSignature(
+FIXTURE_SIGNATURE = _models.RunSignature(
     run_id='28141163589',
     workflow_name='Broad Charm Compatibility Tests',
     html_url='https://github.com/example/repo/actions/runs/28141163589',
     created_at='2026-06-25T01:40:15Z',
     jobs=[
-        afn.models.JobSignature(
+        _models.JobSignature(
             job_id=83338922280,
             job_name='charm-tests (canonical/charm-ubuntu, .)',
             failed_step="Run the charm's unit tests",
             pytest_failures=[
-                afn.models.PytestFailure(
+                _models.PytestFailure(
                     kind='ERROR',
                     test='tests/unit/test_charm.py::TestCharm::test_charm_ready',
                     error='PendingDeprecat...',
                 ),
-                afn.models.PytestFailure(
+                _models.PytestFailure(
                     kind='ERROR',
                     test='tests/unit/test_charm.py::TestCharm::test_hostname',
                     error='PendingDeprecation...',
                 ),
-                afn.models.PytestFailure(
+                _models.PytestFailure(
                     kind='ERROR',
                     test='tests/unit/test_charm.py::TestCharm::test_version',
                     error='PendingDeprecationW...',
@@ -81,7 +94,7 @@ FIXTURE_SIGNATURE = afn.models.RunSignature(
                 'evaluation failed :( (2.07 seconds)',
             ],
         ),
-        afn.models.JobSignature(
+        _models.JobSignature(
             job_id=83338922315,
             job_name='charm-tests (canonical/k8s-operator, charms/worker/k8s)',
             failed_step="Run the charm's static tests",
@@ -94,12 +107,12 @@ FIXTURE_SIGNATURE = afn.models.RunSignature(
                 'evaluation failed :( (16.06 seconds)',
             ],
         ),
-        afn.models.JobSignature(
+        _models.JobSignature(
             job_id=83338923301,
             job_name='charm-tests (canonical/seldon-core-operator, .)',
             failed_step="Run the charm's unit tests",
             pytest_failures=[
-                afn.models.PytestFailure(
+                _models.PytestFailure(
                     kind='FAILED',
                     test='tests/unit/test_operator.py::TestCharm::test_prometheus_data_set',
                     error=(
@@ -118,7 +131,7 @@ FIXTURE_SIGNATURE = afn.models.RunSignature(
                 'unit: FAIL code 1 (8.95=setup[0.60]+cmd[8.35] seconds)',
             ],
         ),
-        afn.models.JobSignature(
+        _models.JobSignature(
             job_id=83338923304,
             job_name='charm-tests (canonical/self-signed-certificates-operator, .)',
             failed_step="Run the charm's unit tests",
@@ -131,7 +144,7 @@ FIXTURE_SIGNATURE = afn.models.RunSignature(
                 'unit: FAIL code 2 (3.43=setup[1.18]+cmd[0.06,0.02,2.16] seconds)',
             ],
         ),
-        afn.models.JobSignature(
+        _models.JobSignature(
             job_id=83338923318,
             job_name='charm-tests (canonical/traefik-k8s-operator, .)',
             failed_step="Run the charm's unit tests",
@@ -155,7 +168,7 @@ FIXTURE_SIGNATURE = afn.models.RunSignature(
 )
 
 FIXTURE_CANDIDATES = [
-    afn.models.CandidateIssue(
+    _models.CandidateIssue(
         number=9010,
         title='Broad Charm Compatibility Tests: 4 downstream charms failing, independent causes',
         body=(
@@ -191,7 +204,7 @@ class SignatureExtractionTests(unittest.TestCase):
     def test_strip_line_removes_timestamp_and_ansi(self):
         raw = '2026-06-25T01:40:15.8141713Z \x1b[36mhello\x1b[0m'
         self.assertEqual(
-            afn.signatures.strip_line(raw),
+            _signatures.strip_line(raw),
             '\x1b[36mhello\x1b[0m'.replace('\x1b[36m', '').replace('\x1b[0m', ''),
         )
 
@@ -204,14 +217,14 @@ class SignatureExtractionTests(unittest.TestCase):
             f'{ts}============ 2 failed in 1.23s ============',
             f'{ts}some trailing noise, not part of the summary',
         ])
-        pytest_failures, go_failures, _tb, _tail = afn.signatures.parse_job_log(log)
+        pytest_failures, go_failures, _tb, _tail = _signatures.parse_job_log(log)
         self.assertEqual(
             pytest_failures,
             [
-                afn.models.PytestFailure(
+                _models.PytestFailure(
                     'FAILED', 'tests/unit/test_x.py::test_a', 'AssertionError: x'
                 ),
-                afn.models.PytestFailure(
+                _models.PytestFailure(
                     'ERROR', 'tests/unit/test_x.py::test_b', 'PendingDeprecat...'
                 ),
             ],
@@ -220,7 +233,7 @@ class SignatureExtractionTests(unittest.TestCase):
 
     def test_parse_job_log_go_failures(self):
         log = '--- FAIL: TestFoo (0.03s)\n--- FAIL: TestBar (0.01s)\n'
-        _pytest_failures, go_failures, _tb, _tail = afn.signatures.parse_job_log(log)
+        _pytest_failures, go_failures, _tb, _tail = _signatures.parse_job_log(log)
         self.assertEqual(go_failures, ['TestFoo', 'TestBar'])
 
     def test_parse_job_log_traceback_top_error_prefers_last_match(self):
@@ -229,7 +242,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'some other output',
             'AttributeError: the real one',
         ])
-        _, _, tb, _ = afn.signatures.parse_job_log(log)
+        _, _, tb, _ = _signatures.parse_job_log(log)
         self.assertEqual(tb, 'AttributeError: the real one')
 
     def test_parse_job_log_tail_excerpt_stops_before_first_error_marker(self):
@@ -239,7 +252,7 @@ class SignatureExtractionTests(unittest.TestCase):
             '##[error]something broke',
             'line after (should not appear in tail)',
         ])
-        _, _, _, tail = afn.signatures.parse_job_log(log)
+        _, _, _, tail = _signatures.parse_job_log(log)
         self.assertEqual(tail, ['line before 1', 'line before 2'])
 
     def test_parse_job_log_ignores_the_step_script_the_runner_echoes(self):
@@ -256,7 +269,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'short test summary info',
             "FAILED test/test_model.py::TestModel::test_thing - KeyError: 'host'",
         ])
-        pytest_failures, _go, tb, _tail = afn.signatures.parse_job_log(log)
+        pytest_failures, _go, tb, _tail = _signatures.parse_job_log(log)
         self.assertIsNone(tb)
         self.assertEqual([f.error for f in pytest_failures], ["KeyError: 'host'"])
 
@@ -270,7 +283,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'short test summary info',
             'FAILED test/test_model.py::TestModel::test_thing - KeyError',
         ])
-        pytest_failures, _go, _tb, _tail = afn.signatures.parse_job_log(log)
+        pytest_failures, _go, _tb, _tail = _signatures.parse_job_log(log)
         self.assertEqual(len(pytest_failures), 1)
 
     def test_parse_job_log_keeps_groups_the_step_itself_opened(self):
@@ -281,7 +294,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'AttributeError: this is real output',
             '##[endgroup]',
         ])
-        _, _, tb, _ = afn.signatures.parse_job_log(log)
+        _, _, tb, _ = _signatures.parse_job_log(log)
         self.assertEqual(tb, 'AttributeError: this is real output')
 
     def test_strip_log_drops_the_env_dump_with_the_script(self):
@@ -292,14 +305,14 @@ class SignatureExtractionTests(unittest.TestCase):
             '##[endgroup]',
             'real output',
         ])
-        self.assertEqual(afn.signatures.strip_log(log), ['real output'])
+        self.assertEqual(_signatures.strip_log(log), ['real output'])
 
     def test_build_run_signature_matches_fixture_shape(self):
         jobs = [
-            afn.signatures.build_job_signature(j.job_id, j.job_name, j.failed_step, '')
+            _signatures.build_job_signature(j.job_id, j.job_name, j.failed_step, '')
             for j in FIXTURE_SIGNATURE.jobs
         ]
-        sig = afn.signatures.build_run_signature(
+        sig = _signatures.build_run_signature(
             '28141163589', 'Broad Charm Compatibility Tests', 'url', '2026-06-25T01:40:15Z', jobs
         )
         self.assertEqual(sig.run_id, '28141163589')
@@ -313,36 +326,34 @@ class SignatureExtractionTests(unittest.TestCase):
 
 class MarkerTests(unittest.TestCase):
     def test_render_and_parse_notifier_marker(self):
-        marker = afn.markers.render_notifier_marker('123', 'new')
-        enriched, origin_kind, origin_issue = afn.markers.find_run_markers([(42, marker)], '123')
+        marker = _markers.render_notifier_marker('123', 'new')
+        enriched, origin_kind, origin_issue = _markers.find_run_markers([(42, marker)], '123')
         self.assertIsNone(enriched)
         self.assertEqual(origin_kind, 'new')
         self.assertEqual(origin_issue, 42)
 
     def test_render_and_parse_enriched_marker_is_rung_zero(self):
-        marker = afn.markers.render_enriched_marker('28141163589', FIXTURE_SIGNATURE)
+        marker = _markers.render_enriched_marker('28141163589', FIXTURE_SIGNATURE)
         run_id = '28141163589'
-        enriched, origin_kind, _origin_issue = afn.markers.find_run_markers(
-            [(9010, marker)], run_id
-        )
+        enriched, origin_kind, _origin_issue = _markers.find_run_markers([(9010, marker)], run_id)
         self.assertEqual(enriched, 9010)
         self.assertIsNone(origin_kind)
 
     def test_marker_for_different_run_id_does_not_match(self):
-        marker = afn.markers.render_notifier_marker('999', 'comment')
-        enriched, origin_kind, origin_issue = afn.markers.find_run_markers([(1, marker)], '123')
+        marker = _markers.render_notifier_marker('999', 'comment')
+        enriched, origin_kind, origin_issue = _markers.find_run_markers([(1, marker)], '123')
         self.assertIsNone(enriched)
         self.assertIsNone(origin_kind)
         self.assertIsNone(origin_issue)
 
     def test_signature_hash_is_deterministic_and_order_independent_of_call(self):
-        h1 = afn.markers.signature_hash(FIXTURE_SIGNATURE)
-        h2 = afn.markers.signature_hash(FIXTURE_SIGNATURE)  # independently constructed
+        h1 = _markers.signature_hash(FIXTURE_SIGNATURE)
+        h2 = _markers.signature_hash(FIXTURE_SIGNATURE)  # independently constructed
         self.assertEqual(h1, h2)
         self.assertEqual(len(h1), 16)
 
     def test_no_marker_present_returns_all_none(self):
-        enriched, origin_kind, origin_issue = afn.markers.find_run_markers(
+        enriched, origin_kind, origin_issue = _markers.find_run_markers(
             [(1, 'just a normal comment, no marker')], '123'
         )
         self.assertIsNone(enriched)
@@ -352,7 +363,7 @@ class MarkerTests(unittest.TestCase):
 
 class CandidateBlockTests(unittest.TestCase):
     def test_open_candidate_rendered(self):
-        block = afn.candidates.build_candidates_block(
+        block = _candidates.build_candidates_block(
             FIXTURE_CANDIDATES, [], datetime.datetime.now(datetime.timezone.utc)
         )
         self.assertIn('#9010', block)
@@ -360,7 +371,7 @@ class CandidateBlockTests(unittest.TestCase):
         self.assertNotIn('closed', block)
 
     def test_empty_candidates_block(self):
-        block = afn.candidates.build_candidates_block(
+        block = _candidates.build_candidates_block(
             [], [], datetime.datetime.now(datetime.timezone.utc)
         )
         self.assertEqual(block, '(no open issues found for this workflow)')
@@ -368,14 +379,14 @@ class CandidateBlockTests(unittest.TestCase):
     def test_recently_closed_candidate_is_labelled_and_capped_at_medium(self):
         now = datetime.datetime(2026, 6, 25, tzinfo=datetime.timezone.utc)
         closed = [
-            afn.models.CandidateIssue.from_gh({
+            _models.CandidateIssue.from_gh({
                 'number': 42,
                 'title': 'old thing',
                 'body': 'x',
                 'closedAt': '2026-06-20T00:00:00Z',
             })
         ]
-        block = afn.candidates.build_candidates_block([], closed, now)
+        block = _candidates.build_candidates_block([], closed, now)
         self.assertIn('#42', block)
         self.assertIn('closed', block)
         self.assertIn('medium-confidence', block)
@@ -383,19 +394,19 @@ class CandidateBlockTests(unittest.TestCase):
     def test_closed_candidate_outside_window_is_dropped(self):
         now = datetime.datetime(2026, 6, 25, tzinfo=datetime.timezone.utc)
         closed = [
-            afn.models.CandidateIssue.from_gh({
+            _models.CandidateIssue.from_gh({
                 'number': 42,
                 'title': 'ancient',
                 'body': 'x',
                 'closedAt': '2026-01-01T00:00:00Z',
             })
         ]
-        block = afn.candidates.build_candidates_block([], closed, now)
+        block = _candidates.build_candidates_block([], closed, now)
         self.assertEqual(block, '(no open issues found for this workflow)')
 
     def test_candidates_capped_at_three(self):
         opens = [
-            afn.models.CandidateIssue.from_gh({
+            _models.CandidateIssue.from_gh({
                 'number': n,
                 'title': f'issue {n}',
                 'body': 'x',
@@ -403,7 +414,7 @@ class CandidateBlockTests(unittest.TestCase):
             })
             for n in range(5)
         ]
-        block = afn.candidates.build_candidates_block(
+        block = _candidates.build_candidates_block(
             opens, [], datetime.datetime.now(datetime.timezone.utc)
         )
         self.assertEqual(block.count('- **#'), 3)
@@ -411,7 +422,7 @@ class CandidateBlockTests(unittest.TestCase):
 
 class SchemaValidationTests(unittest.TestCase):
     def test_valid_comment_envelope_from_fixture(self):
-        errors = afn.envelope.validate_envelope(FIXTURE_ENVELOPE)
+        errors = _envelope.validate_envelope(FIXTURE_ENVELOPE)
         self.assertEqual(errors, [])
 
     def test_valid_new_envelope(self):
@@ -424,7 +435,7 @@ class SchemaValidationTests(unittest.TestCase):
             'dedup_reason': 'no match',
             'confidence': 'low',
         }
-        self.assertEqual(afn.envelope.validate_envelope(envelope), [])
+        self.assertEqual(_envelope.validate_envelope(envelope), [])
 
     def test_new_envelope_with_no_labels_is_valid(self):
         # No label is mandatory: the repo's label set is centrally managed, and
@@ -438,7 +449,7 @@ class SchemaValidationTests(unittest.TestCase):
             'dedup_reason': 'no match',
             'confidence': 'low',
         }
-        self.assertEqual(afn.envelope.validate_envelope(envelope), [])
+        self.assertEqual(_envelope.validate_envelope(envelope), [])
 
     def test_new_envelope_with_non_string_labels_is_invalid(self):
         envelope: dict[str, Any] = {
@@ -450,7 +461,7 @@ class SchemaValidationTests(unittest.TestCase):
             'dedup_reason': 'no match',
             'confidence': 'low',
         }
-        self.assertTrue(any('labels' in e for e in afn.envelope.validate_envelope(envelope)))
+        self.assertTrue(any('labels' in e for e in _envelope.validate_envelope(envelope)))
 
     def test_new_envelope_with_target_issue_is_invalid(self):
         envelope = {
@@ -463,7 +474,7 @@ class SchemaValidationTests(unittest.TestCase):
             'confidence': 'low',
             'target_issue': 5,
         }
-        errors = afn.envelope.validate_envelope(envelope)
+        errors = _envelope.validate_envelope(envelope)
         self.assertTrue(any('target_issue' in e for e in errors))
 
     def test_comment_envelope_with_title_is_invalid(self):
@@ -475,12 +486,12 @@ class SchemaValidationTests(unittest.TestCase):
             'dedup_reason': 'd',
             'confidence': 'high',
         }
-        errors = afn.envelope.validate_envelope(envelope)
+        errors = _envelope.validate_envelope(envelope)
         self.assertTrue(any('title' in e for e in errors))
 
     def test_bad_action_value_is_invalid(self):
         envelope = {'action': 'delete', 'body': 'b', 'dedup_reason': 'd', 'confidence': 'high'}
-        errors = afn.envelope.validate_envelope(envelope)
+        errors = _envelope.validate_envelope(envelope)
         self.assertTrue(any('action' in e for e in errors))
 
     def test_envelope_with_also_is_valid(self):
@@ -492,17 +503,17 @@ class SchemaValidationTests(unittest.TestCase):
         # substring "also", which the spurious error also contained.
         base = dict(FIXTURE_ENVELOPE)
         base['also'] = [dict(FIXTURE_ENVELOPE)]
-        self.assertEqual(afn.envelope.validate_envelope(base), [])
+        self.assertEqual(_envelope.validate_envelope(base), [])
 
     def test_envelope_with_empty_also_is_valid(self):
         base = dict(FIXTURE_ENVELOPE)
         base['also'] = []
-        self.assertEqual(afn.envelope.validate_envelope(base), [])
+        self.assertEqual(_envelope.validate_envelope(base), [])
 
     def test_genuinely_unknown_top_level_field_is_still_invalid(self):
         base = dict(FIXTURE_ENVELOPE)
         base['nonsense'] = 1
-        self.assertTrue(any('nonsense' in e for e in afn.envelope.validate_envelope(base)))
+        self.assertTrue(any('nonsense' in e for e in _envelope.validate_envelope(base)))
 
     def test_new_envelope_with_null_target_issue_is_valid(self):
         # The schema sent to OpenRouter is `strict`, so models return every
@@ -518,7 +529,7 @@ class SchemaValidationTests(unittest.TestCase):
             'dedup_reason': 'd',
             'confidence': 'low',
         }
-        self.assertEqual(afn.envelope.validate_envelope(envelope), [])
+        self.assertEqual(_envelope.validate_envelope(envelope), [])
 
     def test_new_envelope_with_a_real_target_issue_is_still_invalid(self):
         envelope: dict[str, Any] = {
@@ -532,7 +543,7 @@ class SchemaValidationTests(unittest.TestCase):
             'confidence': 'low',
         }
         self.assertTrue(
-            any('target_issue' in e for e in afn.envelope.validate_envelope(envelope)),
+            any('target_issue' in e for e in _envelope.validate_envelope(envelope)),
         )
 
     def test_comment_envelope_with_null_new_only_fields_is_valid(self):
@@ -546,7 +557,7 @@ class SchemaValidationTests(unittest.TestCase):
             'dedup_reason': 'd',
             'confidence': 'high',
         }
-        self.assertEqual(afn.envelope.validate_envelope(envelope), [])
+        self.assertEqual(_envelope.validate_envelope(envelope), [])
 
     def test_comment_envelope_with_a_real_title_is_still_invalid(self):
         envelope: dict[str, Any] = {
@@ -557,12 +568,12 @@ class SchemaValidationTests(unittest.TestCase):
             'dedup_reason': 'd',
             'confidence': 'high',
         }
-        self.assertTrue(any('title' in e for e in afn.envelope.validate_envelope(envelope)))
+        self.assertTrue(any('title' in e for e in _envelope.validate_envelope(envelope)))
 
     def test_also_capped_at_two_entries(self):
         base = dict(FIXTURE_ENVELOPE)
         base['also'] = [dict(FIXTURE_ENVELOPE) for _ in range(3)]
-        errors = afn.envelope.validate_envelope(base)
+        errors = _envelope.validate_envelope(base)
         self.assertTrue(any('at most two entries' in e for e in errors), errors)
 
     def test_nested_also_is_invalid(self):
@@ -570,14 +581,14 @@ class SchemaValidationTests(unittest.TestCase):
         inner = dict(FIXTURE_ENVELOPE)
         inner['also'] = [dict(FIXTURE_ENVELOPE)]
         base['also'] = [inner]
-        errors = afn.envelope.validate_envelope(base)
+        errors = _envelope.validate_envelope(base)
         self.assertTrue(any("nested 'also'" in e for e in errors), errors)
 
     def test_also_entries_individually_validated(self):
         base = dict(FIXTURE_ENVELOPE)
         broken = {'action': 'comment'}  # missing body/dedup_reason/confidence/target_issue
         base['also'] = [broken]
-        errors = afn.envelope.validate_envelope(base)
+        errors = _envelope.validate_envelope(base)
         self.assertTrue(any('also[0]' in e for e in errors))
 
 
@@ -602,17 +613,15 @@ class MainFlowTests(unittest.TestCase):
         gh_calls: mock.Mock,
     ) -> list[Any]:
         patches = [
-            mock.patch.object(afn.github, 'locate_run_markers', return_value=locate_return),
-            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(_github, 'locate_run_markers', return_value=locate_return),
+            mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
             mock.patch.object(
-                afn.github, 'fetch_run_meta', return_value={'createdAt': '2026-06-25T01:40:15Z'}
+                _github, 'fetch_run_meta', return_value={'createdAt': '2026-06-25T01:40:15Z'}
             ),
-            mock.patch.object(
-                afn.github, 'search_candidates', return_value=(FIXTURE_CANDIDATES, [])
-            ),
-            mock.patch.object(afn.github, 'existing_labels', return_value={'tests', 'docs'}),
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.summary, 'write_step_summary'),
+            mock.patch.object(_github, 'search_candidates', return_value=(FIXTURE_CANDIDATES, [])),
+            mock.patch.object(_github, 'existing_labels', return_value={'tests', 'docs'}),
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_summary, 'write_step_summary'),
         ]
         return patches
 
@@ -621,12 +630,12 @@ class MainFlowTests(unittest.TestCase):
         patches = self._patch_common(locate_return=(9010, None, None), gh_calls=gh_calls)
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(afn.openrouter, 'call_openrouter') as call_openrouter,
+            mock.patch.object(_openrouter, 'call_openrouter') as call_openrouter,
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
                 stack.enter_context(p)
-            rc = afn.main()
+            rc = _cli.main()
         self.assertEqual(rc, 0)
         call_openrouter.assert_not_called()
         gh_calls.assert_called_once()
@@ -646,12 +655,12 @@ class MainFlowTests(unittest.TestCase):
         }
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(afn.openrouter, 'call_openrouter', return_value=envelope),
+            mock.patch.object(_openrouter, 'call_openrouter', return_value=envelope),
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
                 stack.enter_context(p)
-            rc = afn.main()
+            rc = _cli.main()
         self.assertEqual(rc, 0)
         edit_calls = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'edit')]
         self.assertEqual(len(edit_calls), 1)
@@ -663,13 +672,13 @@ class MainFlowTests(unittest.TestCase):
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
             mock.patch.object(
-                afn.openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                _openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
             ),
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
                 stack.enter_context(p)
-            rc = afn.main()
+            rc = _cli.main()
         self.assertEqual(rc, 0)
         comment_calls = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'comment')]
         self.assertEqual(len(comment_calls), 1)
@@ -682,12 +691,12 @@ class MainFlowTests(unittest.TestCase):
         env.pop('OPENROUTER_API_KEY')
         with (
             mock.patch.dict('os.environ', env, clear=True),
-            mock.patch.object(afn.openrouter, 'call_openrouter') as call_openrouter,
+            mock.patch.object(_openrouter, 'call_openrouter') as call_openrouter,
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
                 stack.enter_context(p)
-            rc = afn.main()
+            rc = _cli.main()
         self.assertEqual(rc, 0)
         call_openrouter.assert_not_called()
 
@@ -707,8 +716,8 @@ class GhCallShapeTests(unittest.TestCase):
 
     def test_search_issue_numbers_passes_repo_as_a_flag(self):
         gh_calls = self._capture('[{"number": 2658}]')
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            numbers = afn.github.search_issue_numbers('example/repo', 'Example Charm Tests')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            numbers = _github.search_issue_numbers('example/repo', 'Example Charm Tests')
         self.assertEqual(numbers, [2658])
         args = gh_calls.call_args.args
         self.assertEqual(args[:2], ('search', 'issues'))
@@ -724,8 +733,8 @@ class GhCallShapeTests(unittest.TestCase):
 
     def test_search_candidates_passes_state_and_search_flags(self):
         gh_calls = self._capture('[]')
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            afn.github.search_candidates('example/repo', 'Example Charm Tests')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            _github.search_candidates('example/repo', 'Example Charm Tests')
         states: list[str] = []
         for call in gh_calls.call_args_list:
             args = call.args
@@ -737,8 +746,8 @@ class GhCallShapeTests(unittest.TestCase):
 
     def test_fetch_job_log_uses_the_rest_logs_endpoint(self):
         gh_calls = self._capture('2026-07-21T16:17:04Z some log line\n')
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            log = afn.github.fetch_job_log('example/repo', '29847889218', 88693036489)
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            log = _github.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertIn('some log line', log)
         # Without --allow-escape-sequences, gh 2.9x+ writes nothing at all for
         # a log with terminal escapes in it, which is every Actions log.
@@ -757,8 +766,8 @@ class GhCallShapeTests(unittest.TestCase):
             mock.Mock(returncode=0, stdout='2026-07-21T16:17:04Z some log line\n', stderr=''),
         ]
         gh_calls = mock.Mock(side_effect=results)
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            log = afn.github.fetch_job_log('example/repo', '29847889218', 88693036489)
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            log = _github.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertIn('some log line', log)
         self.assertEqual(
             [call.args for call in gh_calls.call_args_list],
@@ -777,19 +786,19 @@ class GhCallShapeTests(unittest.TestCase):
             return_value=mock.Mock(returncode=1, stdout='', stderr='gh: Not Found (HTTP 404)')
         )
         with (
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.summary, 'write_step_summary'),
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_summary, 'write_step_summary'),
         ):
-            afn.github.fetch_job_log('example/repo', '29847889218', 88693036489)
+            _github.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertEqual(gh_calls.call_count, 1)
 
     def test_fetch_job_log_reports_an_empty_log_instead_of_swallowing_it(self):
         gh_calls = self._capture('')
         with (
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.summary, 'write_step_summary') as summary,
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
         ):
-            log = afn.github.fetch_job_log('example/repo', '29847889218', 88693036489)
+            log = _github.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertEqual(log, '')
         summary.assert_called_once()
         self.assertIn('no log text', summary.call_args.args[0])
@@ -799,10 +808,10 @@ class GhCallShapeTests(unittest.TestCase):
             return_value=mock.Mock(returncode=1, stdout='', stderr='gh: Not Found (HTTP 404)\n')
         )
         with (
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.summary, 'write_step_summary') as summary,
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
         ):
-            afn.github.fetch_job_log('example/repo', '29847889218', 88693036489)
+            _github.fetch_job_log('example/repo', '29847889218', 88693036489)
         # A 404 (log not ready) and a 403 (no `actions: read`) are both exit 1,
         # so the status has to reach the summary for either to be diagnosable.
         self.assertIn('HTTP 404', summary.call_args.args[0])
@@ -810,10 +819,10 @@ class GhCallShapeTests(unittest.TestCase):
     def test_fetch_job_log_says_so_when_gh_was_silent(self):
         gh_calls = self._capture('')
         with (
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.summary, 'write_step_summary') as summary,
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
         ):
-            afn.github.fetch_job_log('example/repo', '29847889218', 88693036489)
+            _github.fetch_job_log('example/repo', '29847889218', 88693036489)
         self.assertIn('no stderr', summary.call_args.args[0])
 
     def test_fetch_failed_jobs_requests_the_jobs_field(self):
@@ -821,17 +830,17 @@ class GhCallShapeTests(unittest.TestCase):
             '{"jobs": [{"databaseId": 1, "name": "j", "conclusion": "failure",'
             ' "steps": [{"name": "s", "conclusion": "failure"}]}]}'
         )
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            jobs = afn.github.fetch_failed_jobs('example/repo', '29847889218')
-        self.assertEqual(jobs, [afn.models.FailedJob(id=1, name='j', failed_step='s')])
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            jobs = _github.fetch_failed_jobs('example/repo', '29847889218')
+        self.assertEqual(jobs, [_models.FailedJob(id=1, name='j', failed_step='s')])
         args = gh_calls.call_args.args
         self.assertEqual(args[:3], ('run', 'view', '29847889218'))
         self.assertEqual(args[args.index('--json') + 1], 'jobs')
 
     def test_existing_labels_requests_the_name_field(self):
         gh_calls = self._capture('[{"name": "tests"}, {"name": "docs"}]')
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            labels = afn.github.existing_labels('example/repo')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            labels = _github.existing_labels('example/repo')
         self.assertEqual(labels, {'tests', 'docs'})
         args = gh_calls.call_args.args
         self.assertEqual(args[:2], ('label', 'list'))
@@ -863,8 +872,8 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
             },
         ])
         gh_calls = self._gh([listing])
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            enriched, kind, number = afn.github.locate_run_markers('example/repo', '999')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
         # Exactly one call, and it is the list endpoint -- not search.
         self.assertEqual(gh_calls.call_count, 1)
@@ -883,8 +892,8 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
                 'comments': [{'body': comment}],
             }
         ])
-        with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing])):
-            enriched, kind, number = afn.github.locate_run_markers('example/repo', '999')
+        with mock.patch.object(_github, 'gh', side_effect=self._gh([listing])):
+            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'comment', 2601))
 
     def test_search_is_a_fallback_when_the_listing_misses(self):
@@ -895,8 +904,8 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
             'comments': [],
         })
         gh_calls = self._gh([listing, search, view])
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            enriched, kind, number = afn.github.locate_run_markers('example/repo', '999')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
         self.assertEqual(gh_calls.call_args_list[1].args[:2], ('search', 'issues'))
 
@@ -914,8 +923,8 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
                 'comments': [],
             }
         ])
-        with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing, '[]'])):
-            enriched, kind, number = afn.github.locate_run_markers('example/repo', '999')
+        with mock.patch.object(_github, 'gh', side_effect=self._gh([listing, '[]'])):
+            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
         self.assertEqual((enriched, kind, number), (None, 'new', 2658))
 
     def test_rung_zero_sig_marker_is_found_in_the_listing(self):
@@ -926,8 +935,8 @@ class MarkerLookupConsistencyTests(unittest.TestCase):
                 'comments': [],
             }
         ])
-        with mock.patch.object(afn.github, 'gh', side_effect=self._gh([listing])):
-            enriched, _, _ = afn.github.locate_run_markers('example/repo', '999')
+        with mock.patch.object(_github, 'gh', side_effect=self._gh([listing])):
+            enriched, _, _ = _github.locate_run_markers('example/repo', '999')
         self.assertEqual(enriched, 2658)
 
 
@@ -951,13 +960,13 @@ class NormalisationTests(unittest.TestCase):
             'dedup_reason': 'd',
             'confidence': 'high',
         }
-        cleaned, dropped = afn.envelope.normalise_envelope(envelope)
+        cleaned, dropped = _envelope.normalise_envelope(envelope)
         self.assertEqual(
             sorted(dropped), ['envelope: issue_type', 'envelope: labels', 'envelope: title']
         )
         self.assertNotIn('title', cleaned)
         self.assertEqual(cleaned['body'], 'Another occurrence.')
-        self.assertEqual(afn.envelope.validate_envelope(cleaned), [])
+        self.assertEqual(_envelope.validate_envelope(cleaned), [])
 
     def test_new_loses_target_issue(self):
         envelope: dict[str, Any] = {
@@ -970,9 +979,9 @@ class NormalisationTests(unittest.TestCase):
             'dedup_reason': 'd',
             'confidence': 'low',
         }
-        cleaned, dropped = afn.envelope.normalise_envelope(envelope)
+        cleaned, dropped = _envelope.normalise_envelope(envelope)
         self.assertEqual(dropped, ['envelope: target_issue'])
-        self.assertEqual(afn.envelope.validate_envelope(cleaned), [])
+        self.assertEqual(_envelope.validate_envelope(cleaned), [])
 
     def test_also_entries_are_normalised_too(self):
         inner: dict[str, Any] = {
@@ -993,12 +1002,12 @@ class NormalisationTests(unittest.TestCase):
             'confidence': 'low',
             'also': [inner],
         }
-        cleaned, dropped = afn.envelope.normalise_envelope(envelope)
+        cleaned, dropped = _envelope.normalise_envelope(envelope)
         self.assertEqual(dropped, ['envelope.also[0]: title'])
-        self.assertEqual(afn.envelope.validate_envelope(cleaned), [])
+        self.assertEqual(_envelope.validate_envelope(cleaned), [])
 
     def test_nothing_dropped_leaves_the_envelope_alone(self):
-        cleaned, dropped = afn.envelope.normalise_envelope(FIXTURE_ENVELOPE)
+        cleaned, dropped = _envelope.normalise_envelope(FIXTURE_ENVELOPE)
         self.assertEqual(dropped, [])
         self.assertIs(cleaned, FIXTURE_ENVELOPE)
 
@@ -1014,7 +1023,7 @@ class CandidatePoolTests(unittest.TestCase):
     prevent.
     """
 
-    def _run_main(self, *, origin_kind: str, candidates: list[afn.models.CandidateIssue]) -> str:
+    def _run_main(self, *, origin_kind: str, candidates: list[_models.CandidateIssue]) -> str:
         captured: dict[str, str] = {}
 
         def fake_build_prompt(
@@ -1033,29 +1042,29 @@ class CandidatePoolTests(unittest.TestCase):
         with (
             mock.patch.dict(os.environ, env, clear=True),
             mock.patch.object(
-                afn.github, 'locate_run_markers', return_value=(None, origin_kind, 9010)
+                _github, 'locate_run_markers', return_value=(None, origin_kind, 9010)
             ),
-            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
-            mock.patch.object(afn.github, 'fetch_run_meta', return_value={'createdAt': ''}),
-            mock.patch.object(afn.github, 'search_candidates', return_value=(candidates, [])),
-            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
-            mock.patch.object(afn.prompt, 'build_prompt', side_effect=fake_build_prompt),
-            mock.patch.object(afn.openrouter, 'call_openrouter', return_value={'action': 'bogus'}),
-            mock.patch.object(afn.github, 'gh'),
-            mock.patch.object(afn.summary, 'write_step_summary'),
+            mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(_github, 'search_candidates', return_value=(candidates, [])),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
+            mock.patch.object(_prompt, 'build_prompt', side_effect=fake_build_prompt),
+            mock.patch.object(_openrouter, 'call_openrouter', return_value={'action': 'bogus'}),
+            mock.patch.object(_github, 'gh'),
+            mock.patch.object(_summary, 'write_step_summary'),
         ):
-            afn.main()
+            _cli.main()
         return captured['block']
 
     def test_commented_origin_issue_is_offered_as_a_candidate(self):
-        candidate = afn.models.CandidateIssue(
+        candidate = _models.CandidateIssue(
             number=9010, title='the tracked one', body='x', closed_at=None
         )
         block = self._run_main(origin_kind='comment', candidates=[candidate])
         self.assertIn('#9010', block)
 
     def test_freshly_created_placeholder_is_not_offered_as_a_candidate(self):
-        candidate = afn.models.CandidateIssue(
+        candidate = _models.CandidateIssue(
             number=9010, title='the placeholder', body='x', closed_at=None
         )
         block = self._run_main(origin_kind='new', candidates=[candidate])
@@ -1072,14 +1081,14 @@ class BodyFooterTests(unittest.TestCase):
     """
 
     def test_render_body_has_footer_and_marker(self):
-        body = afn.apply.render_body('Some detail.', 'Example Charm Tests', '<!-- m -->')
+        body = _apply.render_body('Some detail.', 'Example Charm Tests', '<!-- m -->')
         self.assertEqual(body, 'Some detail.\n\nWorkflow: Example Charm Tests\n\n<!-- m -->')
 
     def test_applied_comment_body_has_the_footer(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
         entry: dict[str, Any] = {'action': 'comment', 'body': 'Another occurrence.'}
-        with mock.patch.object(afn.github, 'gh', side_effect=gh_calls):
-            afn.apply.apply_entry(
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            _apply.apply_entry(
                 'example/repo', entry, '<!-- m -->', 'ops Smoke Tests', default_target=7
             )
         args = gh_calls.call_args.args
@@ -1098,10 +1107,10 @@ class BodyFooterTests(unittest.TestCase):
             'issue_type': None,
         }
         with (
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
         ):
-            afn.apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
         args = gh_calls.call_args.args
         self.assertIn('Workflow: ops Smoke Tests', args[args.index('--body') + 1])
 
@@ -1118,7 +1127,7 @@ class StepSummaryTests(unittest.TestCase):
             mock.patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': summary_path}, clear=True),
             contextlib.redirect_stderr(stderr),
         ):
-            afn.summary.write_step_summary('OpenRouter call failed (boom)')
+            _summary.write_step_summary('OpenRouter call failed (boom)')
         self.assertIn('OpenRouter call failed (boom)', stderr.getvalue())
         with open(summary_path, encoding='utf-8') as handle:
             self.assertIn('OpenRouter call failed (boom)', handle.read())
@@ -1148,14 +1157,14 @@ class MainDegradationTests(unittest.TestCase):
         )
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(afn.github, 'locate_run_markers', side_effect=RuntimeError('boom')),
-            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
-            mock.patch.object(afn.github, 'fetch_run_meta', return_value={'createdAt': ''}),
-            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.summary, 'write_step_summary') as summary,
+            mock.patch.object(_github, 'locate_run_markers', side_effect=RuntimeError('boom')),
+            mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
         ):
-            rc = afn.main()
+            rc = _cli.main()
         self.assertEqual(rc, 0)
         self.assertTrue(
             any('Marker lookup failed' in c.args[0] for c in summary.call_args_list),
@@ -1167,18 +1176,18 @@ class MainDegradationTests(unittest.TestCase):
         env = dict(self.env, OPENROUTER_API_KEY='test-key')
         with (
             mock.patch.dict('os.environ', env, clear=True),
-            mock.patch.object(afn.github, 'locate_run_markers', return_value=(None, 'new', 4242)),
-            mock.patch.object(afn.github, 'fetch_failed_jobs', return_value=[]),
-            mock.patch.object(afn.github, 'fetch_run_meta', return_value={'createdAt': ''}),
-            mock.patch.object(afn.github, 'search_candidates', side_effect=RuntimeError('boom')),
-            mock.patch.object(afn.github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'locate_run_markers', return_value=(None, 'new', 4242)),
+            mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(_github, 'search_candidates', side_effect=RuntimeError('boom')),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(
-                afn.openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                _openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
             ),
-            mock.patch.object(afn.github, 'gh', side_effect=gh_calls),
-            mock.patch.object(afn.summary, 'write_step_summary') as summary,
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
         ):
-            rc = afn.main()
+            rc = _cli.main()
         self.assertEqual(rc, 0)
         self.assertTrue(
             any('Candidate search failed' in c.args[0] for c in summary.call_args_list),
@@ -1203,11 +1212,11 @@ class OpenRouterCallTests(unittest.TestCase):
     def test_posts_json_with_auth_and_schema(self):
         envelope = {'action': 'new', 'body': 'b'}
         with mock.patch.object(
-            afn.openrouter.urllib.request,
+            _openrouter.urllib.request,
             'urlopen',
             return_value=self._response(json.dumps(envelope)),
         ) as urlopen:
-            result = afn.openrouter.call_openrouter('sys', 'user', 'some/model', 'secret-key')
+            result = _openrouter.call_openrouter('sys', 'user', 'some/model', 'secret-key')
 
         self.assertEqual(result, envelope)
         request = urlopen.call_args.args[0]
@@ -1226,7 +1235,7 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertEqual(sent['messages'][1]['content'], 'user')
         self.assertEqual(sent['response_format']['type'], 'json_schema')
         self.assertEqual(
-            sent['response_format']['json_schema']['schema'], afn.envelope.ENVELOPE_JSON_SCHEMA
+            sent['response_format']['json_schema']['schema'], _envelope.ENVELOPE_JSON_SCHEMA
         )
         self.assertTrue(sent['response_format']['json_schema']['strict'])
 
@@ -1242,9 +1251,9 @@ class OpenRouterCallTests(unittest.TestCase):
             io.BytesIO(b''),
         )
         self.addCleanup(error.close)
-        with mock.patch.object(afn.openrouter.urllib.request, 'urlopen', side_effect=error):
+        with mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error):
             with self.assertRaises(urllib.error.HTTPError):
-                afn.openrouter.call_openrouter('sys', 'user', 'm', 'k')
+                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
 
 
 class ResolveOriginTests(unittest.TestCase):
@@ -1252,40 +1261,40 @@ class ResolveOriginTests(unittest.TestCase):
 
     def test_passed_issue_is_used_without_any_lookup(self):
         with (
-            mock.patch.object(afn.github, 'fetch_issue_texts', return_value=['no markers here']),
-            mock.patch.object(afn.github, 'locate_run_markers') as locate,
+            mock.patch.object(_github, 'fetch_issue_texts', return_value=['no markers here']),
+            mock.patch.object(_github, 'locate_run_markers') as locate,
         ):
-            enriched, kind, origin = afn.github.resolve_origin('o/r', '123', 4242, 'comment')
+            enriched, kind, origin = _github.resolve_origin('o/r', '123', 4242, 'comment')
         self.assertEqual((enriched, kind, origin), (None, 'comment', 4242))
         # The read-your-writes hazard is gone because nothing is searched for.
         locate.assert_not_called()
 
     def test_passed_issue_wins_over_a_missing_marker(self):
         """A marker we cannot find does not make the issue the wrong issue."""
-        with mock.patch.object(afn.github, 'fetch_issue_texts', return_value=['']):
-            _enriched, kind, origin = afn.github.resolve_origin('o/r', '123', 77, 'new')
+        with mock.patch.object(_github, 'fetch_issue_texts', return_value=['']):
+            _enriched, kind, origin = _github.resolve_origin('o/r', '123', 77, 'new')
         self.assertEqual((kind, origin), ('new', 77))
 
     def test_rung_zero_still_detected_on_the_passed_issue(self):
         """The notifier cannot tell us this: it is a fact about an earlier
         run of *this* script, so the narrowed lookup still has to find it."""
-        body = f'<!-- {afn.constants.MARKER_PREFIX}:run=123:sig=abcdef0123456789 -->'
-        with mock.patch.object(afn.github, 'fetch_issue_texts', return_value=[body]):
-            enriched, _kind, origin = afn.github.resolve_origin('o/r', '123', 4242, 'new')
+        body = f'<!-- {_constants.MARKER_PREFIX}:run=123:sig=abcdef0123456789 -->'
+        with mock.patch.object(_github, 'fetch_issue_texts', return_value=[body]):
+            enriched, _kind, origin = _github.resolve_origin('o/r', '123', 4242, 'new')
         self.assertEqual((enriched, origin), (4242, 4242))
 
     def test_rung_zero_ignores_a_marker_for_a_different_run(self):
-        body = f'<!-- {afn.constants.MARKER_PREFIX}:run=999:sig=abcdef0123456789 -->'
-        with mock.patch.object(afn.github, 'fetch_issue_texts', return_value=[body]):
-            enriched, _kind, _origin = afn.github.resolve_origin('o/r', '123', 4242, 'new')
+        body = f'<!-- {_constants.MARKER_PREFIX}:run=999:sig=abcdef0123456789 -->'
+        with mock.patch.object(_github, 'fetch_issue_texts', return_value=[body]):
+            enriched, _kind, _origin = _github.resolve_origin('o/r', '123', 4242, 'new')
         self.assertIsNone(enriched)
 
     def test_no_passed_issue_falls_back_to_the_repo_wide_scan(self):
         """An unmigrated caller, or a notifier that failed before opening an
         issue, has to keep working."""
         with mock.patch.object(
-            afn.github, 'locate_run_markers', return_value=(None, 'new', 9)
+            _github, 'locate_run_markers', return_value=(None, 'new', 9)
         ) as locate:
-            result = afn.github.resolve_origin('o/r', '123', None, None)
+            result = _github.resolve_origin('o/r', '123', None, None)
         self.assertEqual(result, (None, 'new', 9))
         locate.assert_called_once_with('o/r', '123')
