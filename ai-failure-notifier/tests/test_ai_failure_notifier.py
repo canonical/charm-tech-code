@@ -574,7 +574,9 @@ class SchemaValidationTests(unittest.TestCase):
         base = dict(FIXTURE_ENVELOPE)
         base['also'] = [dict(FIXTURE_ENVELOPE) for _ in range(3)]
         errors = _envelope.validate_envelope(base)
-        self.assertTrue(any('at most two entries' in e for e in errors), errors)
+        self.assertTrue(
+            any(e.startswith('envelope.also:') and 'too long' in e for e in errors), errors
+        )
 
     def test_nested_also_is_invalid(self):
         base = dict(FIXTURE_ENVELOPE)
@@ -582,7 +584,7 @@ class SchemaValidationTests(unittest.TestCase):
         inner['also'] = [dict(FIXTURE_ENVELOPE)]
         base['also'] = [inner]
         errors = _envelope.validate_envelope(base)
-        self.assertTrue(any("nested 'also'" in e for e in errors), errors)
+        self.assertTrue(any("'also' was unexpected" in e for e in errors), errors)
 
     def test_also_entries_individually_validated(self):
         base = dict(FIXTURE_ENVELOPE)

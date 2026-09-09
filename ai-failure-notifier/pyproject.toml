@@ -8,12 +8,14 @@ authors = [
     {name = "The Charm Tech team at Canonical Ltd."},
 ]
 license = "Apache-2.0"
-# Deliberately none. The tool is invoked by `uvx --from git+...` on a GitHub
+# Kept to a minimum. The tool is invoked by `uvx --from git+...` on a GitHub
 # runner, so every dependency added here is paid on every failed scheduled
 # run, in a workflow whose whole point is to still work when things are
 # broken. It talks to GitHub through `gh`, which the runner already has, and
-# to OpenRouter through urllib.
-dependencies = []
+# to OpenRouter through urllib. `jsonschema` earns its place by making the
+# envelope schema the single spec: it is sent to OpenRouter and checked
+# against on the way back, rather than mirrored in hand-rolled Python.
+dependencies = ["jsonschema"]
 
 [project.scripts]
 ai-failure-notifier = "charm_tech_code.ai_failure_notifier._cli:main"
