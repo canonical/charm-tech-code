@@ -50,10 +50,10 @@ class _RunConfig:
     run_url: str
     api_key: str
     model: str
-    # What the notifier did, when it tells us. Both are optional: an
-    # unmigrated caller, or a notifier that failed before it got as far as an
-    # issue, leaves them empty and we go looking instead.
-    notify_issue: int | None
+    # What the notifier did. `NOTIFY_ISSUE` is required: this script upgrades
+    # the artefact the notifier just made, and is not in the business of
+    # going looking for it.
+    notify_issue: int
     notify_origin: str | None
 
 
@@ -66,23 +66,22 @@ def _read_config() -> _RunConfig:
         run_url=os.environ['RUN_URL'],
         api_key=os.environ.get('OPENROUTER_API_KEY', ''),
         model=os.environ.get('OPENROUTER_MODEL') or DEFAULT_MODEL,
-        notify_issue=int(os.environ['NOTIFY_ISSUE']) if os.environ.get('NOTIFY_ISSUE') else None,
+        notify_issue=int(os.environ['NOTIFY_ISSUE']),
         notify_origin=os.environ.get('NOTIFY_ORIGIN') or None,
     )
 
 
-def _resolve_origin(config: _RunConfig) -> tuple[int | None, str | None, int | None]:
+def _resolve_origin(config: _RunConfig) -> tuple[int | None, str | None, int]:
     """Locate the run's marker, degrading to "un-marked" if the lookup fails."""
     try:
         return _github.resolve_origin(
             config.repo, config.run_id, config.notify_issue, config.notify_origin
         )
-    except Exception as exc:  # search API rejection, rate limit, transient 5xx.
+    except Exception as exc:  # API rejection, rate limit, transient 5xx.
         # Nothing catches this above us: there is no workflow-level fallback
         # job any more, so an uncaught failure here loses the enrichment
-        # outright rather than degrading through the paths below. When the
-        # notifier told us its issue we can still carry on with that; without
-        # it we continue as though the run were un-marked.
+        # outright rather than degrading through the paths below. We still
+        # know the notifier's issue, so carry on with that.
         _summary.write_step_summary(
             f'Marker lookup failed ({exc}); treating this run as un-marked.'
         )
@@ -110,32 +109,6 @@ def _comment_on_rerun(config: _RunConfig, enriched_issue: int) -> None:
         f'Rung zero: run {config.run_id} already enriched on #{enriched_issue}; '
         'commented re-run note.'
     )
-
-
-def _create_placeholder_issue(config: _RunConfig) -> tuple[int, str]:
-    """Open a plain placeholder issue when no origin marker was found.
-
-    Either a caller that has not been migrated to pass the issue through, or a
-    marker lookup that failed. The first is the normal state of a repo part
-    way through adopting this, so don't treat it as an anomaly -- just don't
-    lose the notification.
-    """
-    _summary.write_step_summary(
-        'No notifier marker found for this run id; falling back to a plain issue.'
-    )
-    result = _github.gh(
-        'issue',
-        'create',
-        '--repo',
-        config.repo,
-        '--title',
-        f"Scheduled workflow '{config.workflow_name}' failed",
-        '--body',
-        plain_fallback_body(config.workflow_name, config.run_url)
-        + f'\n\n<!-- {MARKER_PREFIX}:run={config.run_id}:origin=new -->',
-    )
-    origin_issue = int(result.stdout.strip().rstrip('/').rsplit('/', 1)[-1])
-    return origin_issue, 'new'
 
 
 def _build_run_signature(config: _RunConfig) -> RunSignature:
@@ -323,9 +296,6 @@ def main() -> int:
     if enriched_issue is not None:
         _comment_on_rerun(config, enriched_issue)
         return 0
-
-    if origin_issue is None:
-        origin_issue, origin_kind = _create_placeholder_issue(config)
 
     signature = _build_run_signature(config)
     enriched_marker = render_enriched_marker(config.run_id, signature)

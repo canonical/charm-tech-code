@@ -23,10 +23,6 @@ MARKER_PREFIX = 'ai-failure-notifications'
 DEFAULT_MODEL = 'deepseek/deepseek-chat'  # DeepSeek V3 on OpenRouter.
 CLOSED_CANDIDATE_WINDOW_DAYS = 14
 MAX_CANDIDATES = 3
-# How many recently-updated issues to scan for the notifier's marker. The
-# artefact we are looking for was touched minutes ago, so this only has to
-# cover issue churn in that window; 50 is far more than `operator` sees.
-RECENT_ISSUE_SCAN = 50
 
 # Colour escapes, which Actions logs are full of. Two alternatives, because
 # the logs contain both the real thing and a mangled form where the ESC byte

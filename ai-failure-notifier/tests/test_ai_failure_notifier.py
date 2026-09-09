@@ -604,6 +604,7 @@ class MainFlowTests(unittest.TestCase):
             'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
             'RUN_URL': 'https://github.com/example/repo/actions/runs/28141163589',
             'OPENROUTER_API_KEY': 'test-key',
+            'NOTIFY_ISSUE': '9010',
         }
 
     def _patch_common(
@@ -613,7 +614,7 @@ class MainFlowTests(unittest.TestCase):
         gh_calls: mock.Mock,
     ) -> list[Any]:
         patches = [
-            mock.patch.object(_github, 'locate_run_markers', return_value=locate_return),
+            mock.patch.object(_github, 'resolve_origin', return_value=locate_return),
             mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
             mock.patch.object(
                 _github, 'fetch_run_meta', return_value={'createdAt': '2026-06-25T01:40:15Z'}
@@ -706,30 +707,13 @@ class GhCallShapeTests(unittest.TestCase):
 
     These mock only the `gh` subprocess boundary, not the functions under
     test, so a wrong flag or a mis-quoted positional is visible here. The
-    MainFlowTests above patch out `locate_run_markers` and `search_candidates`
+    MainFlowTests above patch out `resolve_origin` and `search_candidates`
     wholesale, which is why both shipped with argv bugs that 29 green tests
     did not catch -- see the 2026-07-25 dev-box run against canonical/operator.
     """
 
     def _capture(self, stdout: str = '[]') -> mock.Mock:
         return mock.Mock(return_value=mock.Mock(returncode=0, stdout=stdout, stderr=''))
-
-    def test_search_issue_numbers_passes_repo_as_a_flag(self):
-        gh_calls = self._capture('[{"number": 2658}]')
-        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
-            numbers = _github.search_issue_numbers('example/repo', 'Example Charm Tests')
-        self.assertEqual(numbers, [2658])
-        args = gh_calls.call_args.args
-        self.assertEqual(args[:2], ('search', 'issues'))
-        self.assertIn('--repo', args)
-        self.assertEqual(args[args.index('--repo') + 1], 'example/repo')
-        # The query is a bare positional -- no `repo:` prefix, no added quotes.
-        # `gh search issues` quotes each positional as one keyword, so folding
-        # the repo in produces `repo:"example/repo \"text\""`, which
-        # GitHub rejects with "Invalid search query".
-        self.assertIn('Example Charm Tests', args)
-        for arg in args:
-            self.assertNotIn('repo:example/repo', arg)
 
     def test_search_candidates_passes_state_and_search_flags(self):
         gh_calls = self._capture('[]')
@@ -847,99 +831,6 @@ class GhCallShapeTests(unittest.TestCase):
         self.assertEqual(args[args.index('--json') + 1], 'name')
 
 
-class MarkerLookupConsistencyTests(unittest.TestCase):
-    """The notifier's marker must be found without depending on the search index.
-
-    `gh search issues` is not read-your-writes: the notifier stamps its marker
-    seconds before the enricher runs, and an unindexed marker reads as "no
-    notifier marker found", which makes main() open a *second* issue for a run
-    that already has one. The issue list endpoint has no such lag, so it is
-    consulted first and search is only a fallback.
-    """
-
-    def _gh(self, responses: list[str]) -> mock.Mock:
-        return mock.Mock(
-            side_effect=[mock.Mock(returncode=0, stdout=out, stderr='') for out in responses]
-        )
-
-    def test_marker_in_a_body_is_found_without_any_search_call(self):
-        listing = json.dumps([
-            {'number': 2700, 'body': 'unrelated', 'comments': []},
-            {
-                'number': 2658,
-                'body': 'placeholder\n\n<!-- ai-failure-notifications:run=999:origin=new -->',
-                'comments': [],
-            },
-        ])
-        gh_calls = self._gh([listing])
-        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
-            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
-        self.assertEqual((enriched, kind, number), (None, 'new', 2658))
-        # Exactly one call, and it is the list endpoint -- not search.
-        self.assertEqual(gh_calls.call_count, 1)
-        args = gh_calls.call_args.args
-        self.assertEqual(args[:2], ('issue', 'list'))
-        self.assertEqual(args[args.index('--repo') + 1], 'example/repo')
-        self.assertEqual(args[args.index('--state') + 1], 'all')
-        self.assertEqual(args[args.index('--json') + 1], 'number,body,comments')
-
-    def test_marker_in_a_comment_is_found_too(self):
-        comment = 'failed again\n\n<!-- ai-failure-notifications:run=999:origin=comment -->'
-        listing = json.dumps([
-            {
-                'number': 2601,
-                'body': 'an older failure thread',
-                'comments': [{'body': comment}],
-            }
-        ])
-        with mock.patch.object(_github, 'gh', side_effect=self._gh([listing])):
-            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
-        self.assertEqual((enriched, kind, number), (None, 'comment', 2601))
-
-    def test_search_is_a_fallback_when_the_listing_misses(self):
-        listing = json.dumps([{'number': 2700, 'body': 'unrelated', 'comments': []}])
-        search = json.dumps([{'number': 2658}])
-        view = json.dumps({
-            'body': 'placeholder\n\n<!-- ai-failure-notifications:run=999:origin=new -->',
-            'comments': [],
-        })
-        gh_calls = self._gh([listing, search, view])
-        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
-            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
-        self.assertEqual((enriched, kind, number), (None, 'new', 2658))
-        self.assertEqual(gh_calls.call_args_list[1].args[:2], ('search', 'issues'))
-
-    def test_an_unindexed_marker_still_resolves(self):
-        """The regression this change exists for.
-
-        Search returns nothing (the marker is not indexed yet) but the issue is
-        right there in the listing. Before the fix this returned all-None and
-        main() opened a duplicate issue.
-        """
-        listing = json.dumps([
-            {
-                'number': 2658,
-                'body': 'placeholder\n\n<!-- ai-failure-notifications:run=999:origin=new -->',
-                'comments': [],
-            }
-        ])
-        with mock.patch.object(_github, 'gh', side_effect=self._gh([listing, '[]'])):
-            enriched, kind, number = _github.locate_run_markers('example/repo', '999')
-        self.assertEqual((enriched, kind, number), (None, 'new', 2658))
-
-    def test_rung_zero_sig_marker_is_found_in_the_listing(self):
-        listing = json.dumps([
-            {
-                'number': 2658,
-                'body': 'enriched\n\n<!-- ai-failure-notifications:run=999:sig=abc123 -->',
-                'comments': [],
-            }
-        ])
-        with mock.patch.object(_github, 'gh', side_effect=self._gh([listing])):
-            enriched, _, _ = _github.locate_run_markers('example/repo', '999')
-        self.assertEqual(enriched, 2658)
-
-
 class NormalisationTests(unittest.TestCase):
     """Fields that do not apply to the chosen action are dropped, not fatal.
 
@@ -1038,12 +929,11 @@ class CandidatePoolTests(unittest.TestCase):
             'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
             'RUN_URL': 'https://example.invalid/run',
             'OPENROUTER_API_KEY': 'test-key',
+            'NOTIFY_ISSUE': '9010',
         }
         with (
             mock.patch.dict(os.environ, env, clear=True),
-            mock.patch.object(
-                _github, 'locate_run_markers', return_value=(None, origin_kind, 9010)
-            ),
+            mock.patch.object(_github, 'resolve_origin', return_value=(None, origin_kind, 9010)),
             mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
             mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
             mock.patch.object(_github, 'search_candidates', return_value=(candidates, [])),
@@ -1147,6 +1037,7 @@ class MainDegradationTests(unittest.TestCase):
             'RUN_ID': '28141163589',
             'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
             'RUN_URL': 'https://github.com/example/repo/actions/runs/28141163589',
+            'NOTIFY_ISSUE': '4242',
         }
 
     def test_marker_lookup_failure_does_not_crash_main(self):
@@ -1157,7 +1048,7 @@ class MainDegradationTests(unittest.TestCase):
         )
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(_github, 'locate_run_markers', side_effect=RuntimeError('boom')),
+            mock.patch.object(_github, 'resolve_origin', side_effect=RuntimeError('boom')),
             mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
             mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
             mock.patch.object(_github, 'existing_labels', return_value=set()),
@@ -1176,7 +1067,7 @@ class MainDegradationTests(unittest.TestCase):
         env = dict(self.env, OPENROUTER_API_KEY='test-key')
         with (
             mock.patch.dict('os.environ', env, clear=True),
-            mock.patch.object(_github, 'locate_run_markers', return_value=(None, 'new', 4242)),
+            mock.patch.object(_github, 'resolve_origin', return_value=(None, 'new', 4242)),
             mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
             mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
             mock.patch.object(_github, 'search_candidates', side_effect=RuntimeError('boom')),
@@ -1257,17 +1148,17 @@ class OpenRouterCallTests(unittest.TestCase):
 
 
 class ResolveOriginTests(unittest.TestCase):
-    """`notify` hands us the issue it touched; we only go looking without it."""
+    """`notify` hands us the issue it touched, and that is the only lookup."""
 
-    def test_passed_issue_is_used_without_any_lookup(self):
-        with (
-            mock.patch.object(_github, 'fetch_issue_texts', return_value=['no markers here']),
-            mock.patch.object(_github, 'locate_run_markers') as locate,
-        ):
+    def test_passed_issue_is_used_without_any_search(self):
+        with mock.patch.object(
+            _github, 'fetch_issue_texts', return_value=['no markers here']
+        ) as fetch:
             enriched, kind, origin = _github.resolve_origin('o/r', '123', 4242, 'comment')
         self.assertEqual((enriched, kind, origin), (None, 'comment', 4242))
-        # The read-your-writes hazard is gone because nothing is searched for.
-        locate.assert_not_called()
+        # The read-your-writes hazard is gone because the only issue we read
+        # is the one we were handed -- nothing is searched for.
+        fetch.assert_called_once_with('o/r', 4242)
 
     def test_passed_issue_wins_over_a_missing_marker(self):
         """A marker we cannot find does not make the issue the wrong issue."""
@@ -1288,13 +1179,3 @@ class ResolveOriginTests(unittest.TestCase):
         with mock.patch.object(_github, 'fetch_issue_texts', return_value=[body]):
             enriched, _kind, _origin = _github.resolve_origin('o/r', '123', 4242, 'new')
         self.assertIsNone(enriched)
-
-    def test_no_passed_issue_falls_back_to_the_repo_wide_scan(self):
-        """An unmigrated caller, or a notifier that failed before opening an
-        issue, has to keep working."""
-        with mock.patch.object(
-            _github, 'locate_run_markers', return_value=(None, 'new', 9)
-        ) as locate:
-            result = _github.resolve_origin('o/r', '123', None, None)
-        self.assertEqual(result, (None, 'new', 9))
-        locate.assert_called_once_with('o/r', '123')
