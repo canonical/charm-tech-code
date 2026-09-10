@@ -2,7 +2,7 @@
 
 Turns GitHub's generated release notes into our changelog format.
 
-Lifted out of `canonical/operator`'s `release.py`, which is being replaced by three workflows ([canonical/operator#2224](https://github.com/canonical/operator/issues/2224)). The formatting is the part that isn't specific to one repository, so it lives here and the version arithmetic, the file rewriting and the GitHub calls stay behind in operator.
+The Charm Tech repositories have different release processes, but aim for a consistent changelog style. The formatting and the version arithmetic are centralised here, the file rewriting and the GitHub calls are in each repository.
 
 ## Using it
 
