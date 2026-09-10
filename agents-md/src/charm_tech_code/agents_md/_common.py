@@ -1,0 +1,142 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Shared helpers for the checks and fixes in this package."""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import pathlib
+import subprocess
+import sys
+from collections.abc import Iterator
+from typing import Any
+
+# Templates and question batteries ship with the package rather than sitting
+# beside the skill, so a `uvx --from git+...` invocation carries them too.
+ASSETS = pathlib.Path(__file__).parent / 'assets'
+
+
+# Exit codes. Every check script exits with one of these.
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_NA = 2
+EXIT_UNKNOWN = 3
+
+
+def repo_root() -> pathlib.Path:
+    """Return the repo root. Falls back to CWD when not inside a git tree
+    (the skill can be invoked against an unpacked tarball, for example)."""
+    try:
+        out = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        if out:
+            return pathlib.Path(out)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return pathlib.Path.cwd()
+
+
+def origin_url() -> str:
+    """Return the origin remote URL normalised to https form, without a
+    trailing .git. Empty string if no origin remote."""
+    try:
+        url = subprocess.run(
+            ['git', 'config', '--get', 'remote.origin.url'],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ''
+    if url.startswith('git@github.com:'):
+        url = 'https://github.com/' + url[len('git@github.com:') :]
+    if url.endswith('.git'):
+        url = url[:-4]
+    return url
+
+
+_collector: list[dict[str, Any]] | None = None
+
+
+@contextlib.contextmanager
+def collecting() -> Iterator[list[dict[str, Any]]]:
+    """Capture what emit_check produces instead of printing it.
+
+    Nesting is not supported, and does not happen: only the umbrella runner
+    collects, and a check never runs another check.
+    """
+    global _collector
+    results: list[dict[str, Any]] = []
+    _collector = results
+    try:
+        yield results
+    finally:
+        _collector = None
+
+
+def emit_check(
+    check_id: str,
+    status: str,
+    summary: str,
+    evidence: dict[str, Any] | None = None,
+    remediation: dict[str, Any] | None = None,
+) -> None:
+    """Emit a single check result as a JSON object on one line to stdout.
+
+    status is one of: pass, fail, na, unknown.
+    """
+    payload = {
+        'id': check_id,
+        'status': status,
+        'summary': summary,
+        'evidence': evidence if evidence is not None else {},
+        'remediation': remediation,
+    }
+    if _collector is not None:
+        # The umbrella runner imports each check and calls its main() in
+        # process, so the result is handed over directly rather than being
+        # printed and reparsed.
+        _collector.append(payload)
+        return
+    # Single-line JSON, for a check invoked on its own.
+    sys.stdout.write(json.dumps(payload, separators=(',', ':')))
+    sys.stdout.write('\n')
+
+
+def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    """Convenience wrapper around subprocess.run with text=True and
+    capture_output=True by default. Never raises on non-zero exit —
+    callers should inspect .returncode."""
+    kwargs.setdefault('text', True)
+    kwargs.setdefault('capture_output', True)
+    kwargs.setdefault('check', False)
+    return subprocess.run(cmd, **kwargs)
+
+
+def cd_repo_root() -> pathlib.Path:
+    """Chdir to the repo root and return it. Exits EXIT_UNKNOWN if the
+    root cannot be reached (matches the shell behaviour of `cd || exit 3`)."""
+    root = repo_root()
+    try:
+        os.chdir(root)
+    except OSError:
+        sys.exit(EXIT_UNKNOWN)
+    return root
