@@ -23,21 +23,14 @@ import os
 import sys
 from typing import Any
 
-from charm_tech_code.ai_failure_notifier import _github, _openrouter, _prompt, _summary
-from charm_tech_code.ai_failure_notifier._apply import (
-    apply_entry,
-    plain_fallback_body,
-    render_body,
-)
-from charm_tech_code.ai_failure_notifier._candidates import build_candidates_block
-from charm_tech_code.ai_failure_notifier._constants import DEFAULT_MODEL, MARKER_PREFIX
-from charm_tech_code.ai_failure_notifier._envelope import normalise_envelope, validate_envelope
-from charm_tech_code.ai_failure_notifier._markers import render_enriched_marker
-from charm_tech_code.ai_failure_notifier._models import RunSignature
-from charm_tech_code.ai_failure_notifier._signatures import (
-    build_job_signature,
-    build_run_signature,
-)
+from . import _github, _openrouter, _prompt, _summary
+from ._apply import apply_entry, plain_fallback_body, render_body
+from ._candidates import build_candidates_block
+from ._constants import DEFAULT_MODEL, MARKER_PREFIX
+from ._envelope import normalise_envelope, validate_envelope
+from ._markers import render_enriched_marker
+from ._models import RunSignature
+from ._signatures import build_job_signature, build_run_signature
 
 
 @dataclasses.dataclass(frozen=True)

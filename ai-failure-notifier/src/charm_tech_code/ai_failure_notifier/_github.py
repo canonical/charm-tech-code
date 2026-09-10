@@ -21,9 +21,9 @@ import json
 import subprocess
 from typing import Any
 
-from charm_tech_code.ai_failure_notifier import _summary
-from charm_tech_code.ai_failure_notifier._markers import find_run_markers
-from charm_tech_code.ai_failure_notifier._models import CandidateIssue, FailedJob
+from . import _summary
+from ._markers import find_run_markers
+from ._models import CandidateIssue, FailedJob
 
 
 def gh(*args: str, check: bool = True) -> subprocess.CompletedProcess:

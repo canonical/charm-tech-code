@@ -19,11 +19,8 @@ from __future__ import annotations
 
 import datetime
 
-from charm_tech_code.ai_failure_notifier._constants import (
-    CLOSED_CANDIDATE_WINDOW_DAYS,
-    MAX_CANDIDATES,
-)
-from charm_tech_code.ai_failure_notifier._models import CandidateIssue
+from ._constants import CLOSED_CANDIDATE_WINDOW_DAYS, MAX_CANDIDATES
+from ._models import CandidateIssue
 
 
 def within_window(iso_timestamp: str, now: datetime.datetime, days: int) -> bool:

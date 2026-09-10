@@ -21,7 +21,7 @@ import json
 import urllib.request
 from typing import Any
 
-from charm_tech_code.ai_failure_notifier._envelope import ENVELOPE_JSON_SCHEMA
+from ._envelope import ENVELOPE_JSON_SCHEMA
 
 
 def call_openrouter(

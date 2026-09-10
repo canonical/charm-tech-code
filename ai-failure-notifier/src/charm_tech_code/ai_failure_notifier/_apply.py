@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from charm_tech_code.ai_failure_notifier import _github, _summary
+from . import _github, _summary
 
 
 def plain_fallback_body(workflow_name: str, run_url: str) -> str:
