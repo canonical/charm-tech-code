@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""AGENTS.md question battery validation, checked statically."""
+"""AGENTS.md question battery validation.
+
+The battery data is checked statically, without running the check against a repo.
+"""
 
 from __future__ import annotations
 

@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""AGENTS.md content check: the five staleness checks."""
+"""AGENTS.md content check.
+
+This tests the five top-level staleness checks.
+"""
 
 from __future__ import annotations
 

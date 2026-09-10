@@ -12,10 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared helpers for the checks and fixes in this package.
-
-Imported by every check / fix script. No side effects on import.
-"""
+"""Shared helpers for the checks and fixes in this package."""
 
 from __future__ import annotations
 

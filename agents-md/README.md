@@ -1,6 +1,6 @@
 # agents-md
 
-Keeps the `AGENTS.md` files across the Charm Tech estate current and load-bearing. It implements the deterministic half of the scheme for doing that: a line in `AGENTS.md` earns its place either as an *override* (the agent would confidently do the wrong thing without it) or as a *cache* (the agent would get there eventually, by reading the Makefile, tox config and CI every session). A stale line is worse than a missing one, because agents trust the file over the repo.
+Keeps the `AGENTS.md` files across the Charm Tech estate current and load-bearing. This is the deterministic half of the validation: a line in `AGENTS.md` earns its place either as an *override* (the agent would confidently do the wrong thing without it) or as a *cache* (the agent would get there eventually, by reading the Makefile, tox config and CI every session). A stale line is worse than a missing one, because agents trust the file over the repo.
 
 ## Checks
 
@@ -19,8 +19,6 @@ uvx --from charm-tech-code-agents-md agents-md check
 uvx --from charm-tech-code-agents-md agents-md check --only=agents-md-content --format=markdown
 uvx --from charm-tech-code-agents-md agents-md list
 ```
-
-Every check applies to every repository. A well-maintained `AGENTS.md` is worth the same in a personal fork as in a product repository, so there is no tier system here and nothing to configure per repo beyond the battery.
 
 ## Question batteries
 

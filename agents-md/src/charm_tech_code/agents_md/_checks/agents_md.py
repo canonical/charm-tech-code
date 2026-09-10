@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Check: AGENTS.md present (best-of-class; agent-onboarding entry point).
+"""Check: AGENTS.md present.
 
 Convention: keep it minimal — a short pointer file, not an encyclopaedia.
 """
