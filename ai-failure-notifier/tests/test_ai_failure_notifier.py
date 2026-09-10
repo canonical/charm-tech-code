@@ -832,6 +832,31 @@ class GhCallShapeTests(unittest.TestCase):
         self.assertEqual(args[:2], ('label', 'list'))
         self.assertEqual(args[args.index('--json') + 1], 'name')
 
+    def test_existing_issue_types_returns_the_enabled_ones(self):
+        gh_calls = self._capture(
+            '{"data": {"repository": {"issueTypes": {"nodes": ['
+            '{"name": "Bug", "isEnabled": true}, '
+            '{"name": "Task", "isEnabled": true}, '
+            '{"name": "Epic", "isEnabled": false}]}}}}'
+        )
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            types = _github.existing_issue_types('example/repo')
+        self.assertEqual(types, {'Bug', 'Task'})
+        args = gh_calls.call_args.args
+        self.assertEqual(args[:2], ('api', 'graphql'))
+
+    def test_existing_issue_types_tolerates_a_repo_with_none(self):
+        """A personal fork, or any repo whose org has not enabled types."""
+        gh_calls = self._capture('{"data": {"repository": {"issueTypes": null}}}')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            self.assertEqual(_github.existing_issue_types('example/repo'), set())
+
+    def test_match_issue_type_ignores_case_and_uses_the_repo_spelling(self):
+        self.assertEqual(_github.match_issue_type('bug', {'Bug', 'Task'}), 'Bug')
+        self.assertIsNone(_github.match_issue_type('bug', set()))
+        self.assertIsNone(_github.match_issue_type('chore', {'Bug', 'Task'}))
+        self.assertIsNone(_github.match_issue_type(None, {'Bug'}))
+
 
 class NormalisationTests(unittest.TestCase):
     """Fields that do not apply to the chosen action are dropped, not fatal.
@@ -986,6 +1011,73 @@ class BodyFooterTests(unittest.TestCase):
         args = gh_calls.call_args.args
         self.assertEqual(args[:3], ('issue', 'comment', '7'))
         self.assertIn('Workflow: ops Smoke Tests', args[args.index('--body') + 1])
+
+    def test_a_missing_issue_type_creates_one_issue_and_not_two(self):
+        """The type is resolved before the create, so there is nothing to retry.
+
+        `gh issue create --type` creates the issue and only then fails on the
+        type, so retrying without it opened a second, identical issue.
+        """
+        gh_calls = mock.Mock(
+            return_value=mock.Mock(returncode=0, stdout='https://x/issues/9', stderr='')
+        )
+        entry: dict[str, Any] = {
+            'action': 'new',
+            'title': 't',
+            'body': 'Detail.',
+            'labels': [],
+            'issue_type': 'bug',
+        }
+        with (
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'existing_issue_types', return_value=set()),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
+        ):
+            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+        gh_calls.assert_called_once()
+        self.assertNotIn('--type', gh_calls.call_args.args)
+        self.assertIn('bug', summary.call_args.args[0])
+
+    def test_a_known_issue_type_is_passed_in_the_repo_spelling(self):
+        gh_calls = mock.Mock(
+            return_value=mock.Mock(returncode=0, stdout='https://x/issues/9', stderr='')
+        )
+        entry: dict[str, Any] = {
+            'action': 'new',
+            'title': 't',
+            'body': 'Detail.',
+            'labels': [],
+            'issue_type': 'bug',
+        }
+        with (
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'existing_issue_types', return_value={'Bug', 'Task'}),
+        ):
+            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+        gh_calls.assert_called_once()
+        args = gh_calls.call_args.args
+        self.assertEqual(args[args.index('--type') + 1], 'Bug')
+
+    def test_no_issue_type_asked_for_costs_no_lookup(self):
+        gh_calls = mock.Mock(
+            return_value=mock.Mock(returncode=0, stdout='https://x/issues/9', stderr='')
+        )
+        entry: dict[str, Any] = {
+            'action': 'new',
+            'title': 't',
+            'body': 'Detail.',
+            'labels': [],
+            'issue_type': None,
+        }
+        with (
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'existing_issue_types') as types,
+        ):
+            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+        types.assert_not_called()
 
     def test_applied_new_issue_body_has_the_footer(self):
         gh_calls = mock.Mock(
