@@ -36,7 +36,7 @@ Neither shape is injectable, and neither is the map of commit type to heading. T
 Two things about that map are worth knowing before you decide it's wrong:
 
 * `chore` is a type but not a category, so `chore` commits are deliberately dropped. Dependency bumps, charm-pin updates and the release's own version-bump commit are all `chore`, and these sorts of changes are not interesting to our users, and they are available via `git log` if anyone does want them.
-* `breaking` is a category but not a type. A `!` after the real type (`feat!:`) moves an entry into it, keeping its real type as a prefix, and it renders first with a sentence asking the reader to review carefully. A `!` deliberately doesn't infer a major version bump, so that calling-out is the only thing marking it.
+* `breaking` is a category but not a type. A `!` after the real type (`feat!:`) moves an entry into it, keeping its real type as a prefix, and it renders first with a sentence asking the reader to review carefully. A `!` should be a major version bump, but if it's appearing here then we have decided to cheat the semver rules and allow a breaking change in a minor release. This should be rare. We will have carefully checked the impact before this decision, but want to make sure the change is particularly noticeable in the changelog.
 
 ## Developing
 
