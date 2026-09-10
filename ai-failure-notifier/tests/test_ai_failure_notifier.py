@@ -1283,21 +1283,53 @@ class OpenRouterCallTests(unittest.TestCase):
         )
         self.assertTrue(sent['response_format']['json_schema']['strict'])
 
-    def test_http_error_propagates_so_main_can_fall_back(self):
+    def _http_error(self, status: int, body: bytes) -> urllib.error.HTTPError:
         # HTTPError holds a file object and warns on implicit cleanup, which
         # the unit env's -W error turns into a failure. Give it a real `fp`
         # (it fabricates a tempfile when passed None) and close it explicitly.
         error = urllib.error.HTTPError(
             'https://openrouter.ai/api/v1/chat/completions',
-            500,
+            status,
             'boom',
             email.message.Message(),
-            io.BytesIO(b''),
+            io.BytesIO(body),
         )
         self.addCleanup(error.close)
+        return error
+
+    def test_http_error_raises_so_main_can_fall_back(self):
+        error = self._http_error(500, b'')
         with mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error):
-            with self.assertRaises(urllib.error.HTTPError):
+            with self.assertRaises(RuntimeError):
                 _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+
+    def test_the_error_carries_openrouters_own_explanation(self):
+        """A 400 says only "Bad Request"; which of the model, key or schema is in the body."""
+        body = json.dumps({
+            'error': {'code': 400, 'message': "Invalid schema: 'required' is missing 'also'"}
+        }).encode()
+        error = self._http_error(400, body)
+        with mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error):
+            with self.assertRaises(RuntimeError) as raised:
+                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+        message = str(raised.exception)
+        self.assertIn('HTTP Error 400', message)
+        self.assertIn("'required' is missing 'also'", message)
+
+    def test_a_body_that_is_not_json_is_reported_as_it_came(self):
+        error = self._http_error(502, b'<html>upstream is unwell</html>')
+        with mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error):
+            with self.assertRaises(RuntimeError) as raised:
+                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+        self.assertIn('upstream is unwell', str(raised.exception))
+
+    def test_an_unreadable_body_still_leaves_the_status(self):
+        error = self._http_error(429, b'')
+        error.read = mock.Mock(side_effect=OSError('connection reset'))
+        with mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error):
+            with self.assertRaises(RuntimeError) as raised:
+                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+        self.assertIn('HTTP Error 429', str(raised.exception))
 
 
 class ResolveOriginTests(unittest.TestCase):
