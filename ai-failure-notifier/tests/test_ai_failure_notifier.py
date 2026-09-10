@@ -924,6 +924,65 @@ class NormalisationTests(unittest.TestCase):
         self.assertEqual(dropped, ['envelope.also[0]: title'])
         self.assertEqual(_envelope.validate_envelope(cleaned), [])
 
+    def test_a_hash_prefixed_target_issue_is_coerced(self):
+        """The model writes issues the way people do, and the schema wants an int."""
+        envelope: dict[str, Any] = {
+            'action': 'comment',
+            'target_issue': '#44',
+            'body': 'b',
+            'dedup_reason': 'd',
+            'confidence': 'low',
+        }
+        cleaned, dropped = _envelope.normalise_envelope(envelope)
+        self.assertEqual(cleaned['target_issue'], 44)
+        self.assertEqual(dropped, [])
+        self.assertEqual(_envelope.validate_envelope(cleaned), [])
+
+    def test_a_bare_digit_string_target_issue_is_coerced(self):
+        envelope: dict[str, Any] = {
+            'action': 'comment',
+            'target_issue': ' 44 ',
+            'body': 'b',
+            'dedup_reason': 'd',
+            'confidence': 'low',
+        }
+        cleaned, _ = _envelope.normalise_envelope(envelope)
+        self.assertEqual(cleaned['target_issue'], 44)
+
+    def test_a_target_issue_that_is_not_a_reference_is_left_for_the_schema(self):
+        envelope: dict[str, Any] = {
+            'action': 'comment',
+            'target_issue': 'the loki one',
+            'body': 'b',
+            'dedup_reason': 'd',
+            'confidence': 'low',
+        }
+        cleaned, _ = _envelope.normalise_envelope(envelope)
+        self.assertEqual(cleaned['target_issue'], 'the loki one')
+        self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
+
+    def test_also_entries_get_the_same_coercion(self):
+        inner: dict[str, Any] = {
+            'action': 'comment',
+            'target_issue': '#1',
+            'body': 'b',
+            'dedup_reason': 'd',
+            'confidence': 'low',
+        }
+        envelope: dict[str, Any] = {
+            'action': 'new',
+            'title': 't',
+            'body': 'b',
+            'labels': [],
+            'issue_type': None,
+            'dedup_reason': 'd',
+            'confidence': 'low',
+            'also': [inner],
+        }
+        cleaned, _ = _envelope.normalise_envelope(envelope)
+        self.assertEqual(cleaned['also'][0]['target_issue'], 1)
+        self.assertEqual(_envelope.validate_envelope(cleaned), [])
+
     def test_nothing_dropped_leaves_the_envelope_alone(self):
         cleaned, dropped = _envelope.normalise_envelope(FIXTURE_ENVELOPE)
         self.assertEqual(dropped, [])
