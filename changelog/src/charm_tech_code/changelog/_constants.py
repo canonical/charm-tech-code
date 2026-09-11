@@ -76,6 +76,31 @@ CATEGORIES: tuple[str, ...] = (
 #: The meta category breaking changes are collected into.
 BREAKING = 'breaking'
 
+#: The one real conventional-commit type the bump-size rule cares about.
+FEATURE = 'feat'
+
+#: The categories whose presence in a range makes the release a minor one.
+#: Everything else -- and an empty range -- is a patch.
+#:
+#: `feat` is the rule as it is usually stated. `breaking` is here because a
+#: `!` moves an entry *out* of its real type and into the meta category, so
+#: a range whose only feature is a `feat!` has an empty `feat` list, and a
+#: rule that only looked at `feat` would call that release a patch. It is
+#: also the right answer in its own right: a `!` does not infer a major bump
+#: (see `BREAKING_PREAMBLE`), but a breaking change riding in a *patch*
+#: release is a worse bend of the rules than one riding in a minor, which is
+#: the bend we have actually decided to allow. operator's own 3.8.0 shipped
+#: a `refactor!` in a minor release.
+#:
+#: A major bump is never inferred, from this or anything else. That is what
+#: the release workflow's explicit version input is for.
+MINOR_BUMP_CATEGORIES: tuple[str, ...] = (BREAKING, FEATURE)
+
+#: A plain `X.Y.Z` release version, which is the only shape the bump
+#: arithmetic will touch. Pre-releases, dev versions and anything else are
+#: the caller's own policy: see `next_version`.
+RELEASE_VERSION_REGEX = re.compile(r'(\d+)\.(\d+)\.(\d+)')
+
 #: Commit type to the heading it is rendered under. A type with no entry
 #: here is capitalised instead, which is what makes an unrecognised type
 #: degrade to something readable rather than to a KeyError.

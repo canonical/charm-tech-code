@@ -15,6 +15,12 @@ license = "Apache-2.0"
 # parts that stayed behind in canonical/operator.
 dependencies = []
 
+# The importable API is the package; this is the same thing wrapped for a
+# workflow step, which cannot `import`. `argparse` is stdlib, so it stays a
+# dependency-free package.
+[project.scripts]
+changelog = "charm_tech_code.changelog._cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
