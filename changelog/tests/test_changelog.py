@@ -25,15 +25,25 @@ PR title being the squash-commit subject minus its ` (#NNNN)` suffix.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
+import io
+import pathlib
 import unittest
+from unittest import mock
 
 from charm_tech_code.changelog import (
     CATEGORIES,
     CATEGORY_HEADINGS,
+    MINOR,
+    MINOR_BUMP_CATEGORIES,
+    PATCH,
+    _cli,
     commit_type_to_category,
     format_changes,
     format_release_notes,
+    infer_bump_size,
+    next_version,
     parse_release_notes,
 )
 
@@ -490,3 +500,212 @@ class CommitTypeToCategoryTests(unittest.TestCase):
         # Otherwise a category would render under a capitalised version of
         # its own key, which is only ever right by accident.
         assert set(CATEGORIES) <= set(CATEGORY_HEADINGS)
+
+
+# The `chore` half of the 3.8.2 fixture on its own: eleven real pull requests,
+# nothing else. A release with nothing in it but dependency bumps and charm
+# pins is not hypothetical, and it is a patch.
+OPERATOR_CHORE_ONLY_NOTES = '\n'.join(
+    line
+    for line in OPERATOR_3_8_2_NOTES.splitlines()
+    if line.startswith('* chore') or not line.startswith('*')
+)
+
+# The one `!` pull request operator has merged into a 3.x release, by itself.
+# The rest of the 3.7.1..3.8.0 range is what makes that release obviously a
+# minor one; without it, the `!` has to carry the decision alone.
+OPERATOR_BREAKING_ONLY_NOTES = """\
+## What's Changed
+* refactor!: move the otlp-json package to be a regular ops-tracing module by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2585
+
+**Full Changelog**: https://github.com/canonical/operator/compare/3.7.1...3.8.0
+"""
+
+
+def categories_of(notes: str) -> dict[str, list[tuple[str, str]]]:
+    return parse_release_notes(notes)[0]
+
+
+class BumpSizeTests(unittest.TestCase):
+    """The rule -- a `feat` in the range means minor, otherwise patch -- against real releases."""
+
+    def test_a_release_with_no_features_is_a_patch(self):
+        # 3.8.1 -> 3.8.2: two fixes, seven docs, three CI, eleven chore. It
+        # shipped as a patch.
+        assert infer_bump_size(categories_of(OPERATOR_3_8_2_NOTES)) == PATCH
+
+    def test_a_release_with_a_feature_is_a_minor(self):
+        # 3.7.1 -> 3.8.0, trimmed: one `feat` (#2555) among four pull
+        # requests. It shipped as a minor.
+        assert infer_bump_size(categories_of(OPERATOR_BREAKING_NOTES)) == MINOR
+
+    def test_a_breaking_change_on_its_own_is_a_minor(self):
+        # #2585 is a `refactor!`, so on the plain reading of the rule -- "a
+        # `feat` in the range means minor" -- a release containing only it
+        # would be a patch, and a breaking change would ship in a patch
+        # release. A `!` does not infer a major bump, because we have decided
+        # to let a breaking change ride in a minor when the impact has been
+        # checked. Riding in a patch is not the same decision, and is not one
+        # anyone has made. So a `!` means at least minor.
+        assert infer_bump_size(categories_of(OPERATOR_BREAKING_ONLY_NOTES)) == MINOR
+
+    def test_a_breaking_feature_is_still_a_minor(self):
+        # The regression this guards against: `parse_release_notes` *moves* a
+        # `!` entry out of its real type, so a range whose only feature is a
+        # `feat!` has an empty `feat` list. A rule that read `feat` alone
+        # would call this a patch. operator has not merged a `feat!` into a
+        # 3.x release, so this bullet is made up rather than lifted.
+        categories = categories_of(
+            '* feat!: replace the framework API by @someone in https://example.com/pull/1'
+        )
+        assert categories['feat'] == []
+        assert infer_bump_size(categories) == MINOR
+
+    def test_a_release_of_nothing_but_chores_is_a_patch(self):
+        assert infer_bump_size(categories_of(OPERATOR_CHORE_ONLY_NOTES)) == PATCH
+
+    def test_an_empty_range_is_a_patch(self):
+        assert infer_bump_size(categories_of('')) == PATCH
+
+    def test_major_is_never_inferred(self):
+        # Even with every category populated, including breaking. A major
+        # release is the explicit version input's job.
+        categories = {
+            category: [(f'A {category} change', 'https://example.com/pull/1')]
+            for category in CATEGORIES
+        }
+        assert infer_bump_size(categories) == MINOR
+
+    def test_the_minor_categories_are_categories(self):
+        # Otherwise this would be a second type list quietly diverging from
+        # the first: a renamed category would stop being a minor bump without
+        # anything saying so.
+        assert set(MINOR_BUMP_CATEGORIES) <= set(CATEGORIES)
+
+
+class NextVersionTests(unittest.TestCase):
+    """Applying a size to a version. Generic semver, and nothing beyond it."""
+
+    def test_real_history(self):
+        # The two releases the fixtures above are taken from.
+        assert next_version('3.7.1', MINOR) == '3.8.0'
+        assert next_version('3.8.1', PATCH) == '3.8.2'
+
+    def test_a_minor_bump_zeroes_the_patch(self):
+        assert next_version('3.8.2', MINOR) == '3.9.0'
+
+    def test_components_are_numbers_not_digits(self):
+        assert next_version('3.9.9', PATCH) == '3.9.10'
+        assert next_version('2.23.16', PATCH) == '2.23.17'
+        assert next_version('3.9.1', MINOR) == '3.10.0'
+
+    def test_surrounding_whitespace_is_tolerated(self):
+        # `--previous "$(git describe --tags --abbrev=0)"` arrives with a
+        # newline on it often enough to be worth not failing over.
+        assert next_version(' 3.8.1\n', PATCH) == '3.8.2'
+
+    def test_a_dev_version_is_rejected(self):
+        # The one that matters. Between releases `ops/version.py` holds
+        # something like 3.9.0.dev0, and reaching for it as the previous
+        # version is the easy mistake: it is a guess made by the last
+        # post-release bump, not a version that was ever released. Bumping it
+        # would skip a version, and stripping the suffix silently would
+        # release whatever that guess happened to be.
+        with self.assertRaises(ValueError):
+            next_version('3.9.0.dev0', MINOR)
+
+    def test_a_pre_release_is_rejected(self):
+        for version in ('3.8.0b1', '3.8.0rc1', '3.8.0a1'):
+            with self.assertRaises(ValueError):
+                next_version(version, MINOR)
+
+    def test_a_tag_that_is_not_a_version_is_rejected(self):
+        for previous in ('v3.8.1', '3.8', '', 'main'):
+            with self.assertRaises(ValueError):
+                next_version(previous, PATCH)
+
+    def test_an_unknown_size_is_rejected(self):
+        # Including 'major', which is not a size this package produces.
+        with self.assertRaises(ValueError):
+            next_version('3.8.1', 'major')  # type: ignore[arg-type]
+
+    def test_the_error_points_at_the_way_out(self):
+        with self.assertRaises(ValueError) as raised:
+            next_version('3.9.0.dev0', MINOR)
+        assert 'explicitly' in str(raised.exception)
+
+
+class ConsoleScriptTests(unittest.TestCase):
+    """The `changelog` console script: notes on stdin, one answer on stdout."""
+
+    def run_cli(self, *argv: str, stdin: str = OPERATOR_3_8_2_NOTES) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            mock.patch('sys.stdin', io.StringIO(stdin)),
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+        ):
+            returncode = _cli.main(argv)
+        return returncode, out.getvalue(), err.getvalue()
+
+    def test_bump_size_prints_one_bare_word(self):
+        # `SIZE=$(changelog bump-size < notes.md)` is the whole of the
+        # plumbing, so anything else on stdout -- a label, a prefix, JSON --
+        # would have to be stripped back off in the workflow.
+        assert self.run_cli('bump-size') == (0, 'patch\n', '')
+        assert self.run_cli('bump-size', stdin=OPERATOR_BREAKING_NOTES) == (0, 'minor\n', '')
+
+    def test_next_version_prints_one_bare_word(self):
+        assert self.run_cli('next-version', '--previous', '3.8.1') == (0, '3.8.2\n', '')
+        minor = self.run_cli('next-version', '--previous', '3.7.1', stdin=OPERATOR_BREAKING_NOTES)
+        assert minor == (0, '3.8.0\n', '')
+
+    def test_next_version_fails_rather_than_guessing(self):
+        returncode, out, err = self.run_cli('next-version', '--previous', '3.9.0.dev0')
+        assert returncode == 2
+        # Nothing on stdout: a workflow capturing this into a variable gets
+        # an empty one and a non-zero step, not a plausible wrong version.
+        assert out == ''
+        assert '3.9.0.dev0' in err
+
+    def test_release_notes_is_the_library_output(self):
+        categories, full_changelog = parse_release_notes(OPERATOR_3_8_2_NOTES)
+        _, out, _ = self.run_cli('release-notes')
+        # The library does not end its notes with a newline; a file should.
+        assert out == format_release_notes(categories, full_changelog) + '\n'
+
+    def test_changes_entry_is_the_library_output_byte_for_byte(self):
+        categories, _ = parse_release_notes(OPERATOR_3_8_2_NOTES)
+        _, out, _ = self.run_cli('changes-entry', '--tag', '3.8.2', '--date', '2026-08-31')
+        # Including the blank line it ends with: this text is prepended to
+        # CHANGES.md verbatim, so the trailing layout is part of the answer.
+        assert out == format_changes(categories, '3.8.2', datetime.date(2026, 8, 31))
+        assert out.endswith('(#2699)\n\n')
+
+    def test_changes_entry_defaults_to_today(self):
+        with mock.patch.object(_cli, '_today', return_value=datetime.date(2026, 9, 11)):
+            _, out, _ = self.run_cli('changes-entry', '--tag', '3.8.2')
+        assert out.startswith('# 3.8.2 - 11 September 2026\n')
+
+    def test_the_clock_is_read_here_and_only_here(self):
+        # The `no_clock` fixture is active for this test, as it is for every
+        # other, and `_cli` is deliberately outside it. If this starts
+        # failing, the boundary has moved: something in the library is
+        # reading the clock, or `_today` has been moved in with it.
+        assert isinstance(_cli._today(), datetime.date)
+
+    def test_an_unparseable_date_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            self.run_cli('changes-entry', '--tag', '3.8.2', '--date', 'yesterday')
+
+    def test_a_subcommand_is_required(self):
+        with self.assertRaises(SystemExit):
+            self.run_cli()
+
+    def test_the_entry_point_names_something_that_exists(self):
+        # A renamed `main` breaks the console script without breaking a
+        # single test that calls `_cli.main` directly, so pin the string in
+        # pyproject.toml against the module.
+        pyproject = (pathlib.Path(__file__).parent.parent / 'pyproject.toml').read_text()
+        assert 'changelog = "charm_tech_code.changelog._cli:main"' in pyproject
+        assert callable(_cli.main)

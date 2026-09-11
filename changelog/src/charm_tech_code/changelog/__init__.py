@@ -23,21 +23,36 @@ text and the date and decides what to do with what comes back::
     notes = format_release_notes(categories, full_changelog)
     entry = format_changes(categories, '3.8.2', datetime.date.today())
 
+The same parse also answers how big a release the range adds up to, and what
+that makes the version after `previous`::
+
+    size = infer_bump_size(categories)
+    version = next_version(previous, size)
+
 The format is the package's own, not a parameter -- see `_constants` for
-what that means and why `chore` commits do not appear in a changelog.
+what that means and why `chore` commits do not appear in a changelog. The
+`changelog` console script (`_cli`) wraps all of the above for a workflow
+step, and is the one place in the package that does any I/O.
 """
 
 from __future__ import annotations
 
-from ._constants import CATEGORIES, CATEGORY_HEADINGS
+from ._constants import CATEGORIES, CATEGORY_HEADINGS, MINOR_BUMP_CATEGORIES
 from ._format import commit_type_to_category, format_changes, format_release_notes
 from ._parse import parse_release_notes
+from ._version import MINOR, PATCH, BumpSize, infer_bump_size, next_version
 
 __all__ = [
     'CATEGORIES',
     'CATEGORY_HEADINGS',
+    'MINOR',
+    'MINOR_BUMP_CATEGORIES',
+    'PATCH',
+    'BumpSize',
     'commit_type_to_category',
     'format_changes',
     'format_release_notes',
+    'infer_bump_size',
+    'next_version',
     'parse_release_notes',
 ]

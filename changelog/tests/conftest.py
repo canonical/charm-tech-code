@@ -12,21 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Nothing in this package may read the clock.
+"""Nothing in this package's library may read the clock.
 
 `format_changes` used to call `datetime.datetime.now()` itself, which is what
 made the output of a release depend on which day CI happened to run and made
 the function impossible to assert on. The date is an argument now, and this
-fixture is what keeps it one: it replaces the `datetime` module as `_format`
-sees it, so a reinstated `now()` or `today()` call fails the whole suite
-rather than quietly passing on every day except the one that matters.
+fixture is what keeps it one: it replaces the `datetime` module as each
+library module sees it, so a reinstated `now()` or `today()` call fails the
+whole suite rather than quietly passing on every day except the one that
+matters.
+
+`_cli` is deliberately not in the list. A console script has to get a date
+from somewhere for `--date` to be optional, so it is the package's I/O
+boundary and the one module allowed to look: see its `_today`. Everything it
+calls is still inside the fixture, so the boundary cannot drift inwards
+without a test failing.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from charm_tech_code.changelog import _format
+from charm_tech_code.changelog import _constants, _format, _parse, _version
 
 
 class _NoClock:
@@ -48,6 +55,13 @@ class _NoClockModule:
     date = _NoClock
 
 
+#: Every module of the library, whether or not it imports `datetime` today.
+#: `raising=False` below means a module that does not import it is covered in
+#: advance rather than having to be remembered when it does.
+LIBRARY_MODULES = (_constants, _format, _parse, _version)
+
+
 @pytest.fixture(autouse=True)
 def no_clock(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_format, 'datetime', _NoClockModule)
+    for module in LIBRARY_MODULES:
+        monkeypatch.setattr(module, 'datetime', _NoClockModule, raising=False)
