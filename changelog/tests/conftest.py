@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import pytest
 
-from charm_tech_code.changelog import _constants, _format, _parse, _version
+from charm_tech_code.changelog import _authors, _constants, _format, _models, _parse, _version
 
 
 class _NoClock:
@@ -58,7 +58,7 @@ class _NoClockModule:
 #: Every module of the library, whether or not it imports `datetime` today.
 #: `raising=False` below means a module that does not import it is covered in
 #: advance rather than having to be remembered when it does.
-LIBRARY_MODULES = (_constants, _format, _parse, _version)
+LIBRARY_MODULES = (_authors, _constants, _format, _models, _parse, _version)
 
 
 @pytest.fixture(autouse=True)

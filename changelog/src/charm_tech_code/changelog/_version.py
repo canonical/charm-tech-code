@@ -35,6 +35,7 @@ from collections.abc import Mapping
 from typing import Literal
 
 from ._constants import MINOR_BUMP_CATEGORIES, RELEASE_VERSION_REGEX
+from ._models import Change
 
 #: The two sizes a release can be inferred to be. A major bump is never
 #: inferred -- see `MINOR_BUMP_CATEGORIES` -- so it is not one of these.
@@ -44,14 +45,22 @@ MINOR: BumpSize = 'minor'
 PATCH: BumpSize = 'patch'
 
 
-def infer_bump_size(categories: Mapping[str, list[tuple[str, str]]]) -> BumpSize:
+def infer_bump_size(categories: Mapping[str, list[Change]]) -> BumpSize:
     """Work out whether a range of changes is a minor release or a patch one.
 
-    `categories` is what `parse_release_notes` returned. That matters rather
-    more than it looks: the parse is where a `!` moves an entry out of its
-    real type and into `breaking`, so the categories this reads have already
-    had that routing applied, and passing a dict built some other way will
-    get a different answer.
+    `categories` is what `parse_git_log` or `parse_release_notes` returned.
+    That matters rather more than it looks: the parse is where a `!` moves an
+    entry out of its real type and into `breaking`, and where a revert of a
+    released feature is routed there too, so the categories this reads have
+    already had that routing applied. Passing a dict built some other way
+    will get a different answer.
+
+    A revert is a change like any other here, with one thing worth saying:
+    a revert of something released earlier counts, at least as a patch,
+    because taking a change back out is itself a change that shipped. A
+    revert of something in this same range counts for nothing, because
+    `parse_git_log` has already cancelled the pair and neither is in
+    `categories` to be counted.
 
     A `minor` result means "there is a feature, or a breaking change, in this
     range". A caller that has branches on which neither may appear -- a
