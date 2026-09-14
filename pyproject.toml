@@ -36,6 +36,9 @@ preview = true
 [tool.ruff.format]
 quote-style = "single"
 
+# The rule set the team agreed on: canonical/charm-tech `style/python.md`,
+# "Tooling configuration". It lives here so that every tool in the monorepo
+# gets it, the same way the line length and the quote style do.
 [tool.ruff.lint]
 select = [
     # Pyflakes
@@ -49,8 +52,46 @@ select = [
     "N",
     # flake8-builtins
     "A",
-    # flake8-bugbear
-    "B",
+    # flake8-copyright
+    "CPY",
     # pyupgrade
     "UP",
+    # flake8-2020
+    "YTT",
+    # flake8-bandit
+    "S",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # ruff-specific
+    "RUF",
+    # perflint
+    "PERF",
+    # pydocstyle
+    "D",
+    # flake8-future-annotations
+    "FA",
+    # flake8-type-checking
+    "TC",
 ]
+ignore = [
+    # Imports used only in annotations do not have to move into a
+    # `TYPE_CHECKING` block.
+    "TC001",
+    "TC002",
+    "TC003",
+    # `assert` is fine.
+    "S101",
+    # Magic methods and `__init__` do not need docstrings.
+    "D105",
+    "D107",
+    # Two pairs that selecting all of `D` turns on together and that
+    # contradict each other. Ruff resolves both on its own but warns on every
+    # run until one of each pair is named here.
+    "D203",
+    "D213",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"*/tests/*" = ["D", "S101", "S105", "S106"]
