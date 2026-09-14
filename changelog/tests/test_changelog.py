@@ -703,11 +703,17 @@ class GitLogParseTests(unittest.TestCase):
         assert categories['breaking'] == [Change('Refactor: Move the thing', 2585)]
         assert categories['refactor'] == []
 
-    def test_a_scope_is_accepted_and_ignored(self):
-        # No repository in the estate uses one, but the shared PR-title check
-        # accepts `type(scope):`, and the two should not disagree about what
-        # a valid subject is.
-        categories = self.parse((TONY, 'fix(tracing): do the thing (#1)', ''))
+    def test_a_scope_is_accepted_and_dropped(self):
+        # `canonical/pebble` scopes most of its dependency bumps and a good
+        # deal else, so this is a real shape and not a hypothetical one. The
+        # scope does not reach the entry: see `COMMIT_SUBJECT_REGEX`.
+        categories = self.parse((TONY, 'fix(reaper): do the thing (#1)', ''))
+        assert categories['fix'] == [Change('Do the thing', 1)]
+
+    def test_a_comma_separated_scope_is_one_scope(self):
+        # `fix(cmdstate,wsutil):` is a real pebble subject, and the shape most
+        # likely to be read as two groups by a regex written for one.
+        categories = self.parse((TONY, 'fix(cmdstate,wsutil): do the thing (#1)', ''))
         assert categories['fix'] == [Change('Do the thing', 1)]
 
     def test_a_breaking_scoped_commit_is_still_breaking(self):

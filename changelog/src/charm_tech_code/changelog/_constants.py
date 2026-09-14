@@ -65,9 +65,18 @@ GIT_LOG_FORMAT = '%x1e%an%x1f%ae%x1f%s%x1f%b'
 
 #: A conventional-commit subject, as the shared `check-conventional-pr-title`
 #: script defines it: a type, an optional scope, an optional ``!``, then the
-#: summary. The scope is captured and ignored -- no repository in the estate
-#: uses one today, but the checker accepts one, and the two should not
-#: disagree about what a valid subject looks like.
+#: summary.
+#:
+#: The scope is captured and dropped. `canonical/pebble` uses scopes heavily
+#: -- 60 of its last 298 conventional subjects carry one, from
+#: ``chore(deps)`` to ``fix(cmdstate,wsutil)`` -- so this is a choice about
+#: what a changelog entry should read like, not an observation that nothing
+#: uses them. A reader of a release's notes wants what changed; which package
+#: it changed in is in the diff, and prefixing every bullet with it would
+#: mean a `chore(deps)`-heavy range rendering sixty near-identical prefixes.
+#: If a repository ever wants them rendered, `Change` is where the scope
+#: would have to be carried, and this is the only place it is currently
+#: thrown away.
 COMMIT_SUBJECT_REGEX = re.compile(
     r'^(?P<category>[A-Za-z]+)'
     r'(?:\((?P<scope>[^()]+)\))?'
