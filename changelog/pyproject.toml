@@ -10,9 +10,7 @@ authors = [
 license = "Apache-2.0"
 # No runtime dependencies, and that is worth keeping. The package is pure
 # text-to-text: it does not talk to GitHub, run git, or read the clock, so
-# there is nothing for a dependency to do. `release.py`, which this is lifted
-# out of, needs `pygithub`, `packaging` and `rich` -- all three belong to the
-# parts that stayed behind in canonical/operator.
+# there is nothing for a dependency to do.
 dependencies = []
 
 # The importable API is the package; this is the same thing wrapped for a
