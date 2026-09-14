@@ -80,6 +80,7 @@ def format_release_notes(
             number is all a git log has, and all a `CHANGES.md` entry shows,
             so the link is built here rather than carried around. A change
             with no pull request renders with no link.
+
     """
     lines = ["## What's Changed", '']
     if categories[BREAKING]:
@@ -104,7 +105,7 @@ def format_release_notes(
 
 
 def _link(change: Change, repo: str) -> str | None:
-    """The `in <url>` half of a release-notes bullet, or nothing."""
+    """Render the `in <url>` half of a release-notes bullet, or nothing."""
     if change.pr_number is None:
         return None
     return 'in ' + PULL_REQUEST_URL_TEMPLATE.format(repo=repo, number=change.pr_number)

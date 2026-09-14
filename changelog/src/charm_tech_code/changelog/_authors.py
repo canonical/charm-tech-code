@@ -71,6 +71,7 @@ def derive_handle(email: str) -> str | None:
 
     Returns:
         The handle without its `@`, or `None` for any other address.
+
     """
     match = NOREPLY_EMAIL_REGEX.match(email.strip())
     return match.group('handle') if match else None
@@ -88,6 +89,7 @@ def credit_for(name: str, email: str, team: Collection[str]) -> str | None:
         `@handle` when a handle can be recovered from the email, the name
         when it cannot, or `None` when this author is one of `team` and so
         is not a guest to be thanked.
+
     """
     members = normalise_team(team)
     handle = derive_handle(email)
@@ -99,7 +101,7 @@ def credit_for(name: str, email: str, team: Collection[str]) -> str | None:
 
 
 def credit_for_handle(handle: str, team: Collection[str]) -> str | None:
-    """The same decision, for a source that gives a handle and nothing else.
+    """Credit an author a source names only by handle.
 
     GitHub's generated release notes name the author as `@handle` and say
     nothing about who that is, so this is all that path has to go on. It is
@@ -114,6 +116,7 @@ def credit_for_handle(handle: str, team: Collection[str]) -> str | None:
 
     Returns:
         `@handle`, or `None` when this author is one of `team`.
+
     """
     bare = handle.strip().lstrip('@')
     if not bare or bare.casefold() in normalise_team(team):
