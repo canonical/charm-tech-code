@@ -15,11 +15,9 @@
 
 """What a parser produces and a formatter renders: one change.
 
-There is one of these per bullet, and both parsers make the same thing, which
-is the whole point of having it. `parse_git_log` and `parse_release_notes`
-read different text about the same pull requests, and everything downstream --
-the two formatters, the bump-size rule -- works on this rather than on either
-input's shape.
+There is one of these per bullet. `parse_git_log` makes them and everything
+downstream -- the two formatters, the bump-size rule -- works on this rather
+than on the shape of the text they were read out of.
 """
 
 from __future__ import annotations

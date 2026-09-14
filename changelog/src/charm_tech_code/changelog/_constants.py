@@ -26,16 +26,6 @@ from __future__ import annotations
 
 import re
 
-#: The bullet format of GitHub's generated release notes:
-#: ``* type!: summary by @user in https://github.com/owner/repo/pull/123``.
-#: The ``!`` is optional and marks a breaking change.
-CHANGE_LINE_REGEX = re.compile(
-    r'^\* (?P<category>\w+)(?P<breaking>!?): (?P<summary>.*) by (?P<author>[^ ]+) in (?P<pr>.*)'
-)
-
-#: The PR link in a bullet, from which the pull-request number is taken.
-PR_LINK_REGEX = re.compile(r'https?://[^ ]+/pull/(\d+)')
-
 #: How a pull-request link is rebuilt from a number. Both parsers reduce a
 #: change to its *number*, because that is all the git log carries and all a
 #: ``CHANGES.md`` entry renders, so the URL the release notes want is built
@@ -43,9 +33,6 @@ PR_LINK_REGEX = re.compile(r'https?://[^ ]+/pull/(\d+)')
 #: string operation, which is what keeps the package free of I/O.
 PULL_REQUEST_URL_TEMPLATE = 'https://github.com/{repo}/pull/{number}'
 
-#: GitHub appends a section of first-time contributors to its generated
-#: notes. It is not part of the changelog, so it is stripped before parsing.
-NEW_CONTRIBUTORS_REGEX = re.compile(r'(## New Contributors.*?)(\n|$)', flags=re.DOTALL)
 
 #: The line GitHub ends its generated notes with, carrying a compare link.
 #: It is passed through to the release notes unchanged.

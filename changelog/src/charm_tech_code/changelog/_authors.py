@@ -17,12 +17,7 @@
 
 The rule is that a contributor from outside the team that maintains the
 repository is credited by name in the entry, and a member of that team is
-not. Someone maintaining a project is not a guest in it, and a changelog
-where every line ends in the same three handles has stopped carrying any
-information; a line that names someone who turned up once and fixed
-something is the one worth reading. `canonical/operator`'s own `CHANGES.md`
-already does this by hand -- `* Fix typos in code snippets by @MattiaSarti
-(#1750)` -- which is the shape this reproduces.
+not.
 
 **"Outside the team" is not "outside Canonical".** A contributor from
 another Canonical team has an `@canonical.com` address, no GitHub handle
@@ -98,27 +93,3 @@ def credit_for(name: str, email: str, team: Collection[str]) -> str | None:
     if handle is not None and handle.casefold() in members:
         return None
     return f'@{handle}' if handle is not None else name.strip() or None
-
-
-def credit_for_handle(handle: str, team: Collection[str]) -> str | None:
-    """Credit an author a source names only by handle.
-
-    GitHub's generated release notes name the author as `@handle` and say
-    nothing about who that is, so this is all that path has to go on. It is
-    also why the two input paths can disagree: a contributor with no
-    `users.noreply.github.com` address is credited by name from the git log
-    and by handle from the notes, and no amount of parsing fixes that -- the
-    handle simply is not in the git log.
-
-    Args:
-        handle: The author as the notes name them, `@` optional.
-        team: The maintainers, as emails and/or handles.
-
-    Returns:
-        `@handle`, or `None` when this author is one of `team`.
-
-    """
-    bare = handle.strip().lstrip('@')
-    if not bare or bare.casefold() in normalise_team(team):
-        return None
-    return f'@{bare}'

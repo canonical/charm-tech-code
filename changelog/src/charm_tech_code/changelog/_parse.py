@@ -15,28 +15,21 @@
 
 """Reading a range of changes out of text, into categories.
 
-Two doors in, one room behind them. `parse_git_log` is the one to use: the
-conventional-commit convention governs *commits*, so the commits are what a
-changelog should be read off. `parse_release_notes` reads GitHub's generated
-notes instead, which describe the same pull requests by their *titles*; it
-is kept because a caller that already has a release body in hand should not
-have to go and fetch a git log to use it.
+`parse_git_log` is the way in. The conventional-commit convention governs
+*commits*, so the commits are what a changelog should be read off, and a
+squashed subject is what lands on the branch and what everything else in the
+repository reads.
 
-Where they differ is worth knowing before picking one:
+Three things that shapes:
 
-* A pull-request title is written once, when the pull request is opened, and
-  is not what the conventional-commit rule is about. The squashed subject is
-  what lands on the branch and what everything else in the repository reads.
-  When the two disagree, the git log is right.
-* A revert can only be resolved from a git log. Working out whether a revert
-  cancels something in the same range means reading the revert commit's
-  *body*, and GitHub's generated notes are one line per pull request with no
-  body anywhere in them.
-* The notes carry a handle for every author; the git log carries a name and
-  an email, from which a handle is sometimes recoverable and sometimes not.
-  See `_authors`.
-* The notes end with a compare link and a git log has no equivalent, so
-  `parse_git_log` has nothing to return in its place.
+* **Reverts resolve.** Working out whether a revert cancels something in the
+  same range means reading the revert commit's *body*, which is in the log.
+  See `_cancelled`.
+* **Authors are a name and an email.** A handle is sometimes recoverable from
+  the email and sometimes not, so a contributor is credited by whichever is
+  there. See `_authors`.
+* **There is no compare link.** A release body ends with one; a git log has
+  no equivalent, so the caller supplies it (`--compare-url`) if it wants one.
 """
 
 from __future__ import annotations
@@ -44,17 +37,13 @@ from __future__ import annotations
 from collections.abc import Collection
 from typing import NamedTuple
 
-from ._authors import credit_for, credit_for_handle
+from ._authors import credit_for
 from ._constants import (
     BREAKING,
     CATEGORIES,
-    CHANGE_LINE_REGEX,
     COMMIT_SUBJECT_REGEX,
-    FULL_CHANGELOG_PREFIX,
     GIT_LOG_FIELD_SEPARATOR,
     GIT_LOG_RECORD_SEPARATOR,
-    NEW_CONTRIBUTORS_REGEX,
-    PR_LINK_REGEX,
     PR_SUFFIX_REGEX,
     REVERT,
     REVERT_OF_BREAKING_TYPES,
@@ -80,69 +69,6 @@ def _capitalise(summary: str) -> str:
     backtick or a quotation mark must come through untouched.
     """
     return summary[0].upper() + summary[1:] if summary else summary
-
-
-def parse_release_notes(
-    release_notes: str, *, team: Collection[str] = ()
-) -> tuple[dict[str, list[Change]], str | None]:
-    """Parse GitHub's generated release notes into categories.
-
-    The input is GitHub's *generated* release-notes text, not a ``git log``.
-    GitHub builds it from the titles of the pull requests merged in the
-    range, one ``* type!: summary by @user in <url>`` bullet each, which is
-    why this reads conventional-commit types off pull-request titles rather
-    than off commit subjects. `parse_git_log` reads the commits, and is the
-    one to prefer for a new caller; this is here for a caller that has the
-    notes text already. How it obtained that text is its own problem: a
-    release has it in its body, and a workflow running before any release
-    exists can ask GitHub for a preview of it. Nothing here does I/O.
-
-    The "New Contributors" section is removed. Bullets whose type is not a
-    changelog category -- `chore`, most of all -- are dropped; see
-    ``_constants.CATEGORIES`` for why that is deliberate. The full-changelog
-    line is returned separately rather than categorised.
-
-    Reverts are *not* resolved here, and cannot be: see this module's
-    docstring. A revert in this range appears under `Reverted` whether or
-    not the thing it reverts is also in the range.
-
-    Args:
-        release_notes: The generated notes text.
-        team: Authors not to credit, as emails and/or handles. Only handles
-            can match anything here, since a handle is all the notes carry.
-            The default credits everyone; see `_authors`.
-
-    Returns:
-        A tuple containing:
-        - A dict of category to `Change` list. Every category is present,
-          even when empty, in the order they are rendered in.
-        - The full changelog line if present, or ``None`` if not found.
-
-    """
-    release_notes = NEW_CONTRIBUTORS_REGEX.sub(r'\2', release_notes)
-    categories = _empty_categories()
-    full_changelog_line = None
-
-    for line in release_notes.splitlines():
-        if match := CHANGE_LINE_REGEX.match(line.strip()):
-            category = match.group('category').strip()
-            if category not in categories:
-                continue
-            description = _capitalise(match.group('summary').strip())
-            link_match = PR_LINK_REGEX.match(match.group('pr').strip())
-            pr_number = int(link_match.group(1)) if link_match else None
-            credit = credit_for_handle(match.group('author'), team)
-            if match.group('breaking') == '!':
-                categories[BREAKING].append(
-                    Change(f'{category.capitalize()}: {description}', pr_number, credit)
-                )
-            else:
-                categories[category].append(Change(description, pr_number, credit))
-
-        elif line.startswith(FULL_CHANGELOG_PREFIX):
-            full_changelog_line = line
-
-    return categories, full_changelog_line
 
 
 class _Commit(NamedTuple):
@@ -265,10 +191,10 @@ def parse_git_log(
     that number and `repo` when it is rendered.
 
     `log_text` is the output of ``git log`` with ``--format=GIT_LOG_FORMAT``,
-    oldest first. Getting it is the caller's job, exactly as getting the
-    notes text is: nothing here runs git, or anything else.
+    oldest first. Getting it is the caller's job: nothing here runs git, or
+    anything else.
 
-    Three things happen that the notes path cannot do:
+    Three things the subjects and bodies make possible:
 
     * **Reverts cancel.** A revert whose pull request is also in this range
       removes both itself and what it reverted. See `_cancelled`.

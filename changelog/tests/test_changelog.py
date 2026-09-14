@@ -60,7 +60,6 @@ from charm_tech_code.changelog import (
     infer_bump_size,
     next_version,
     parse_git_log,
-    parse_release_notes,
 )
 
 # The Charm Tech team as `canonical/operator` would supply it: emails, which
@@ -118,44 +117,6 @@ def git_log(*commits: tuple[tuple[str, str], str, str]) -> str:
     )
 
 
-# canonical/operator 3.8.2, released 31 August 2026. Twenty-three merged pull
-# requests, eleven of them `chore`. Ali-932's was genuinely their first
-# contribution to the repository, so the "New Contributors" section is real
-# too. The two bot handles (`@dependabot`, `@prints-charming-bot`) are the
-# only part of this not taken straight from the commits; nothing depends on
-# them, since the parser only requires a single unspaced token after `by`.
-OPERATOR_3_8_2_NOTES = """\
-## What's Changed
-* chore: adjust versions after release by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2670
-* docs: give each best-practice admonition a stable :name: anchor by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2524
-* ci: point DB charm CI at the moved mysql-operators repo by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2551
-* chore: bump cryptography from 48.0.1 to 50.0.0 by @dependabot in https://github.com/canonical/operator/pull/2682
-* fix: compare full event paths when skipping duplicate notices by @Ali-932 in https://github.com/canonical/operator/pull/2684
-* chore: bump the actions group across 1 directory with 8 updates by @dependabot in https://github.com/canonical/operator/pull/2674
-* chore: bump the runtime group across 1 directory with 4 updates by @dependabot in https://github.com/canonical/operator/pull/2691
-* docs: reword text that vale 3.17 flags as misspelled by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2695
-* chore: update charm pins by @prints-charming-bot in https://github.com/canonical/operator/pull/2582
-* chore: bump the dev-tooling group in /examples/httpbin-demo with 2 updates by @dependabot in https://github.com/canonical/operator/pull/2675
-* chore: bump the charm-tech group across 1 directory with 3 updates by @dependabot in https://github.com/canonical/operator/pull/2697
-* docs: stop styling page references as blockquotes by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2666
-* ci: switch example charm integration tests to Concierge `k8s` preset by @dwilding in https://github.com/canonical/operator/pull/2696
-* docs: make the custom-endpoint-name sample test actually test something by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2664
-* ci: use the upstream concierge presets again by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2699
-* docs: replace `requests` by `urllib` in K8s tutorial integration tests by @dwilding in https://github.com/canonical/operator/pull/2687
-* fix: don't pass a message when converting an unknown status by name by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2700
-* chore: bump the dev-tooling group with 4 updates by @dependabot in https://github.com/canonical/operator/pull/2676
-* chore: update charm pins by @prints-charming-bot in https://github.com/canonical/operator/pull/2701
-* chore: adopt ruff 0.16's new lint conventions by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2698
-* docs: recommend spread directly, rather than charmcraft test by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2706
-* docs: extract sections in how to write integration tests to their own howto guide by @tromai in https://github.com/canonical/operator/pull/2662
-* chore: update changelog and versions for 3.8.2 release by @dwilding in https://github.com/canonical/operator/pull/2716
-
-## New Contributors
-* @Ali-932 made their first contribution in https://github.com/canonical/operator/pull/2684
-
-**Full Changelog**: https://github.com/canonical/operator/compare/3.8.1...3.8.2
-"""
-
 # The same twenty-three pull requests as they appear in `git log --reverse
 # 3.8.1..3.8.2`: author name, author email and squash-commit subject, all
 # verbatim. This is the other end of the fixture above, and the pair is what
@@ -211,19 +172,6 @@ OPERATOR_3_8_2_CHORE_PRS = (
     '2716',
 )
 
-# Four real pull requests from the 3.7.1..3.8.0 range, in merge order, one of
-# them the only `!` pull request operator has merged into a 3.x release
-# (#2585). Trimmed to four bullets because the full range is fifty; the point
-# of this fixture is the `!`, not the volume.
-OPERATOR_BREAKING_NOTES = """\
-## What's Changed
-* refactor: replace jsonpatch with an inline dict-diff by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2578
-* refactor!: move the otlp-json package to be a regular ops-tracing module by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2585
-* feat: note the socket path in Pebble tracing spans by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2555
-* fix: tear down `Runtime.exec()` when the charm raises by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2581
-
-**Full Changelog**: https://github.com/canonical/operator/compare/3.7.1...3.8.0
-"""
 
 # The same four pull requests as commits. Observed, and trimmed to the same
 # four so that this pairs with the notes fixture above.
@@ -277,10 +225,14 @@ TEAM_ARGUMENT = ','.join(OPERATOR_TEAM)
 class RealReleaseTests(unittest.TestCase):
     """The 3.8.2 fixture, end to end."""
 
+    #: A git log carries no compare link, so a caller that wants one supplies
+    #: it. This is what `changelog release-notes --compare-url` builds.
+    full_changelog = (
+        '**Full Changelog**: https://github.com/canonical/operator/compare/3.8.1...3.8.2'
+    )
+
     def setUp(self):
-        self.categories, self.full_changelog = parse_release_notes(
-            OPERATOR_3_8_2_NOTES, team=OPERATOR_TEAM
-        )
+        self.categories = parse_git_log(OPERATOR_3_8_2_LOG, team=OPERATOR_TEAM, repo=REPO)
 
     def test_categories(self):
         # Twelve of the twenty-three pull requests survive, in merge order.
@@ -317,11 +269,6 @@ class RealReleaseTests(unittest.TestCase):
             ],
             'revert': [],
         }
-
-    def test_full_changelog_line(self):
-        assert self.full_changelog == (
-            '**Full Changelog**: https://github.com/canonical/operator/compare/3.8.1...3.8.2'
-        )
 
     def test_chore_is_dropped(self):
         # Eleven of the twenty-three pull requests are `chore`, and none of
@@ -415,10 +362,14 @@ class RealReleaseTests(unittest.TestCase):
 class BreakingChangeTests(unittest.TestCase):
     """A `!` moves an entry into its own category, keeping its real type."""
 
+    #: Supplied by the caller, the way `--compare-url` does: see
+    #: `RealReleaseTests`.
+    full_changelog = (
+        '**Full Changelog**: https://github.com/canonical/operator/compare/3.7.1...3.8.0'
+    )
+
     def setUp(self):
-        self.categories, self.full_changelog = parse_release_notes(
-            OPERATOR_BREAKING_NOTES, team=OPERATOR_TEAM
-        )
+        self.categories = parse_git_log(OPERATOR_BREAKING_LOG, team=OPERATOR_TEAM, repo=REPO)
 
     def test_breaking_entry_keeps_its_real_type_as_a_prefix(self):
         assert self.categories['breaking'] == [
@@ -481,80 +432,6 @@ There are breaking changes in this release. Please review them carefully:
 
 """
         )
-
-
-class ParseTests(unittest.TestCase):
-    """The bullet format, in detail."""
-
-    def parse(self, *bullets: str) -> dict[str, list[Change]]:
-        # No team, so `@someone` is credited: an empty team credits
-        # everyone, which is the safe way round for a caller that has not
-        # said who its maintainers are.
-        categories, _ = parse_release_notes('\n'.join(bullets))
-        return categories
-
-    def test_summary_is_capitalised(self):
-        # PR titles are lowercase after the conventional-commit type, and
-        # changelog bullets are sentence case.
-        categories = self.parse('* fix: do the thing by @someone in https://example.com/pull/1')
-        assert categories['fix'] == [Change('Do the thing', 1, '@someone')]
-
-    def test_summary_that_starts_with_a_backtick_is_left_alone(self):
-        categories = self.parse(
-            '* fix: `Runtime.exec()` tears down by @someone in https://example.com/pull/1'
-        )
-        assert categories['fix'] == [Change('`Runtime.exec()` tears down', 1, '@someone')]
-
-    def test_unrecognised_type_is_dropped(self):
-        # `build` and `style` are conventional-commit types the PR-title
-        # check accepts, but they are not changelog categories, so they go
-        # the same way `chore` does.
-        categories = self.parse(
-            '* build: bump the wheel by @someone in https://example.com/pull/1',
-            '* style: reformat by @someone in https://example.com/pull/2',
-            '* nonsense: whatever by @someone in https://example.com/pull/3',
-        )
-        assert all(not items for items in categories.values())
-
-    def test_breaking_on_a_dropped_type_is_still_dropped(self):
-        # The `!` is only honoured for a type that has a category, so a
-        # `chore!` does not sneak into the changelog through the breaking
-        # bucket.
-        categories = self.parse(
-            '* chore!: drop python 3.8 by @someone in https://example.com/pull/1'
-        )
-        assert categories['breaking'] == []
-
-    def test_every_category_is_present_even_when_empty(self):
-        # Callers index `categories['breaking']` directly, and iterate the
-        # dict for the rendering order, so the shape does not depend on what
-        # happened to be in the release.
-        categories = self.parse('')
-        assert list(categories) == list(CATEGORIES)
-
-    def test_lines_that_are_not_bullets_are_ignored(self):
-        categories, full_changelog = parse_release_notes(
-            "## What's Changed\n"
-            'Some prose about the release.\n'
-            '* not a conventional commit title by @someone in https://example.com/pull/1\n'
-            '* fix: a real one by @someone in https://example.com/pull/2\n'
-        )
-        assert categories['fix'] == [Change('A real one', 2, '@someone')]
-        assert full_changelog is None
-
-    def test_indented_bullets_are_parsed(self):
-        assert self.parse('    * fix: indented by @someone in https://example.com/pull/1')['fix']
-
-    def test_new_contributors_section_is_stripped_before_parsing(self):
-        # It is stripped rather than skipped, because its bullets are the
-        # same shape and would otherwise have to be excluded by luck.
-        categories, _ = parse_release_notes(
-            '* fix: a real one by @someone in https://example.com/pull/1\n'
-            '\n'
-            '## New Contributors\n'
-            '* @someone made their first contribution in https://example.com/pull/1\n'
-        )
-        assert categories['fix'] == [Change('A real one', 1, '@someone')]
 
 
 class FormatReleaseNotesTests(unittest.TestCase):
@@ -652,25 +529,22 @@ class CommitTypeToCategoryTests(unittest.TestCase):
 # The `chore` half of the 3.8.2 fixture on its own: eleven real pull requests,
 # nothing else. A release with nothing in it but dependency bumps and charm
 # pins is not hypothetical, and it is a patch.
-OPERATOR_CHORE_ONLY_NOTES = '\n'.join(
-    line
-    for line in OPERATOR_3_8_2_NOTES.splitlines()
-    if line.startswith('* chore') or not line.startswith('*')
+OPERATOR_CHORE_ONLY_LOG = git_log(
+    *(commit for commit in OPERATOR_3_8_2_COMMITS if commit[1].startswith('chore'))
 )
 
 # The one `!` pull request operator has merged into a 3.x release, by itself.
 # The rest of the 3.7.1..3.8.0 range is what makes that release obviously a
 # minor one; without it, the `!` has to carry the decision alone.
-OPERATOR_BREAKING_ONLY_NOTES = """\
-## What's Changed
-* refactor!: move the otlp-json package to be a regular ops-tracing module by @tonyandrewmeyer in https://github.com/canonical/operator/pull/2585
+OPERATOR_BREAKING_ONLY_LOG = git_log((
+    TONY,
+    'refactor!: move the otlp-json package to be a regular ops-tracing module (#2585)',
+    '',
+))
 
-**Full Changelog**: https://github.com/canonical/operator/compare/3.7.1...3.8.0
-"""
 
-
-def categories_of(notes: str) -> dict[str, list[Change]]:
-    return parse_release_notes(notes, team=OPERATOR_TEAM)[0]
+def categories_of(log: str) -> dict[str, list[Change]]:
+    return parse_git_log(log, team=OPERATOR_TEAM, repo=REPO)
 
 
 class BumpSizeTests(unittest.TestCase):
@@ -679,12 +553,12 @@ class BumpSizeTests(unittest.TestCase):
     def test_a_release_with_no_features_is_a_patch(self):
         # 3.8.1 -> 3.8.2: two fixes, seven docs, three CI, eleven chore. It
         # shipped as a patch.
-        assert infer_bump_size(categories_of(OPERATOR_3_8_2_NOTES)) == PATCH
+        assert infer_bump_size(categories_of(OPERATOR_3_8_2_LOG)) == PATCH
 
     def test_a_release_with_a_feature_is_a_minor(self):
         # 3.7.1 -> 3.8.0, trimmed: one `feat` (#2555) among four pull
         # requests. It shipped as a minor.
-        assert infer_bump_size(categories_of(OPERATOR_BREAKING_NOTES)) == MINOR
+        assert infer_bump_size(categories_of(OPERATOR_BREAKING_LOG)) == MINOR
 
     def test_a_breaking_change_on_its_own_is_a_minor(self):
         # #2585 is a `refactor!`, so on the plain reading of the rule -- "a
@@ -694,22 +568,20 @@ class BumpSizeTests(unittest.TestCase):
         # to let a breaking change ride in a minor when the impact has been
         # checked. Riding in a patch is not the same decision, and is not one
         # anyone has made. So a `!` means at least minor.
-        assert infer_bump_size(categories_of(OPERATOR_BREAKING_ONLY_NOTES)) == MINOR
+        assert infer_bump_size(categories_of(OPERATOR_BREAKING_ONLY_LOG)) == MINOR
 
     def test_a_breaking_feature_is_still_a_minor(self):
-        # The regression this guards against: `parse_release_notes` *moves* a
-        # `!` entry out of its real type, so a range whose only feature is a
-        # `feat!` has an empty `feat` list. A rule that read `feat` alone
-        # would call this a patch. operator has not merged a `feat!` into a
-        # 3.x release, so this bullet is made up rather than lifted.
-        categories = categories_of(
-            '* feat!: replace the framework API by @someone in https://example.com/pull/1'
-        )
+        # The regression this guards against: parsing *moves* a `!` entry out
+        # of its real type, so a range whose only feature is a `feat!` has an
+        # empty `feat` list. A rule that read `feat` alone would call this a
+        # patch. operator has not merged a `feat!` into a 3.x release, so this
+        # commit is made up rather than lifted.
+        categories = categories_of(git_log((TONY, 'feat!: replace the framework API (#1)', '')))
         assert categories['feat'] == []
         assert infer_bump_size(categories) == MINOR
 
     def test_a_release_of_nothing_but_chores_is_a_patch(self):
-        assert infer_bump_size(categories_of(OPERATOR_CHORE_ONLY_NOTES)) == PATCH
+        assert infer_bump_size(categories_of(OPERATOR_CHORE_ONLY_LOG)) == PATCH
 
     def test_an_empty_range_is_a_patch(self):
         assert infer_bump_size(categories_of('')) == PATCH
@@ -946,39 +818,13 @@ class AuthorCreditTests(unittest.TestCase):
         # edit; the other way round, a contributor is silently left out.
         assert self.parse(TONY, team=()) == [Change('Do the thing', 1, 'Tony Meyer')]
 
-    def test_the_notes_path_credits_the_same_person_from_a_handle(self):
-        # The generated notes name the author as `@handle` and say nothing
-        # else about them, so that is all that path has to match on.
-        categories, _ = parse_release_notes(
-            '* fix: do the thing by @Ali-932 in https://github.com/canonical/operator/pull/1',
-            team=OPERATOR_TEAM,
-        )
-        assert categories['fix'] == [Change('Do the thing', 1, '@Ali-932')]
-
-    def test_the_two_paths_agree_where_a_handle_is_derivable(self):
-        # And do not, where it is not: see
-        # `test_an_outside_contributor_with_no_handle_is_credited_by_name`.
-        # That is a difference in what the inputs know, not in what the
-        # parsers do.
-        from_log = parse_git_log(
-            git_log((GCOMNENO, 'fix: treat remote unit zero as explicit (#2454)', '')),
-            team=OPERATOR_TEAM,
-        )
-        from_notes, _ = parse_release_notes(
-            '* fix: treat remote unit zero as explicit by @gcomneno'
-            ' in https://github.com/canonical/operator/pull/2454',
-            team=OPERATOR_TEAM,
-        )
-        assert from_log['fix'] == from_notes['fix']
-        assert from_log['fix'] == [Change('Treat remote unit zero as explicit', 2454, '@gcomneno')]
-
 
 class RevertTests(unittest.TestCase):
-    """Reverts, which only the git-log path can resolve.
+    """Reverts.
 
     Working out whether a revert cancels something needs the revert commit's
-    *body*, and GitHub's generated notes are one line per pull request with
-    no bodies in them anywhere.
+    *body*, which is why the parser reads whole log records rather than
+    subjects alone.
 
     Only the first case here is observed. operator has merged exactly one
     revert into a 3.x release -- #2568, reverting #2538 -- and it reverts a
@@ -1106,92 +952,6 @@ class RevertTests(unittest.TestCase):
             (TONY, 'revert: "chore: bump it" (#102)', 'Reverts canonical/operator#99\n'),
         )
         assert categories['revert'] == [Change('"chore: bump it"', 102)]
-
-    def test_the_notes_path_cannot_do_any_of_this(self):
-        # Not a shortcoming to fix. A revert's body is simply not in the
-        # generated notes, so the notes path lists the revert and the thing
-        # it reverts side by side, and this is the difference that makes the
-        # git log the input to prefer.
-        categories, _ = parse_release_notes(
-            '* fix: do the thing by @tonyandrewmeyer in https://example.com/pull/100\n'
-            '* revert: "fix: do the thing" by @tonyandrewmeyer in https://example.com/pull/102\n',
-            team=OPERATOR_TEAM,
-        )
-        assert categories['fix'] == [Change('Do the thing', 100)]
-        assert categories['revert'] == [Change('"fix: do the thing"', 102)]
-
-
-class SameRangeFromEitherInputTests(unittest.TestCase):
-    """The two doors, on the two ranges the rest of these tests are built on.
-
-    This is the check that mattered when the git-log path was added: the
-    package already had a specification, in the form of what it produced from
-    GitHub's generated notes for two real operator releases, and the new path
-    had to reproduce it rather than replace it. It does, byte for byte, on
-    both ranges and in both output formats.
-
-    A difference here would not automatically be a bug -- a pull-request
-    title that disagrees with the subject its squash merge landed is exactly
-    what reading the commits is meant to catch, and neither of these two
-    ranges contains one -- but it would be something to explain rather than
-    to adjust an expectation around.
-    """
-
-    DATE = datetime.date(2026, 8, 31)
-
-    def both(self, notes: str, log: str) -> tuple[tuple[str, str], tuple[str, str]]:
-        from_notes, full_changelog = parse_release_notes(notes, team=OPERATOR_TEAM)
-        from_log = parse_git_log(log, team=OPERATOR_TEAM, repo=REPO)
-        return (
-            (
-                format_changes(from_notes, '3.8.2', self.DATE),
-                format_release_notes(from_notes, full_changelog, repo=REPO),
-            ),
-            (
-                format_changes(from_log, '3.8.2', self.DATE),
-                format_release_notes(from_log, full_changelog, repo=REPO),
-            ),
-        )
-
-    def test_3_8_2_renders_identically_from_either_input(self):
-        from_notes, from_log = self.both(OPERATOR_3_8_2_NOTES, OPERATOR_3_8_2_LOG)
-        assert from_log == from_notes
-
-    def test_3_8_0_renders_identically_from_either_input(self):
-        from_notes, from_log = self.both(OPERATOR_BREAKING_NOTES, OPERATOR_BREAKING_LOG)
-        assert from_log == from_notes
-
-    def test_the_bump_size_is_the_same_from_either_input(self):
-        for notes, log in (
-            (OPERATOR_3_8_2_NOTES, OPERATOR_3_8_2_LOG),
-            (OPERATOR_BREAKING_NOTES, OPERATOR_BREAKING_LOG),
-        ):
-            from_notes, _ = parse_release_notes(notes, team=OPERATOR_TEAM)
-            from_log = parse_git_log(log, team=OPERATOR_TEAM, repo=REPO)
-            assert infer_bump_size(from_log) == infer_bump_size(from_notes)
-
-    def test_the_categories_are_identical_and_not_merely_the_rendering(self):
-        # Rendering can hide a difference -- two changes that swapped places
-        # inside a category, say, if the category happened to be sorted --
-        # so the structures are compared as well as the text.
-        from_notes, _ = parse_release_notes(OPERATOR_3_8_2_NOTES, team=OPERATOR_TEAM)
-        from_log = parse_git_log(OPERATOR_3_8_2_LOG, team=OPERATOR_TEAM, repo=REPO)
-        assert from_log == from_notes
-
-    def test_the_two_fixtures_describe_the_same_pull_requests(self):
-        # Otherwise the comparison above could pass by both paths agreeing on
-        # the wrong thing: a bullet quietly missing from one fixture and the
-        # matching commit from the other.
-        in_notes = sorted(
-            int(line.rsplit('/', 1)[1])
-            for line in OPERATOR_3_8_2_NOTES.splitlines()
-            if line.startswith('* ') and '/pull/' in line and 'first contribution' not in line
-        )
-        in_log = sorted(
-            int(subject.rsplit('(#', 1)[1][:-1]) for _, subject, _ in OPERATOR_3_8_2_COMMITS
-        )
-        assert in_notes == in_log
-        assert len(in_log) == 23
 
 
 class ConsoleScriptTests(unittest.TestCase):
@@ -1340,83 +1100,3 @@ class ConsoleScriptTests(unittest.TestCase):
         pyproject = (pathlib.Path(__file__).parent.parent / 'pyproject.toml').read_text()
         assert 'changelog = "charm_tech_code.changelog._cli:main"' in pyproject
         assert callable(_cli.main)
-
-
-class ConsoleScriptReleaseNotesInputTests(ConsoleScriptTests):
-    """The same script with `--input release-notes`, which is still a door in.
-
-    It inherits nothing but `run_cli`'s shape deliberately -- the point here
-    is the flag, and the four subcommands answering the same questions off
-    the older input.
-    """
-
-    def run_cli(self, *argv: str, stdin: str = OPERATOR_3_8_2_NOTES) -> tuple[int, str, str]:
-        return super().run_cli(*argv, '--input', 'release-notes', stdin=stdin)
-
-    def test_bump_size_prints_one_bare_word(self):
-        assert self.run_cli('bump-size') == (0, 'patch\n', '')
-        assert self.run_cli('bump-size', stdin=OPERATOR_BREAKING_NOTES) == (0, 'minor\n', '')
-
-    def test_next_version_prints_one_bare_word(self):
-        assert self.run_cli('next-version', '--previous', '3.8.1') == (0, '3.8.2\n', '')
-        minor = self.run_cli('next-version', '--previous', '3.7.1', stdin=OPERATOR_BREAKING_NOTES)
-        assert minor == (0, '3.8.0\n', '')
-
-    def test_release_notes_is_the_library_output(self):
-        categories, full_changelog = parse_release_notes(OPERATOR_3_8_2_NOTES, team=OPERATOR_TEAM)
-        _, out, _ = self.run_cli('release-notes', '--repo', REPO, '--team', TEAM_ARGUMENT)
-        assert out == format_release_notes(categories, full_changelog, repo=REPO) + '\n'
-
-    def test_release_notes_has_no_compare_link_by_default(self):
-        # Unlike the git-log path: the notes carry the line themselves, and
-        # it is passed through.
-        _, out, _ = self.run_cli('release-notes', '--repo', REPO)
-        assert out.endswith(
-            '**Full Changelog**: https://github.com/canonical/operator/compare/3.8.1...3.8.2\n'
-        )
-
-    def test_release_notes_takes_a_compare_link_it_cannot_work_out(self):
-        # Here it overrides the line the notes came with, rather than
-        # supplying one that was missing.
-        url = 'https://example.com/compare/a...b'
-        _, out, _ = self.run_cli('release-notes', '--repo', REPO, '--compare-url', url)
-        assert out.endswith(f'**Full Changelog**: {url}\n')
-        assert '3.8.1...3.8.2' not in out
-
-    def test_changes_entry_is_the_library_output_byte_for_byte(self):
-        categories, _ = parse_release_notes(OPERATOR_3_8_2_NOTES, team=OPERATOR_TEAM)
-        _, out, _ = self.run_cli(
-            'changes-entry', '--tag', '3.8.2', '--date', '2026-08-31', '--team', TEAM_ARGUMENT
-        )
-        assert out == format_changes(categories, '3.8.2', datetime.date(2026, 8, 31))
-        assert out.endswith('(#2699)\n\n')
-
-    def test_without_a_team_everyone_is_credited(self):
-        # By handle rather than by name, which is the one thing this path
-        # does better: the generated notes name every author as `@handle`,
-        # including the ones whose commits carry no handle at all.
-        _, out, _ = self.run_cli('changes-entry', '--tag', '3.8.2', '--date', '2026-08-31')
-        assert (
-            '* Compare full event paths when skipping duplicate notices by @Ali-932 (#2684)' in out
-        )
-        assert '* Stop styling page references as blockquotes by @tonyandrewmeyer (#2666)' in out
-
-    def test_an_email_cannot_match_an_author_the_notes_name(self):
-        # The generated notes give a handle and nothing else, so a team list
-        # of email addresses matches nobody here, however complete it is.
-        # The git-log path matches this same person on that same address.
-        _, out, _ = self.run_cli(
-            'changes-entry',
-            '--tag',
-            '3.8.2',
-            '--date',
-            '2026-08-31',
-            '--team',
-            '46688206+Ali-932@users.noreply.github.com',
-        )
-        assert 'by @Ali-932 (#2684)' in out
-
-    def test_git_log_format_prints_the_format_and_reads_nothing(self):
-        # `--input` is not one of its options: it reads nothing at all.
-        with self.assertRaises(SystemExit):
-            self.run_cli('git-log-format', stdin='')
