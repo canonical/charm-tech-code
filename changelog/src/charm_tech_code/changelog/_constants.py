@@ -30,12 +30,18 @@ import re
 #: ``* type!: summary by @user in https://github.com/owner/repo/pull/123``.
 #: The ``!`` is optional and marks a breaking change.
 CHANGE_LINE_REGEX = re.compile(
-    r'^\* (?P<category>\w+)(?P<breaking>!?): (?P<summary>.*) by [^ ]+ in (?P<pr>.*)'
+    r'^\* (?P<category>\w+)(?P<breaking>!?): (?P<summary>.*) by (?P<author>[^ ]+) in (?P<pr>.*)'
 )
 
-#: The PR link in a bullet, from which the ``(#123)`` in a ``CHANGES.md``
-#: entry is taken.
+#: The PR link in a bullet, from which the pull-request number is taken.
 PR_LINK_REGEX = re.compile(r'https?://[^ ]+/pull/(\d+)')
+
+#: How a pull-request link is rebuilt from a number. Both parsers reduce a
+#: change to its *number*, because that is all the git log carries and all a
+#: ``CHANGES.md`` entry renders, so the URL the release notes want is built
+#: back up from the number and the repository the caller names. That is a
+#: string operation, which is what keeps the package free of I/O.
+PULL_REQUEST_URL_TEMPLATE = 'https://github.com/{repo}/pull/{number}'
 
 #: GitHub appends a section of first-time contributors to its generated
 #: notes. It is not part of the changelog, so it is stripped before parsing.
@@ -44,6 +50,75 @@ NEW_CONTRIBUTORS_REGEX = re.compile(r'(## New Contributors.*?)(\n|$)', flags=re.
 #: The line GitHub ends its generated notes with, carrying a compare link.
 #: It is passed through to the release notes unchanged.
 FULL_CHANGELOG_PREFIX = '**Full Changelog**'
+
+#: The ``git log --format=`` string `parse_git_log` expects, and the two
+#: control characters it is built out of.
+#:
+#: The fields are the *author* name and email, the subject, and the body.
+#: Author rather than committer: a squash merge records the contributor as
+#: the author and GitHub itself as the committer, so the committer is never
+#: the person to credit. There is no SHA, deliberately -- a squashed commit's
+#: SHA on the default branch has no relation to anything a contributor would
+#: cite, and the pull-request number in the subject is the key that does.
+#:
+#: The separators are ASCII 0x1e (record) and 0x1f (unit), which is what they
+#: are for. A commit message may contain anything else, newlines and blank
+#: lines very much included, so a line-oriented or blank-line-delimited format
+#: would be guessing at where one commit stops and the next starts::
+#:
+#:     git log --reverse --no-merges --format="$FORMAT" 3.8.1..3.8.2
+#:
+#: ``--reverse`` because a changelog reads oldest first, which is also the
+#: order GitHub's generated notes come in. ``--no-merges`` because a merge
+#: commit's subject is not a conventional-commit one; such a subject is
+#: dropped anyway, so this is tidiness rather than correctness.
+GIT_LOG_RECORD_SEPARATOR = '\x1e'
+GIT_LOG_FIELD_SEPARATOR = '\x1f'
+GIT_LOG_FORMAT = '%x1e%an%x1f%ae%x1f%s%x1f%b'
+
+#: A conventional-commit subject, as the shared `check-conventional-pr-title`
+#: script defines it: a type, an optional scope, an optional ``!``, then the
+#: summary. The scope is captured and ignored -- no repository in the estate
+#: uses one today, but the checker accepts one, and the two should not
+#: disagree about what a valid subject looks like.
+COMMIT_SUBJECT_REGEX = re.compile(
+    r'^(?P<category>[A-Za-z]+)'
+    r'(?:\((?P<scope>[^()]+)\))?'
+    r'(?P<breaking>!?)'
+    r': (?P<summary>.+)$'
+)
+
+#: The ``(#123)`` that a squash merge appends to the subject, and the only
+#: place the pull-request number comes from on the git-log path. Over
+#: `canonical/operator`'s last 300 commits every subject carries one; the
+#: commits that do not are older, from before the squash-merge policy, and a
+#: commit pushed straight to the default branch would not have one either.
+#: Such a change is real and belongs in the changelog, so it is carried with
+#: no number rather than with a placeholder that hides it.
+PR_SUFFIX_REGEX = re.compile(r'\s*\(#(\d+)\)$')
+
+#: What GitHub's "Revert" button writes into the body of the revert pull
+#: request: ``Reverts canonical/operator#2538``. It names the *pull request*
+#: rather than a commit, which is the robust key under squash merging, since
+#: the reverted commit's SHA on the default branch is not something anyone
+#: cites. The owner/repo part is optional because a body written by hand
+#: often leaves it off.
+REVERTS_REGEX = re.compile(
+    r'^[ \t]*Reverts[ \t]+(?:(?P<repo>[\w.-]+/[\w.-]+))?#(?P<number>\d+)[ \t]*$',
+    flags=re.MULTILINE | re.IGNORECASE,
+)
+
+#: A GitHub no-reply address, which is the one author email a handle can be
+#: recovered from: ``46688206+Ali-932@users.noreply.github.com`` is
+#: ``@Ali-932``. It is the default for a GitHub account with a private email,
+#: so it is the common form for exactly the drive-by external contributor
+#: this is here to credit. The older suffix-free form is accepted too, and so
+#: is the ``[bot]`` a GitHub App's address carries.
+NOREPLY_EMAIL_REGEX = re.compile(
+    r'^(?:\d+\+)?(?P<handle>[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d]))*(?:\[bot\])?)'
+    r'@users\.noreply\.github\.com$',
+    flags=re.IGNORECASE,
+)
 
 #: The categories a changelog has, in the order they are rendered.
 #:
@@ -78,6 +153,21 @@ BREAKING = 'breaking'
 
 #: The one real conventional-commit type the bump-size rule cares about.
 FEATURE = 'feat'
+
+#: The type of a commit that undoes another one.
+REVERT = 'revert'
+
+#: Reverting one of these is a removal of behaviour people may already be
+#: relying on, so the revert is routed to `BREAKING` rather than left under
+#: `REVERT`. Only a revert of something *already released* gets this far: a
+#: revert of a change in the same range cancels with it and neither appears.
+#:
+#: `feat` is the case that matters, and it is the reason this exists at all:
+#: a released feature that is taken away again is a breaking change by any
+#: reading, and filing it under `Reverted` would put it below the fold of a
+#: changelog that the affected reader needs to see the top of. An inner `!`
+#: is treated the same way, for the same reason and more obviously.
+REVERT_OF_BREAKING_TYPES: tuple[str, ...] = (FEATURE,)
 
 #: The categories whose presence in a range makes the release a minor one.
 #: Everything else -- and an empty range -- is a patch.

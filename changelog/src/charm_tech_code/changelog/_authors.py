@@ -1,0 +1,121 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""Who gets credited in a changelog, and how.
+
+The rule is that a contributor from outside the team that maintains the
+repository is credited by name in the entry, and a member of that team is
+not. Someone maintaining a project is not a guest in it, and a changelog
+where every line ends in the same three handles has stopped carrying any
+information; a line that names someone who turned up once and fixed
+something is the one worth reading. `canonical/operator`'s own `CHANGES.md`
+already does this by hand -- `* Fix typos in code snippets by @MattiaSarti
+(#1750)` -- which is the shape this reproduces.
+
+**"Outside the team" is not "outside Canonical".** A contributor from
+another Canonical team has an `@canonical.com` address, no GitHub handle
+anyone can derive from it, and every bit as much claim to the credit as a
+stranger does. They are credited by name.
+
+**The team is a parameter, not a constant.** It drifts -- people join and
+leave -- and it differs per repository, so a list baked in here would be
+wrong somewhere from the day it was written. An empty team credits everyone,
+which is the right way for this to fail: over-crediting is visible in a
+draft release and takes one edit to fix, while quietly crediting nobody is
+invisible until a contributor notices they were left out.
+
+The git log gives a name and an email, never a handle, and only some of that
+is recoverable: see `NOREPLY_EMAIL_REGEX`. Where it is not, the person is
+credited by their name, because the alternatives are to drop them or to
+render a handle that does not exist.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Collection
+
+from ._constants import NOREPLY_EMAIL_REGEX
+
+
+def normalise_team(team: Collection[str]) -> frozenset[str]:
+    """Fold a caller's team list into something to compare against.
+
+    Entries may be email addresses or GitHub handles, with or without a
+    leading `@`, in any mixture: a caller assembling the list from a team
+    page has both to hand and should not have to decide which kind each one
+    is. Comparison is case-insensitive, since neither an email address nor a
+    GitHub handle distinguishes case.
+    """
+    return frozenset(member.strip().lstrip('@').casefold() for member in team if member.strip())
+
+
+def derive_handle(email: str) -> str | None:
+    """Recover a GitHub handle from an author email, if it is in there.
+
+    Only a `users.noreply.github.com` address carries one. That is not the
+    narrow case it sounds like: it is what GitHub commits as by default when
+    an account keeps its email private, so it is the usual form for a
+    drive-by contributor, which is the author this most needs to name.
+
+    Returns:
+        The handle without its `@`, or `None` for any other address.
+    """
+    match = NOREPLY_EMAIL_REGEX.match(email.strip())
+    return match.group('handle') if match else None
+
+
+def credit_for(name: str, email: str, team: Collection[str]) -> str | None:
+    """Work out how to credit the author of a commit, from a git log.
+
+    Args:
+        name: The author name, as `%an` gives it.
+        email: The author email, as `%ae` gives it.
+        team: The maintainers, as emails and/or handles. See `normalise_team`.
+
+    Returns:
+        `@handle` when a handle can be recovered from the email, the name
+        when it cannot, or `None` when this author is one of `team` and so
+        is not a guest to be thanked.
+    """
+    members = normalise_team(team)
+    handle = derive_handle(email)
+    if email.strip().casefold() in members:
+        return None
+    if handle is not None and handle.casefold() in members:
+        return None
+    return f'@{handle}' if handle is not None else name.strip() or None
+
+
+def credit_for_handle(handle: str, team: Collection[str]) -> str | None:
+    """The same decision, for a source that gives a handle and nothing else.
+
+    GitHub's generated release notes name the author as `@handle` and say
+    nothing about who that is, so this is all that path has to go on. It is
+    also why the two input paths can disagree: a contributor with no
+    `users.noreply.github.com` address is credited by name from the git log
+    and by handle from the notes, and no amount of parsing fixes that -- the
+    handle simply is not in the git log.
+
+    Args:
+        handle: The author as the notes name them, `@` optional.
+        team: The maintainers, as emails and/or handles.
+
+    Returns:
+        `@handle`, or `None` when this author is one of `team`.
+    """
+    bare = handle.strip().lstrip('@')
+    if not bare or bare.casefold() in normalise_team(team):
+        return None
+    return f'@{bare}'

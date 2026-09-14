@@ -1,6 +1,6 @@
 # changelog
 
-Turns GitHub's generated release notes into our changelog format.
+Turns a range of commits into our changelog format.
 
 The Charm Tech repositories have different release processes, but aim for a consistent changelog style. The formatting and the version arithmetic are centralised here, the file rewriting and the GitHub calls are in each repository.
 
@@ -8,44 +8,93 @@ The Charm Tech repositories have different release processes, but aim for a cons
 
 ```python
 import datetime
+import subprocess
 from charm_tech_code.changelog import (
+    GIT_LOG_FORMAT,
     format_changes,
     format_release_notes,
     infer_bump_size,
     next_version,
-    parse_release_notes,
+    parse_git_log,
 )
 
-categories, full_changelog = parse_release_notes(notes_text)
-notes = format_release_notes(categories, full_changelog)
+log = subprocess.run(
+    ['git', 'log', '--reverse', '--no-merges', f'--format={GIT_LOG_FORMAT}', '3.8.1..3.8.2'],
+    capture_output=True, text=True, check=True,
+).stdout
+categories = parse_git_log(log, team=MAINTAINERS, repo='canonical/operator')
+notes = format_release_notes(categories, None, repo='canonical/operator')
 version = next_version('3.8.1', infer_bump_size(categories))
 entry = format_changes(categories, version, datetime.date.today())
 ```
 
-`notes_text` is GitHub's *generated* release-notes text, not a `git log`. GitHub builds it from the titles of the pull requests merged in the range, which is why the conventional-commit types come off PR titles. A release already has that text in its body; a workflow running before any release exists can ask for a preview of it with `POST /repos/{owner}/{repo}/releases/generate-notes`. Either way, getting hold of it is the caller's job: nothing in the library touches the network, git, the filesystem or the clock, and `format_changes` takes the date as an argument for the same reason.
+Running `git log` is the caller's job, as is getting hold of the date: nothing in the library touches the network, git, the filesystem or the clock. That is what lets the tests pin the real behaviour rather than approximate it.
+
+### Why the commits, and not the release notes
+
+`parse_release_notes` is still here, and reads GitHub's *generated* release-notes text - which GitHub builds from the titles of the pull requests merged in the range. A caller that has a release body in hand should not have to go and fetch a git log to use it. But it is the weaker input, and for a new caller it is the wrong one:
+
+* **A pull-request title is not a commit subject.** The convention governs commits; a title is written once, when the PR is opened, and can drift from the subject its squash merge lands. When they disagree, the commits are what the repository actually contains.
+* **A revert can only be resolved from a git log.** Whether a revert cancels something in the same range is in the revert commit's *body*, and the generated notes are one line per PR with no bodies in them at all.
+* **It needs GitHub.** `POST /repos/{owner}/{repo}/releases/generate-notes` is a call, a token and a network. `git log` is neither.
+
+The two paths otherwise agree: `canonical/operator`'s 3.8.1..3.8.2 and 3.7.1..3.8.0 render byte-for-byte identically from either, which the test suite checks.
+
+### The pull-request number, and the link
+
+A change carries the *number*, taken from the `(#N)` a squash merge appends to the subject, and never a URL. `format_changes` only ever wanted the number, and `format_release_notes` builds the link back up from the number and the `repo` you give it - a string operation, so the no-I/O rule holds.
+
+A commit with no `(#N)` - one pushed straight to the branch - carries `None`, and renders with no reference at all rather than with a `(#?)` standing in for one. It is a real change; what it has not got is a pull request to point anyone at.
+
+### Credit
+
+A contributor from outside the team maintaining the repository is named in the bullet: `* Fix typos in code snippets by @MattiaSarti (#1750)`, which is what operator's own `CHANGES.md` has always done by hand. A member of that team is not - a maintainer is not a guest, and a changelog whose every line ends in the same three handles has stopped carrying information.
+
+Pass the team as `team=`, a collection of email addresses and/or GitHub handles. It is a parameter rather than a constant because it drifts, and it differs per repository. **An empty team credits everyone**, which is the right way for this to fail: over-crediting is visible in the draft release and takes one edit, while crediting nobody is invisible until a contributor notices.
+
+Two things about who is outside:
+
+* **"Outside the team" is not "outside Canonical".** Someone from another Canonical team has an `@canonical.com` address and every bit as much claim to the credit.
+* **A handle is only sometimes recoverable.** `46688206+Ali-932@users.noreply.github.com` gives `@Ali-932`, which is GitHub's default for an account with a private email and so the usual case for a drive-by contributor. Where there is no handle in the log, the person is credited by name, because dropping them and rendering a broken `@` are both worse.
+
+### Reverts
+
+Handled explicitly, on the git-log path:
+
+* **A revert of something in the same range cancels with it**, and neither appears. A change that landed and was taken back out before anything shipped did not happen as far as a reader is concerned.
+* **A revert of something already released is called out**, under its own `Reverted` heading rather than filed under the type it undoes - the reader wants to see that something was withdrawn, not a fix that looks new. It counts at least as a patch, and a revert of a released *feature* is routed to `Breaking Changes`, because taking away behaviour people may be relying on is a breaking change whatever the revert commit's type says.
+
+The key is the pull-request number in `Reverts owner/repo#N`, not a SHA. Under squash merging the reverted commit's SHA on the default branch bears no relation to anything a contributor would cite.
 
 ## From a workflow step
 
-The console script is the same thing for a caller that can't `import`. It reads the notes on stdin and prints one answer:
+The console script is the same thing for a caller that can't `import`. It reads the range on stdin and prints one answer:
 
 ```shell
-gh api "repos/$REPO/releases/generate-notes" -f tag_name="$TAG" -f target_commitish="$BRANCH" --jq .body > notes.md
-SIZE=$(changelog bump-size < notes.md)
-VERSION=$(changelog next-version --previous "$LAST_TAG" < notes.md)
-changelog release-notes < notes.md > release-notes.md
-changelog changes-entry --tag "$VERSION" < notes.md > changes-entry.md
+git log --reverse --no-merges --format="$(changelog git-log-format)" "$LAST_TAG..$BRANCH" > log.txt
+SIZE=$(changelog bump-size --team "$TEAM" < log.txt)
+VERSION=$(changelog next-version --previous "$LAST_TAG" --team "$TEAM" < log.txt)
+changelog release-notes --repo "$REPO" --team "$TEAM" \
+    --compare-url "https://github.com/$REPO/compare/$LAST_TAG...$VERSION" < log.txt > release-notes.md
+changelog changes-entry --tag "$VERSION" --team "$TEAM" < log.txt > changes-entry.md
 ```
 
 That shape comes from how an Actions step consumes a result. A `$GITHUB_OUTPUT` line takes a scalar comfortably and a multi-line document only through a heredoc delimiter the document itself must not contain, so the two commands that produce Markdown print it on stdout for the step to redirect into a file, and the two that produce a scalar print a single bare word, with no label and no JSON to unwrap. Nothing here writes to `$GITHUB_OUTPUT` itself, which keeps the script useful outside Actions.
 
 Four invocations re-parse the same text four times. That costs nothing worth counting, and it is the reason each step's output needs no reshaping.
 
+`git-log-format` is the fifth and the odd one out: it reads nothing, and prints the `--format` string the others expect. Copying that string into the workflow instead would work until someone dropped a separator out of it, and a log that does not parse yields an empty changelog rather than an error.
+
+`--compare-url` is there because a git log has no equivalent of the line GitHub's generated notes end with, and the tags at either end of the range are the workflow's to know. Leave it off for no link.
+
+`--input release-notes` switches all four back to the older input.
+
 `--date` defaults to today (UTC), and `_cli` is the only module in the package that reads the clock. The library stays clock-free, and a fixture in the test suite fails the whole run if that stops being true.
 
 Run it from a workflow the way `ai-failure-notifier` is run, pinned to a commit:
 
 ```shell
-uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdirectory=changelog" changelog bump-size < notes.md
+uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdirectory=changelog" changelog bump-size < log.txt
 ```
 
 ## Versions
@@ -74,7 +123,7 @@ Neither shape is injectable, and neither is the map of commit type to heading. T
 Two things about that map are worth knowing before you decide it's wrong:
 
 * `chore` is a type but not a category, so `chore` commits are deliberately dropped. Dependency bumps, charm-pin updates and the release's own version-bump commit are all `chore`, and these sorts of changes are not interesting to our users, and they are available via `git log` if anyone does want them.
-* `breaking` is a category but not a type. A `!` after the real type (`feat!:`) moves an entry into it, keeping its real type as a prefix, and it renders first with a sentence asking the reader to review carefully. A `!` should be a major version bump, but if it's appearing here then we have decided to cheat the semver rules and allow a breaking change in a minor release. This should be rare. We will have carefully checked the impact before this decision, but want to make sure the change is particularly noticeable in the changelog.
+* `breaking` is a category but not a type. A `!` after the real type (`feat!:`) moves an entry into it, keeping its real type as a prefix, and it renders first with a sentence asking the reader to review carefully. A revert of a released `feat` lands there too, for the reason in "Reverts" above. A `!` should be a major version bump, but if it's appearing here then we have decided to cheat the semver rules and allow a breaking change in a minor release. This should be rare. We will have carefully checked the impact before this decision, but want to make sure the change is particularly noticeable in the changelog.
 
 ## Developing
 

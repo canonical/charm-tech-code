@@ -1,7 +1,7 @@
 [project]
 name = "charm-tech-code-changelog"
 version = "0.1.0"
-description = "Turn GitHub's generated release notes into our changelog format."
+description = "Turn a range of commits into our changelog format."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [

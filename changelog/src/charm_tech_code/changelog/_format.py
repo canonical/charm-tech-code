@@ -25,8 +25,9 @@ from ._constants import (
     BREAKING,
     BREAKING_PREAMBLE,
     CATEGORY_HEADINGS,
-    PR_LINK_REGEX,
+    PULL_REQUEST_URL_TEMPLATE,
 )
+from ._models import Change
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,25 @@ def commit_type_to_category(commit_type: str) -> str:
     return CATEGORY_HEADINGS.get(commit_type, commit_type.capitalize())
 
 
+def _bullet(change: Change, reference: str | None) -> str:
+    """One `* ...` line: the change, who to thank, and where it came from.
+
+    The three pieces are each optional after the first, and a missing one
+    takes its separator with it rather than leaving `by  (#)` behind. The
+    credit sits before the reference because that is where
+    `canonical/operator`'s hand-written entries have always put it:
+    `* Fix typos in code snippets by @MattiaSarti (#1750)`.
+    """
+    parts = [f'* {change.description}']
+    if change.credit:
+        parts.append(f'by {change.credit}')
+    if reference:
+        parts.append(reference)
+    return ' '.join(parts)
+
+
 def format_release_notes(
-    categories: Mapping[str, list[tuple[str, str]]], full_changelog: str | None
+    categories: Mapping[str, list[Change]], full_changelog: str | None, *, repo: str
 ) -> str:
     """Format for release notes.
 
@@ -49,15 +67,25 @@ def format_release_notes(
 
     Breaking changes are rendered first, under their own heading and a
     sentence asking the reader to review them. `categories` is expected to
-    be what `parse_release_notes` returned: every category present, in the
-    order they are rendered in.
+    be what `parse_git_log` or `parse_release_notes` returned: every
+    category present, in the order they are rendered in.
+
+    Args:
+        categories: The parsed changes.
+        full_changelog: The compare line to end on, or `None`. A git log has
+            no equivalent of it, so a caller on that path either leaves it
+            out or builds one, knowing the tags at both ends.
+        repo: The `owner/name` the pull-request links point into. It is
+            needed because a `Change` carries a number and not a URL -- the
+            number is all a git log has, and all a `CHANGES.md` entry shows,
+            so the link is built here rather than carried around. A change
+            with no pull request renders with no link.
     """
     lines = ["## What's Changed", '']
     if categories[BREAKING]:
         lines.append(f'### {commit_type_to_category(BREAKING)}')
         lines.append(f'{BREAKING_PREAMBLE}\n')
-        for description, pr_link in categories[BREAKING]:
-            lines.append(f'* {description} in {pr_link}')
+        lines.extend(_bullet(change, _link(change, repo)) for change in categories[BREAKING])
         lines.append('')
         logger.info(
             'Breaking changes detected in the release notes. '
@@ -68,22 +96,32 @@ def format_release_notes(
             continue
         if items:
             lines.append(f'### {commit_type_to_category(commit_type)}')
-            for description, pr_link in items:
-                lines.append(f'* {description} in {pr_link}')
+            lines.extend(_bullet(change, _link(change, repo)) for change in items)
             lines.append('')
     if full_changelog:
         lines.append(full_changelog)
     return '\n'.join(lines)
 
 
-def format_changes(
-    categories: Mapping[str, list[tuple[str, str]]], tag: str, date: datetime.date
-) -> str:
+def _link(change: Change, repo: str) -> str | None:
+    """The `in <url>` half of a release-notes bullet, or nothing."""
+    if change.pr_number is None:
+        return None
+    return 'in ' + PULL_REQUEST_URL_TEMPLATE.format(repo=repo, number=change.pr_number)
+
+
+def format_changes(categories: Mapping[str, list[Change]], tag: str, date: datetime.date) -> str:
     """Format for CHANGES.md.
 
     The header is formatted as a top-level heading with the tag and date.
     The content is a Markdown formatted string with sections for each commit type.
     Each item is formatted as a bullet point with the description and PR number in parentheses.
+
+    A change with no pull request behind it -- a commit pushed straight to
+    the branch -- gets no `(#N)` rather than a `(#?)` standing in for one.
+    The change is real and belongs in the list; what it does not have is a
+    pull request to point anyone at, and saying so plainly beats a
+    placeholder that reads like a parsing accident.
 
     `date` is passed in rather than read from the clock. This module does no
     I/O of any kind, and "what day is it" is I/O: the caller knows whether it
@@ -94,11 +132,8 @@ def format_changes(
     for commit_type, items in categories.items():
         if items:
             lines.append(f'## {commit_type_to_category(commit_type)}\n')
-            for description, pr_link in items:
-                pr_num = '?'
-                match = PR_LINK_REGEX.match(pr_link)
-                if match:
-                    pr_num = match.group(1)
-                lines.append(f'* {description} (#{pr_num})')
+            for change in items:
+                reference = None if change.pr_number is None else f'(#{change.pr_number})'
+                lines.append(_bullet(change, reference))
             lines.append('')
     return '\n'.join(lines) + '\n'
