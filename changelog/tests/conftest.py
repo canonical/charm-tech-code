@@ -14,13 +14,12 @@
 
 """Nothing in this package's library may read the clock.
 
-`format_changes` used to call `datetime.datetime.now()` itself, which is what
-made the output of a release depend on which day CI happened to run and made
-the function impossible to assert on. The date is an argument now, and this
-fixture is what keeps it one: it replaces the `datetime` module as each
-library module sees it, so a reinstated `now()` or `today()` call fails the
-whole suite rather than quietly passing on every day except the one that
-matters.
+A library function that reads the clock makes the output of a release depend
+on which day CI happened to run, and makes the function impossible to assert
+on. So the date is an argument, and this fixture is what keeps it one: it
+replaces the `datetime` module as each library module sees it, so a `now()`
+or `today()` call anywhere under it fails the whole suite rather than quietly
+passing on every day except the one that matters.
 
 `_cli` is deliberately not in the list. A console script has to get a date
 from somewhere for `--date` to be optional, so it is the package's I/O
