@@ -1299,9 +1299,11 @@ class OpenRouterCallTests(unittest.TestCase):
 
     def test_http_error_raises_so_main_can_fall_back(self):
         error = self._http_error(500, b'')
-        with mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error):
-            with self.assertRaises(RuntimeError):
-                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+        with (
+            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
+            self.assertRaises(RuntimeError),
+        ):
+            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
 
     def test_the_error_carries_openrouters_own_explanation(self):
         """A 400 says only "Bad Request"; which of the model, key or schema is in the body."""
