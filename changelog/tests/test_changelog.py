@@ -593,10 +593,10 @@ class FormatChangesTests(unittest.TestCase):
 
     def test_a_change_with_no_pr_gets_no_reference(self):
         # A commit pushed straight to the branch has no pull request, and is
-        # still a change that shipped. It is listed with nothing after it,
-        # rather than with the `(#?)` an earlier version of this rendered:
-        # a reader can act on "there is no pull request for this", and a
-        # question mark only reads as something having gone wrong.
+        # still a change that shipped. It is listed with nothing after it
+        # rather than with a placeholder: a reader can act on "there is no
+        # pull request for this", where a question mark only reads as
+        # something having gone wrong.
         assert self.entry(Change('A fix')).endswith('* A fix\n\n')
 
     def test_the_credit_goes_before_the_reference(self):
