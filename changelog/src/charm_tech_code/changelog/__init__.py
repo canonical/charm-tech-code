@@ -31,7 +31,7 @@ The same parse answers how big a release the range adds up to, and what that
 makes the version after `previous`::
 
     size = infer_bump_size(categories)
-    version = next_version(previous, size)
+    version = next_version(previous=previous, size=size)
 
 `parse_release_notes` is the other door in, reading GitHub's generated
 release-notes text instead of the commits. It describes the same pull

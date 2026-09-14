@@ -280,7 +280,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit(infer_bump_size(categories))
     elif args.command == 'next-version':
         try:
-            _emit(next_version(args.previous, infer_bump_size(categories)))
+            _emit(next_version(previous=args.previous, size=infer_bump_size(categories)))
         except ValueError as exc:
             print(f'changelog: {exc}', file=sys.stderr)
             return 2
