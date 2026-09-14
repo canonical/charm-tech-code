@@ -26,16 +26,16 @@ from __future__ import annotations
 
 import re
 
-#: How a pull-request link is rebuilt from a number. Both parsers reduce a
-#: change to its *number*, because that is all the git log carries and all a
-#: ``CHANGES.md`` entry renders, so the URL the release notes want is built
-#: back up from the number and the repository the caller names. That is a
-#: string operation, which is what keeps the package free of I/O.
+#: How a pull-request link is rebuilt from a number. A change carries its
+#: *number*, because that is all the git log carries and all a ``CHANGES.md``
+#: entry renders, so the URL a release body wants is built back up from the
+#: number and the repository the caller names. That is a string operation,
+#: which is what keeps the package free of I/O.
 PULL_REQUEST_URL_TEMPLATE = 'https://github.com/{repo}/pull/{number}'
 
-
-#: The line GitHub ends its generated notes with, carrying a compare link.
-#: It is passed through to the release notes unchanged.
+#: The prefix of the compare line a release body ends with. The link itself
+#: is the caller's (`--compare-url`); this is the shape GitHub uses, so that
+#: notes rendered here read the same as notes rendered there.
 FULL_CHANGELOG_PREFIX = '**Full Changelog**'
 
 #: The ``git log --format=`` string `parse_git_log` expects, and the two
