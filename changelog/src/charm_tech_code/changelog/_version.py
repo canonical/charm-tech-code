@@ -13,8 +13,10 @@
 # limitations under the License.
 
 
-"""How big a release the commits in a range add up to, and what that makes
-the next version.
+"""Size a release, and say what version it makes.
+
+How big the commits in a range add up to, and what that makes the next
+version.
 
 Two functions, and the split between them is the interesting part. The
 Charm Tech repositories share a changelog format and a set of
@@ -73,6 +75,7 @@ def infer_bump_size(categories: Mapping[str, list[Change]]) -> BumpSize:
     Returns:
         `'minor'` or `'patch'`. Never `'major'`: a major release is a
         deliberate act, not something to infer from a commit range.
+
     """
     if any(categories.get(category) for category in MINOR_BUMP_CATEGORIES):
         return MINOR
@@ -96,6 +99,7 @@ def next_version(*, previous: str, size: BumpSize) -> str:
     Raises:
         ValueError: if `previous` is not a plain `X.Y.Z`, or `size` is not
             one of the two sizes `infer_bump_size` returns.
+
     """
     match = RELEASE_VERSION_REGEX.fullmatch(previous.strip())
     if not match:

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-"""The console script: a range of changes on stdin, one answer on stdout.
+r"""The console script: a range of changes on stdin, one answer on stdout.
 
 **This module is the package's I/O boundary, and the only one.** Everything
 under it is text in, text out -- no network, no git, no filesystem, no clock
@@ -76,7 +76,7 @@ RELEASE_NOTES_INPUT = 'release-notes'
 
 
 def _today() -> datetime.date:
-    """The default for `--date`, and the package's only reading of the clock.
+    """Return the default for `--date`, the package's only reading of the clock.
 
     UTC rather than local time: the runner is UTC, and a release's date
     should not depend on who ran it from where.
@@ -96,7 +96,7 @@ def _emit(text: str) -> None:
 
 
 def _input_options() -> argparse.ArgumentParser:
-    """The options that say what is arriving on stdin.
+    """Build the parent parser for the options that say what arrives on stdin.
 
     Shared by the four subcommands that read it, as a parent parser, so that
     a caller switching input path changes one flag on every command rather
@@ -251,7 +251,10 @@ def _team(args: argparse.Namespace) -> list[str]:
     Both spellings, because a workflow passing a repository variable has one
     string with commas in it and a human typing the command has neither.
     """
-    return [member for group in (args.team or ()) for member in group.split(',')]
+    members: list[str] = []
+    for group in args.team or ():
+        members.extend(group.split(','))
+    return members
 
 
 def _categories(args: argparse.Namespace, text: str) -> tuple[dict[str, list[Change]], str | None]:

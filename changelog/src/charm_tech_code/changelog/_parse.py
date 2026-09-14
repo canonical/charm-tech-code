@@ -117,6 +117,7 @@ def parse_release_notes(
         - A dict of category to `Change` list. Every category is present,
           even when empty, in the order they are rendered in.
         - The full changelog line if present, or ``None`` if not found.
+
     """
     release_notes = NEW_CONTRIBUTORS_REGEX.sub(r'\2', release_notes)
     categories = _empty_categories()
@@ -161,7 +162,7 @@ class _Commit(NamedTuple):
 
 
 def _parse_reverts(body: str, repo: str | None) -> int | None:
-    """The pull-request number a revert commit's body names, if any.
+    """Find the pull-request number a revert commit's body names, if any.
 
     A ``Reverts other/repo#5`` naming a different repository is not this
     range's #5, and cancelling against it would drop the wrong pair, so it
@@ -226,7 +227,7 @@ def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Comm
 
 
 def _cancelled(commits: list[_Commit]) -> set[int]:
-    """The commits that a revert in the same range takes back out of it.
+    """Find the commits that a revert in the same range takes back out of it.
 
     A change that landed and was undone before anything shipped did not
     happen as far as a reader is concerned, so neither half appears: not the
@@ -239,6 +240,7 @@ def _cancelled(commits: list[_Commit]) -> set[int]:
 
     Returns:
         The indices into `commits` to leave out.
+
     """
     numbers = {commit.pr_number: index for index, commit in enumerate(commits) if commit.pr_number}
     cancelled: set[int] = set()
@@ -291,13 +293,16 @@ def parse_git_log(
         return value: a git log carries no compare link for the formatter to
         pass through, and inventing one would mean knowing the tags at both
         ends, which is the caller's business.
+
     """
     records = log_text.split(GIT_LOG_RECORD_SEPARATOR)
-    commits = [
-        commit
-        for commit in (_parse_commit(record, team, repo) for record in records if record.strip())
-        if commit is not None
-    ]
+    commits: list[_Commit] = []
+    for record in records:
+        if not record.strip():
+            continue
+        commit = _parse_commit(record, team, repo)
+        if commit is not None:
+            commits.append(commit)
 
     categories = _empty_categories()
     cancelled = _cancelled(commits)
