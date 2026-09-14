@@ -25,6 +25,7 @@ from ._constants import (
     BREAKING,
     BREAKING_PREAMBLE,
     CATEGORY_HEADINGS,
+    FULL_CHANGELOG_PREFIX,
     PULL_REQUEST_URL_TEMPLATE,
 )
 from ._models import Change
@@ -58,23 +59,22 @@ def _bullet(change: Change, reference: str | None) -> str:
 
 
 def format_release_notes(
-    categories: Mapping[str, list[Change]], full_changelog: str | None, *, repo: str
+    categories: Mapping[str, list[Change]], compare_url: str | None, *, repo: str
 ) -> str:
     """Format for release notes.
 
     Results in a Markdown formatted string with sections for each commit type.
-    If `full_changelog` is provided, it is appended at the end.
 
     Breaking changes are rendered first, under their own heading and a
-    sentence asking the reader to review them. `categories` is expected to
-    be what `parse_git_log` returned: every
-    category present, in the order they are rendered in.
+    sentence asking the reader to review them. `categories` is expected to be
+    what `parse_git_log` returned: every category present, in the order they
+    are rendered in.
 
     Args:
         categories: The parsed changes.
-        full_changelog: The compare line to end on, or `None`. A git log has
-            no equivalent of it, so a caller on that path either leaves it
-            out or builds one, knowing the tags at both ends.
+        compare_url: A link comparing the two ends of the range, rendered as
+            the closing line. A git log does not carry one, and the tags at
+            either end are the caller's to know. `None` for no closing line.
         repo: The `owner/name` the pull-request links point into. It is
             needed because a `Change` carries a number and not a URL -- the
             number is all a git log has, and all a `CHANGES.md` entry shows,
@@ -99,8 +99,8 @@ def format_release_notes(
             lines.append(f'### {commit_type_to_category(commit_type)}')
             lines.extend(_bullet(change, _link(change, repo)) for change in items)
             lines.append('')
-    if full_changelog:
-        lines.append(full_changelog)
+    if compare_url:
+        lines.append(f'{FULL_CHANGELOG_PREFIX}: {compare_url}')
     return '\n'.join(lines)
 
 

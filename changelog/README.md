@@ -77,7 +77,7 @@ Four invocations re-parse the same text four times. That costs nothing worth cou
 
 `git-log-format` is the fifth and the odd one out: it reads nothing, and prints the `--format` string the others expect. Copying that string into the workflow instead would work until someone dropped a separator out of it, and a log that does not parse yields an empty changelog rather than an error.
 
-`--compare-url` is there because a git log has no equivalent of the line GitHub's generated notes end with, and the tags at either end of the range are the workflow's to know. Leave it off for no link.
+`--compare-url` is there because a git log does not carry a compare link and the tags at either end of the range are the workflow's to know. You pass the link; the `**Full Changelog**:` prefix is the package's, so that notes rendered here read the same as notes rendered by GitHub. Leave it off for no closing line.
 
 `--input release-notes` switches all four back to the older input.
 
