@@ -226,10 +226,8 @@ class RealReleaseTests(unittest.TestCase):
     """The 3.8.2 fixture, end to end."""
 
     #: A git log carries no compare link, so a caller that wants one supplies
-    #: it. This is what `changelog release-notes --compare-url` builds.
-    full_changelog = (
-        '**Full Changelog**: https://github.com/canonical/operator/compare/3.8.1...3.8.2'
-    )
+    #: it. This is what `changelog release-notes --compare-url` takes.
+    compare_url = 'https://github.com/canonical/operator/compare/3.8.1...3.8.2'
 
     def setUp(self):
         self.categories = parse_git_log(OPERATOR_3_8_2_LOG, team=OPERATOR_TEAM, repo=REPO)
@@ -275,7 +273,7 @@ class RealReleaseTests(unittest.TestCase):
         # them reaches the output. Deliberate: dependency bumps, charm-pin
         # updates and the release's own version bump are not changelog
         # material.
-        notes = format_release_notes(self.categories, self.full_changelog, repo=REPO)
+        notes = format_release_notes(self.categories, self.compare_url, repo=REPO)
         entry = format_changes(self.categories, '3.8.2', datetime.date(2026, 8, 31))
         assert 'chore' not in notes.lower()
         assert 'chore' not in entry.lower()
@@ -284,7 +282,7 @@ class RealReleaseTests(unittest.TestCase):
             assert pr not in entry, f'chore PR #{pr} leaked into the changelog entry'
 
     def test_new_contributors_section_is_dropped(self):
-        notes = format_release_notes(self.categories, self.full_changelog, repo=REPO)
+        notes = format_release_notes(self.categories, self.compare_url, repo=REPO)
         assert 'New Contributors' not in notes
         assert 'made their first contribution' not in notes
 
@@ -329,7 +327,7 @@ class RealReleaseTests(unittest.TestCase):
 
     def test_release_notes(self):
         assert (
-            format_release_notes(self.categories, self.full_changelog, repo=REPO)
+            format_release_notes(self.categories, self.compare_url, repo=REPO)
             == """\
 ## What's Changed
 
@@ -364,9 +362,7 @@ class BreakingChangeTests(unittest.TestCase):
 
     #: Supplied by the caller, the way `--compare-url` does: see
     #: `RealReleaseTests`.
-    full_changelog = (
-        '**Full Changelog**: https://github.com/canonical/operator/compare/3.7.1...3.8.0'
-    )
+    compare_url = 'https://github.com/canonical/operator/compare/3.7.1...3.8.0'
 
     def setUp(self):
         self.categories = parse_git_log(OPERATOR_BREAKING_LOG, team=OPERATOR_TEAM, repo=REPO)
@@ -385,7 +381,7 @@ class BreakingChangeTests(unittest.TestCase):
 
     def test_release_notes_put_breaking_first_with_a_warning(self):
         assert (
-            format_release_notes(self.categories, self.full_changelog, repo=REPO)
+            format_release_notes(self.categories, self.compare_url, repo=REPO)
             == """\
 ## What's Changed
 
@@ -452,10 +448,10 @@ class FormatReleaseNotesTests(unittest.TestCase):
         ]
         assert headings == ['### Features', '### Fixes', '### CI', '### Reverted']
 
-    def test_full_changelog_is_appended_when_given(self):
-        notes = format_release_notes(
-            self.empty(), '**Full Changelog**: https://example.com/x', repo=REPO
-        )
+    def test_the_compare_url_becomes_the_closing_line(self):
+        # The caller passes the link; the prefix is the package's, so that
+        # notes rendered here read the same as notes rendered by GitHub.
+        notes = format_release_notes(self.empty(), 'https://example.com/x', repo=REPO)
         assert notes.endswith('**Full Changelog**: https://example.com/x')
 
 

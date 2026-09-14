@@ -58,7 +58,7 @@ import datetime
 import sys
 from collections.abc import Sequence
 
-from ._constants import FULL_CHANGELOG_PREFIX, GIT_LOG_FORMAT
+from ._constants import GIT_LOG_FORMAT
 from ._format import format_changes, format_release_notes
 from ._models import Change
 from ._parse import parse_git_log
@@ -262,10 +262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f'changelog: {exc}', file=sys.stderr)
             return 2
     elif args.command == 'release-notes':
-        full_changelog = (
-            f'{FULL_CHANGELOG_PREFIX}: {args.compare_url}' if args.compare_url else None
-        )
-        _emit(format_release_notes(categories, full_changelog, repo=args.repo))
+        _emit(format_release_notes(categories, args.compare_url, repo=args.repo))
     else:
         _emit(format_changes(categories, args.tag, args.date or _today()))
 
