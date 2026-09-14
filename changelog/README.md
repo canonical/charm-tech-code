@@ -30,16 +30,6 @@ entry = format_changes(categories, version, datetime.date.today())
 
 Running `git log` is the caller's job, as is getting hold of the date: nothing in the library touches the network, git, the filesystem or the clock. That is what lets the tests pin the real behaviour rather than approximate it.
 
-### Why the commits, and not the release notes
-
-`parse_release_notes` is still here, and reads GitHub's *generated* release-notes text - which GitHub builds from the titles of the pull requests merged in the range. A caller that has a release body in hand should not have to go and fetch a git log to use it. But it is the weaker input, and for a new caller it is the wrong one:
-
-* **A pull-request title is not a commit subject.** The convention governs commits; a title is written once, when the PR is opened, and can drift from the subject its squash merge lands. When they disagree, the commits are what the repository actually contains.
-* **A revert can only be resolved from a git log.** Whether a revert cancels something in the same range is in the revert commit's *body*, and the generated notes are one line per PR with no bodies in them at all.
-* **It needs GitHub.** `POST /repos/{owner}/{repo}/releases/generate-notes` is a call, a token and a network. `git log` is neither.
-
-The two paths otherwise agree: `canonical/operator`'s 3.8.1..3.8.2 and 3.7.1..3.8.0 render byte-for-byte identically from either, which the test suite checks.
-
 ### The pull-request number, and the link
 
 A change carries the *number*, taken from the `(#N)` a squash merge appends to the subject, and never a URL. `format_changes` only ever wanted the number, and `format_release_notes` builds the link back up from the number and the `repo` you give it - a string operation, so the no-I/O rule holds.
