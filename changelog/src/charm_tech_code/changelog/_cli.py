@@ -49,11 +49,6 @@ buys each step an output that goes where it belongs without any reshaping.
 `--format` string the other four expect, so that the exact sequence of
 `%x1e` and `%x1f` lives in one place rather than being copied into every
 workflow that calls this.
-
-`--input release-notes` switches the four back to GitHub's generated
-release-notes text. That is the older path and the weaker one -- it reads
-pull-request titles rather than commit subjects, and cannot resolve a revert
--- so it is the flag rather than the default.
 """
 
 from __future__ import annotations
@@ -66,13 +61,8 @@ from collections.abc import Sequence
 from ._constants import FULL_CHANGELOG_PREFIX, GIT_LOG_FORMAT
 from ._format import format_changes, format_release_notes
 from ._models import Change
-from ._parse import parse_git_log, parse_release_notes
+from ._parse import parse_git_log
 from ._version import infer_bump_size, next_version
-
-#: The two things stdin may be. `git-log` is the default: see the module
-#: docstring, and `_parse`.
-GIT_LOG_INPUT = 'git-log'
-RELEASE_NOTES_INPUT = 'release-notes'
 
 
 def _today() -> datetime.date:
@@ -103,15 +93,6 @@ def _input_options() -> argparse.ArgumentParser:
     than learning four spellings of it.
     """
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument(
-        '--input',
-        choices=(GIT_LOG_INPUT, RELEASE_NOTES_INPUT),
-        default=GIT_LOG_INPUT,
-        help=(
-            "What is on stdin: a git log in this tool's format (the default, "
-            "and the better source), or GitHub's generated release-notes text."
-        ),
-    )
     parser.add_argument(
         '--team',
         action='append',
@@ -199,10 +180,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar='URL',
         help=(
-            'The compare link to end on. A git log has no equivalent of the '
-            "line GitHub's generated notes end with, so on that path this is "
-            'how to keep one; it overrides the line in the notes on the other. '
-            'Omit it for no link at all.'
+            'The compare link to end on. A git log carries no such link, and '
+            "the tags at either end of the range are the caller's to know, so "
+            'this is how to have one. Omit it for no link at all.'
         ),
     )
 
@@ -257,16 +237,10 @@ def _team(args: argparse.Namespace) -> list[str]:
     return members
 
 
-def _categories(args: argparse.Namespace, text: str) -> tuple[dict[str, list[Change]], str | None]:
-    """Parse stdin by whichever door `--input` names.
-
-    The second half of the pair is the compare line, which only the notes
-    path can produce for itself.
-    """
-    if args.input == RELEASE_NOTES_INPUT:
-        return parse_release_notes(text, team=_team(args))
+def _categories(args: argparse.Namespace, text: str) -> dict[str, list[Change]]:
+    """Parse the git log on stdin into categories."""
     repo = getattr(args, 'repo', None)
-    return parse_git_log(text, team=_team(args), repo=repo), None
+    return parse_git_log(text, team=_team(args), repo=repo)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -277,7 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit(GIT_LOG_FORMAT)
         return 0
 
-    categories, full_changelog = _categories(args, sys.stdin.read())
+    categories = _categories(args, sys.stdin.read())
 
     if args.command == 'bump-size':
         _emit(infer_bump_size(categories))
@@ -288,8 +262,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f'changelog: {exc}', file=sys.stderr)
             return 2
     elif args.command == 'release-notes':
-        if args.compare_url:
-            full_changelog = f'{FULL_CHANGELOG_PREFIX}: {args.compare_url}'
+        full_changelog = (
+            f'{FULL_CHANGELOG_PREFIX}: {args.compare_url}' if args.compare_url else None
+        )
         _emit(format_release_notes(categories, full_changelog, repo=args.repo))
     else:
         _emit(format_changes(categories, args.tag, args.date or _today()))

@@ -67,7 +67,7 @@ def format_release_notes(
 
     Breaking changes are rendered first, under their own heading and a
     sentence asking the reader to review them. `categories` is expected to
-    be what `parse_git_log` or `parse_release_notes` returned: every
+    be what `parse_git_log` returned: every
     category present, in the order they are rendered in.
 
     Args:

@@ -33,13 +33,6 @@ makes the version after `previous`::
     size = infer_bump_size(categories)
     version = next_version(previous=previous, size=size)
 
-`parse_release_notes` is the other door in, reading GitHub's generated
-release-notes text instead of the commits. It describes the same pull
-requests by their *titles*, which is a weaker source -- a title is written
-once, at open time, while the convention governs the commits -- and it
-cannot resolve a revert at all, because that needs a commit body. Prefer
-`parse_git_log`; see `_parse` for the full list of differences.
-
 The format is the package's own, not a parameter -- see `_constants` for
 what that means and why `chore` commits do not appear in a changelog. The
 `changelog` console script (`_cli`) wraps all of the above for a workflow
@@ -56,7 +49,7 @@ from ._constants import (
 )
 from ._format import commit_type_to_category, format_changes, format_release_notes
 from ._models import Change
-from ._parse import parse_git_log, parse_release_notes
+from ._parse import parse_git_log
 from ._version import MINOR, PATCH, BumpSize, infer_bump_size, next_version
 
 __all__ = [
@@ -74,5 +67,4 @@ __all__ = [
     'infer_bump_size',
     'next_version',
     'parse_git_log',
-    'parse_release_notes',
 ]

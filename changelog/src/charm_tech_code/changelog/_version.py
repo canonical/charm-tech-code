@@ -50,7 +50,7 @@ PATCH: BumpSize = 'patch'
 def infer_bump_size(categories: Mapping[str, list[Change]]) -> BumpSize:
     """Work out whether a range of changes is a minor release or a patch one.
 
-    `categories` is what `parse_git_log` or `parse_release_notes` returned.
+    `categories` is what `parse_git_log` returned.
     That matters rather more than it looks: the parse is where a `!` moves an
     entry out of its real type and into `breaking`, and where a revert of a
     released feature is routed there too, so the categories this reads have
