@@ -79,7 +79,7 @@ def infer_bump_size(categories: Mapping[str, list[Change]]) -> BumpSize:
     return PATCH
 
 
-def next_version(previous: str, size: BumpSize) -> str:
+def next_version(*, previous: str, size: BumpSize) -> str:
     """Apply a bump size to a released version.
 
     `previous` is the version this release follows, which for a workflow

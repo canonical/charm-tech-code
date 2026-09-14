@@ -732,21 +732,21 @@ class NextVersionTests(unittest.TestCase):
 
     def test_real_history(self):
         # The two releases the fixtures above are taken from.
-        assert next_version('3.7.1', MINOR) == '3.8.0'
-        assert next_version('3.8.1', PATCH) == '3.8.2'
+        assert next_version(previous='3.7.1', size=MINOR) == '3.8.0'
+        assert next_version(previous='3.8.1', size=PATCH) == '3.8.2'
 
     def test_a_minor_bump_zeroes_the_patch(self):
-        assert next_version('3.8.2', MINOR) == '3.9.0'
+        assert next_version(previous='3.8.2', size=MINOR) == '3.9.0'
 
     def test_components_are_numbers_not_digits(self):
-        assert next_version('3.9.9', PATCH) == '3.9.10'
-        assert next_version('2.23.16', PATCH) == '2.23.17'
-        assert next_version('3.9.1', MINOR) == '3.10.0'
+        assert next_version(previous='3.9.9', size=PATCH) == '3.9.10'
+        assert next_version(previous='2.23.16', size=PATCH) == '2.23.17'
+        assert next_version(previous='3.9.1', size=MINOR) == '3.10.0'
 
     def test_surrounding_whitespace_is_tolerated(self):
         # `--previous "$(git describe --tags --abbrev=0)"` arrives with a
         # newline on it often enough to be worth not failing over.
-        assert next_version(' 3.8.1\n', PATCH) == '3.8.2'
+        assert next_version(previous=' 3.8.1\n', size=PATCH) == '3.8.2'
 
     def test_a_dev_version_is_rejected(self):
         # The one that matters. Between releases `ops/version.py` holds
@@ -756,26 +756,26 @@ class NextVersionTests(unittest.TestCase):
         # would skip a version, and stripping the suffix silently would
         # release whatever that guess happened to be.
         with self.assertRaises(ValueError):
-            next_version('3.9.0.dev0', MINOR)
+            next_version(previous='3.9.0.dev0', size=MINOR)
 
     def test_a_pre_release_is_rejected(self):
         for version in ('3.8.0b1', '3.8.0rc1', '3.8.0a1'):
             with self.assertRaises(ValueError):
-                next_version(version, MINOR)
+                next_version(previous=version, size=MINOR)
 
     def test_a_tag_that_is_not_a_version_is_rejected(self):
         for previous in ('v3.8.1', '3.8', '', 'main'):
             with self.assertRaises(ValueError):
-                next_version(previous, PATCH)
+                next_version(previous=previous, size=PATCH)
 
     def test_an_unknown_size_is_rejected(self):
         # Including 'major', which is not a size this package produces.
         with self.assertRaises(ValueError):
-            next_version('3.8.1', 'major')  # type: ignore[arg-type]
+            next_version(previous='3.8.1', size='major')  # type: ignore[arg-type]
 
     def test_the_error_points_at_the_way_out(self):
         with self.assertRaises(ValueError) as raised:
-            next_version('3.9.0.dev0', MINOR)
+            next_version(previous='3.9.0.dev0', size=MINOR)
         assert 'explicitly' in str(raised.exception)
 
 

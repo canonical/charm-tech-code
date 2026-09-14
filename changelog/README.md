@@ -26,7 +26,7 @@ log = subprocess.run(
 ).stdout
 categories = parse_git_log(log, team=MAINTAINERS, repo='canonical/operator')
 notes = format_release_notes(categories, None, repo='canonical/operator')
-version = next_version('3.8.1', infer_bump_size(categories))
+version = next_version(previous='3.8.1', size=infer_bump_size(categories))
 entry = format_changes(categories, version, datetime.date.today())
 ```
 
