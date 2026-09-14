@@ -93,6 +93,6 @@ class CandidateIssue:
         )
 
     def excerpt(self) -> str:
-        """The first line of the body, bounded, for the candidate block."""
+        """Return the first line of the body, bounded, for the candidate block."""
         lines = (self.body or '').strip().splitlines()
         return lines[0][:300] if lines else '(no body)'
