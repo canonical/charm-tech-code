@@ -55,8 +55,8 @@ def call_openrouter(
         headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
         method='POST',
     )
-    # S310: the URL is a literal https endpoint, not caller-controlled.
-    with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310
+    # The URL is a literal https endpoint, not caller-controlled.
+    with urllib.request.urlopen(request, timeout=60) as response:  # ruff: ignore[suspicious-url-open-usage]
         body = json.loads(response.read().decode())
     content = body['choices'][0]['message']['content']
     return json.loads(content)

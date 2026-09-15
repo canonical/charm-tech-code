@@ -24,7 +24,7 @@ against whatever repository the fixtures name.
 
 from __future__ import annotations
 
-import subprocess  # noqa: S404 -- patched out, never run, see `_no_subprocess`
+import subprocess  # ruff: ignore[suspicious-subprocess-import] -- see `_no_subprocess`
 import urllib.request
 
 import pytest
