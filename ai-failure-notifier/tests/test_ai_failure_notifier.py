@@ -1144,9 +1144,11 @@ class OpenRouterCallTests(unittest.TestCase):
             io.BytesIO(b''),
         )
         self.addCleanup(error.close)
-        with mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error):
-            with self.assertRaises(urllib.error.HTTPError):
-                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+        with (
+            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
+            self.assertRaises(urllib.error.HTTPError),
+        ):
+            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
 
 
 class ResolveOriginTests(unittest.TestCase):
