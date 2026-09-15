@@ -57,8 +57,8 @@ def call_openrouter(
         method='POST',
     )
     try:
-        # S310: the URL is a literal https endpoint, not caller-controlled.
-        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310
+        # The URL is a literal https endpoint, not caller-controlled.
+        with urllib.request.urlopen(request, timeout=60) as response:  # ruff: ignore[suspicious-url-open-usage]
             body = json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
         # `str(exc)` is only ever "HTTP Error 400: Bad Request", which says

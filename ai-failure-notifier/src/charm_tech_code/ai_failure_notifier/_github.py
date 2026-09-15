@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import json
-import subprocess  # noqa: S404 -- every call below is a fixed `gh` argv, never a shell string
+import subprocess  # ruff: ignore[suspicious-subprocess-import] -- see `gh` below
 from typing import Any
 
 from . import _summary
@@ -28,10 +28,10 @@ from ._models import CandidateIssue, FailedJob
 
 def gh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a `gh` subcommand, returning the completed process."""
-    # S607: `gh` is deliberately called by name, resolved from the runner's PATH.
-    # S603: the argv is a list this module builds; nothing is a shell string.
-    return subprocess.run(  # noqa: S603
-        ['gh', *args],  # noqa: S607
+    # The argv is a list this module builds, and `gh` is deliberately called by
+    # name so the runner's PATH resolves it.
+    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        ['gh', *args],  # ruff: ignore[start-process-with-partial-path]
         text=True,
         capture_output=True,
         check=check,
