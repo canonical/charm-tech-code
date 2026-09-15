@@ -81,7 +81,7 @@ Four invocations re-parse the same text four times. That costs nothing worth cou
 
 `--date` defaults to today (UTC), and `_cli` is the only module in the package that reads the clock. The library stays clock-free, and a fixture in the test suite fails the whole run if that stops being true.
 
-Run it from a workflow the way `ai-failure-notifier` is run, pinned to a commit:
+Run it from a workflow pinned to a commit:
 
 ```shell
 uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdirectory=changelog" changelog bump-size < log.txt
