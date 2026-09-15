@@ -79,8 +79,6 @@ Four invocations re-parse the same text four times. That costs nothing worth cou
 
 `--compare-url` is there because a git log does not carry a compare link and the tags at either end of the range are the workflow's to know. You pass the link; the `**Full Changelog**:` prefix is the package's, so that notes rendered here read the same as notes rendered by GitHub. Leave it off for no closing line.
 
-`--input release-notes` switches all four back to the older input.
-
 `--date` defaults to today (UTC), and `_cli` is the only module in the package that reads the clock. The library stays clock-free, and a fixture in the test suite fails the whole run if that stops being true.
 
 Run it from a workflow the way `ai-failure-notifier` is run, pinned to a commit:
