@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import json
-import subprocess  # ruff: ignore[suspicious-subprocess-import] -- see `gh` below
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 from typing import Any
 
 from . import _summary
@@ -28,8 +28,8 @@ from ._models import CandidateIssue, FailedJob
 
 def gh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a `gh` subcommand, returning the completed process."""
-    # The argv is a list this module builds, and `gh` is deliberately called by
-    # name so the runner's PATH resolves it.
+    # `gh` is deliberately called by name so the runner's PATH resolves it.
+    # `args` is constructed in this module and is trusted.
     return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
         ['gh', *args],  # ruff: ignore[start-process-with-partial-path]
         text=True,
