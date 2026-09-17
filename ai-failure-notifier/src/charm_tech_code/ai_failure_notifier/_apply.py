@@ -23,7 +23,7 @@ from . import _github, _summary
 
 
 def plain_fallback_body(workflow_name: str, run_url: str) -> str:
-    """The plain, generic body text used whenever enrichment is unavailable."""
+    """Render the generic body used whenever enrichment is unavailable."""
     return f"Scheduled workflow '{workflow_name}' failed: {run_url}"
 
 

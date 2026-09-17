@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 from typing import Any
 
 from . import _summary
@@ -28,8 +28,14 @@ from ._models import CandidateIssue, FailedJob
 
 def gh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a `gh` subcommand, returning the completed process."""
-    # S607: `gh` is deliberately called by name, resolved from the runner's PATH.
-    return subprocess.run(['gh', *args], text=True, capture_output=True, check=check)  # noqa: S607
+    # `gh` is deliberately called by name so the runner's PATH resolves it.
+    # `args` is constructed in this module and is trusted.
+    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        ['gh', *args],  # ruff: ignore[start-process-with-partial-path]
+        text=True,
+        capture_output=True,
+        check=check,
+    )
 
 
 def gh_json(*args: str) -> Any:
@@ -111,8 +117,7 @@ def fetch_issue_texts(repo: str, number: int) -> list[str]:
     """Fetch an issue's body plus all comment bodies, for marker scanning."""
     data = gh_json('issue', 'view', str(number), '--repo', repo, '--json', 'body,comments') or {}
     texts = [data.get('body') or '']
-    for c in data.get('comments') or []:
-        texts.append(c.get('body') or '')
+    texts.extend(comment.get('body') or '' for comment in data.get('comments') or [])
     return texts
 
 
@@ -138,7 +143,7 @@ def resolve_origin(
     issue keeps that lookup to reading the one issue we were handed.
     """
     texts = [(notify_issue, text) for text in fetch_issue_texts(repo, notify_issue)]
-    enriched_issue, origin_kind, origin_issue = find_run_markers(texts, run_id)
+    enriched_issue, origin_kind, _ = find_run_markers(texts, run_id)
     # The passed-in values win: a marker we failed to find on the issue does
     # not make the issue the wrong one.
     return enriched_issue, notify_origin or origin_kind, notify_issue
