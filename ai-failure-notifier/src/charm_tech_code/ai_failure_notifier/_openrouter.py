@@ -79,7 +79,8 @@ def _error_detail(exc: urllib.error.HTTPError) -> str:
     """
     try:
         raw = exc.read().decode(errors='replace').strip()
-    except Exception:  # noqa: BLE001 - any read failure means no detail, not a crash.
+    except Exception:  # ruff: ignore[blind-except]
+        # Any read failure means no detail, not a crash.
         return 'no response body'
     if not raw:
         return 'empty response body'
