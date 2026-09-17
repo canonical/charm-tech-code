@@ -149,48 +149,62 @@ def resolve_origin(
     return enriched_issue, notify_origin or origin_kind, notify_issue
 
 
+# `comments` is what makes a candidate legible: an automatically-opened issue's
+# body is one line reading "Scheduled workflow 'X' failed: <url>", and any
+# diagnosis anybody has written about it is in the thread.
+CANDIDATE_FIELDS = 'number,title,body,createdAt,closedAt,comments'
+CANDIDATE_FIELDS_WITHOUT_COMMENTS = 'number,title,body,createdAt,closedAt'
+
+
+def _list_issues(repo: str, workflow_name: str, state: str) -> list[dict[str, Any]]:
+    """One side of the coarse search, degrading to the field set an older `gh` has.
+
+    A `gh` that doesn't know the `comments` field rejects the whole call, and
+    the caller in _cli treats a failed search as "no candidates at all", so
+    this retries without comments rather than losing the candidate pool. Same
+    shape as fetch_job_log's retry without `--allow-escape-sequences`.
+    """
+
+    def call(fields: str) -> subprocess.CompletedProcess:
+        return gh(
+            'issue',
+            'list',
+            '--repo',
+            repo,
+            '--state',
+            state,
+            '--search',
+            f'"{workflow_name}"',
+            '--json',
+            fields,
+            '--limit',
+            '20',
+            check=False,
+        )
+
+    result = call(CANDIDATE_FIELDS)
+    if result.returncode != 0:
+        detail = ' '.join((result.stderr or '').split())[:200]
+        if 'comments' not in detail:
+            raise RuntimeError(f'gh issue list --state {state} failed: {detail or "no stderr"}')
+        _summary.write_step_summary(
+            f'This `gh` does not support the `comments` field ({detail}); candidate '
+            f'issues will be shown without their comments.'
+        )
+        result = call(CANDIDATE_FIELDS_WITHOUT_COMMENTS)
+        if result.returncode != 0:
+            detail = ' '.join((result.stderr or '').split())[:200]
+            raise RuntimeError(f'gh issue list --state {state} failed: {detail or "no stderr"}')
+    return json.loads(result.stdout) if result.stdout.strip() else []
+
+
 def search_candidates(
     repo: str, workflow_name: str
 ) -> tuple[list[CandidateIssue], list[CandidateIssue]]:
     """Coarse candidate search: open and closed issues matching the workflow name."""
-    fields = 'number,title,body,createdAt,closedAt'
-    open_issues = (
-        gh_json(
-            'issue',
-            'list',
-            '--repo',
-            repo,
-            '--state',
-            'open',
-            '--search',
-            f'"{workflow_name}"',
-            '--json',
-            fields,
-            '--limit',
-            '20',
-        )
-        or []
-    )
-    closed_issues = (
-        gh_json(
-            'issue',
-            'list',
-            '--repo',
-            repo,
-            '--state',
-            'closed',
-            '--search',
-            f'"{workflow_name}"',
-            '--json',
-            fields,
-            '--limit',
-            '20',
-        )
-        or []
-    )
     return (
-        [CandidateIssue.from_gh(i) for i in open_issues],
-        [CandidateIssue.from_gh(i) for i in closed_issues],
+        [CandidateIssue.from_gh(i) for i in _list_issues(repo, workflow_name, 'open')],
+        [CandidateIssue.from_gh(i) for i in _list_issues(repo, workflow_name, 'closed')],
     )
 
 
