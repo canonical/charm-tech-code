@@ -24,7 +24,7 @@ against whatever repository the fixtures name.
 
 from __future__ import annotations
 
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import urllib.request
 
 import pytest
