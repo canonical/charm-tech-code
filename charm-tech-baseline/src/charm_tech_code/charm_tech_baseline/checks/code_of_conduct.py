@@ -89,7 +89,7 @@ def main() -> int:
         {},
         {
             'kind': 'mechanical',
-            'script': 'scripts/fixes/add-code-of-conduct.py',
+            'script': 'add-code-of-conduct',
             'human_review': 'None — template is fixed link-only form.',
         },
     )

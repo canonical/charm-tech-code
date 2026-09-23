@@ -81,7 +81,7 @@ def main() -> int:
         {},
         {
             'kind': 'mechanical',
-            'script': 'scripts/fixes/add-agents-md.py',
+            'script': 'add-agents-md',
             'human_review': 'Customise the dev-setup commands for this repo (uv / go / make / '
             'just).',
         },

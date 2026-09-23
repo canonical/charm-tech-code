@@ -82,7 +82,7 @@ def main() -> int:
                 {},
                 {
                     'kind': 'mechanical',
-                    'script': 'scripts/fixes/add-dependabot.py',
+                    'script': 'add-dependabot',
                     'human_review': 'Confirm the default ecosystem set matches the repo.',
                 },
             )
@@ -94,7 +94,7 @@ def main() -> int:
             {},
             {
                 'kind': 'mechanical',
-                'script': 'scripts/fixes/add-dependabot.py',
+                'script': 'add-dependabot',
                 'human_review': (
                     'Confirm the default ecosystem set matches the repo (pip/uv, gomod, '
                     'github-actions, docker).'

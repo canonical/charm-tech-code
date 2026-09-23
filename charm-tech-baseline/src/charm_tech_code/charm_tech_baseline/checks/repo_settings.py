@@ -305,7 +305,7 @@ def main() -> int:
             evidence,
             {
                 'kind': 'mechanical',
-                'script': 'scripts/fixes/apply-repo-settings.py',
+                'script': 'apply-repo-settings',
                 'human_review': (
                     'Review each setting before applying; the fix script patches the repo via gh '
                     'api.'
@@ -326,9 +326,8 @@ def main() -> int:
             'human_review': (
                 'Preferred: open a CRA PR declaring this repo under the appropriate '
                 'groups/<group>/repos/ tree so settings are managed centrally. Fallback (if CRA '
-                'enrolment is intentionally out of scope): run '
-                'scripts/fixes/apply-repo-settings.py '
-                'to patch the live settings via gh api.'
+                'enrolment is intentionally out of scope): run `charm-tech-baseline fix '
+                'apply-repo-settings` to patch the live settings via gh api.'
             ),
         },
     )

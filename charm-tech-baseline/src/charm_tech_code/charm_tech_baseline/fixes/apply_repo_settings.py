@@ -31,7 +31,7 @@ What it does NOT set: rulesets / branch protection (a separate fix —
 different shape per-repo, needs the protected branch name, required checks,
 and bypass policy decided per repo).
 
-Usage: scripts/fixes/apply-repo-settings.py [--dry-run]
+Usage: charm-tech-baseline fix apply-repo-settings [--dry-run]
 The script prints each gh call before running; pass --dry-run to print only.
 """
 
@@ -62,7 +62,7 @@ What it does NOT set: rulesets / branch protection (a separate fix —
 different shape per-repo, needs the protected branch name, required checks,
 and bypass policy decided per repo).
 
-Usage: scripts/fixes/apply-repo-settings.py [--dry-run]
+Usage: charm-tech-baseline fix apply-repo-settings [--dry-run]
 The script prints each gh call before running; pass --dry-run to print only.
 """
 
@@ -145,7 +145,7 @@ def main() -> int:
             'in CRA rather than per-repo.\n'
         )
 
-    sys.stdout.write('\nDone. Re-run scripts/check.py --only=repo-settings to confirm.\n')
+    sys.stdout.write('\nDone. Re-run charm-tech-baseline check --only=repo-settings to confirm.\n')
     if owner == 'canonical':
         sys.stdout.write(
             'Reminder: this patches live settings only. For a canonical/* repo, the durable fix '

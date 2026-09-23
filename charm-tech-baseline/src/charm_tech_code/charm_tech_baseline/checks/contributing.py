@@ -80,7 +80,7 @@ def main() -> int:
             {},
             {
                 'kind': 'mechanical',
-                'script': 'scripts/fixes/add-contributing.py',
+                'script': 'add-contributing',
                 'human_review': (
                     'Customise the dev-setup pointer / project description for the repo (Python / '
                     'Go / docs).'

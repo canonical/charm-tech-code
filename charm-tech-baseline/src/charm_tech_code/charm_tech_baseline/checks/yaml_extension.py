@@ -81,7 +81,7 @@ def main() -> int:
         {'offenders': offenders},
         {
             'kind': 'mechanical',
-            'script': 'scripts/fixes/rename-yml-to-yaml.py',
+            'script': 'rename-yml-to-yaml',
             'human_review': (
                 'git mv each .yml -> .yaml under .github/. Confirm no external reference uses the '
                 'old path (workflow_call uses:, docs links, downstream consumers of action.yml).'

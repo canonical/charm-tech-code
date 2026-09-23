@@ -67,7 +67,7 @@ def main() -> int:
             {},
             {
                 'kind': 'mechanical',
-                'script': 'scripts/fixes/add-security-md.py',
+                'script': 'add-security-md',
                 'human_review': 'Customise the disclosure contact and supported-versions table.',
             },
         )

@@ -39,3 +39,27 @@ def test_only_dispatches_selected_check(tmp_path):
     assert report['tier_source'] == 'override'
     assert [c['id'] for c in report['checks']] == ['dependabot']
     assert report['checks'][0]['status'] == 'pass'
+
+
+def test_remediation_script_names_a_fix(tmp_path):
+    # A failing check's remediation.script is what an agent passes to
+    # `charm-tech-baseline fix`, so it has to be one of the listed fix names.
+    proc = subprocess.run(
+        # ruff: ignore[start-process-with-partial-path]
+        ['charm-tech-baseline', 'check', '--tier=canonical', '--only=security-md,agents-md'],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=tmp_path,
+    )
+    listing = subprocess.run(
+        # ruff: ignore[start-process-with-partial-path]
+        ['charm-tech-baseline', 'list'],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    fixes = set(listing.split('fixes:', 1)[1].split())
+    scripts = [c['remediation']['script'] for c in json.loads(proc.stdout)['checks']]
+    assert len(scripts) == 2
+    assert set(scripts) <= fixes

@@ -59,7 +59,7 @@ def main() -> int:
             {},
             {
                 'kind': 'mechanical',
-                'script': 'scripts/fixes/add-validate-pr-title.py',
+                'script': 'add-validate-pr-title',
                 'human_review': (
                     'Installs operator-style validate-pr-title.yaml + '
                     'check-conventional-pr-title.py. Confirm CONTRIBUTING.md documents the '
@@ -95,7 +95,7 @@ def main() -> int:
         {},
         {
             'kind': 'mechanical',
-            'script': 'scripts/fixes/add-validate-pr-title.py',
+            'script': 'add-validate-pr-title',
             'human_review': (
                 'Installs operator-style validate-pr-title.yaml + check-conventional-pr-title.py '
                 '(source: canonical/operator). Confirm CONTRIBUTING.md documents the allowed type '
