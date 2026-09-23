@@ -25,7 +25,9 @@ roadmap/26.10/repo-setup/agents-md-validation.md (canonical-work-queue):
    (integration needing Docker/LXD/juju, root-only tests, anything that would
    mutate the tree or start a long-running process) are only parsed and
    reported verify-manually, with the gating dependency named.
-3. Paths and symbols resolve: every referenced file exists; every named
+3. Paths and symbols resolve: every referenced file exists (a bare name
+   anywhere in the repo, a link without its #anchor, and never a ~/ or
+   absolute path, which describe the reader's machine); every named
    gocheck test suite (`-check.f <Suite>` after a `go test <package>`) still
    lives in the named package; every "`Symbol` in `path`" reference resolves.
 4. Version pins mentioned in prose (`tool@vX.Y.Z`) match what
@@ -36,13 +38,14 @@ roadmap/26.10/repo-setup/agents-md-validation.md (canonical-work-queue):
 This is a content check, not a presence check — see agents-md.py for
 presence/length. If AGENTS.md is absent this check is n/a.
 
-Convention: one script emits exactly one JSON result (see lib/common.py);
+Convention: one check emits exactly one result (see common.emit_check);
 all five sub-checks are folded into a single pass/fail with per-sub-check
-evidence, following check.py's one-line-of-JSON-per-script contract.
+evidence, following the runner's one-result-per-check contract.
 """
 
 from __future__ import annotations
 
+import glob
 import re
 import shlex
 import shutil
@@ -125,6 +128,16 @@ VERSION_PIN_RE = re.compile(r'([A-Za-z0-9_.\-/]+)@v(\d+\.\d+(?:\.\d+)?)')
 SUITE_RE = re.compile(r'go test\s+(\.[^\s]+)\s+.*-check\.f[= ]([A-Za-z_][A-Za-z0-9_]*)')
 SYMBOL_IN_PATH_RE = re.compile(r'`([A-Za-z_][\w.]*)`\s+in\s+`([^`]+)`')
 MD_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)\s]+)\)')
+SKIPPED_DIRS = frozenset({
+    '.git',
+    '.venv',
+    'venv',
+    '.tox',
+    'node_modules',
+    '__pycache__',
+    'build',
+    'dist',
+})
 FILE_EXT_RE = re.compile(r'\.(md|py|go|toml|yaml|yml|txt|cfg|ini|sh|json|lock)$', re.IGNORECASE)
 KNOWN_EXTENSIONLESS_FILENAMES = {'dockerfile', 'makefile', 'license', 'copying'}
 
@@ -215,6 +228,10 @@ def looks_like_path(cand: str) -> bool:
     """Return whether an inline-code snippet looks like a reference to a local file."""
     if not cand or ' ' in cand or cand.startswith(('http://', 'https://')):
         return False
+    if cand.startswith(('~', '/')):
+        # A home-directory or absolute path is about the reader's machine (a
+        # cache, a config file), not the repo, so there is nothing to resolve.
+        return False
     if '/' in cand:
         # Exclude Go/domain-style import paths (github.com/..., gopkg.in/...,
         # golang.org/..., honnef.co/...) — a dotted first segment that isn't
@@ -236,12 +253,36 @@ def extract_referenced_paths(text: str) -> set[str]:
         target = m.group(1)
         if target.startswith(('http://', 'https://', '#', 'mailto:')):
             continue
-        paths.add(target)
+        # CONTRIBUTING.md#pull-requests is a reference to CONTRIBUTING.md.
+        paths.add(target.split('#', 1)[0].split('?', 1)[0])
     for m in INLINE_CODE_RE.finditer(text):
         cand = m.group(1).strip()
         if looks_like_path(cand):
             paths.add(cand)
     return paths
+
+
+def path_resolves(root: Path, ref: str) -> bool:
+    """Return whether a referenced path exists in the repo.
+
+    A reference with a directory in it has to exist as written, relative to
+    the root. A bare name (`_ast.py`, `_pypi_attest/`) is how prose refers to
+    a file whose directory the surrounding text already makes clear, so it
+    resolves if a file of that name (or a directory, with a trailing slash)
+    exists anywhere in the repo outside the usual tool and build directories.
+    """
+    if (root / ref).exists():
+        return True
+    name = ref.rstrip('/')
+    if not name or '/' in name:
+        return False
+    want_dir = ref.endswith('/')
+    for found in root.rglob(glob.escape(name)):
+        if not SKIPPED_DIRS.isdisjoint(found.relative_to(root).parts[:-1]):
+            continue
+        if not want_dir or found.is_dir():
+            return True
+    return False
 
 
 def workflow_texts(root: Path) -> dict[str, str]:
@@ -351,7 +392,7 @@ def main() -> int:
 
     # --- Check 3: paths & symbols ---
     ref_paths = extract_referenced_paths(text)
-    missing_paths = sorted(rp for rp in ref_paths if not (root / rp).exists())
+    missing_paths = sorted(rp for rp in ref_paths if not path_resolves(root, rp))
 
     symbol_findings: list[dict] = []
     for sym, sym_path in SYMBOL_IN_PATH_RE.findall(text):

@@ -212,3 +212,51 @@ def test_version_pin_matches_ci(run_check):
     assert r['status'] == 'pass'
     assert r['evidence']['version_drift'] == []
     assert r['evidence']['version_pins_checked'][0]['tool'] == 'widget'
+
+
+def test_link_anchor_is_not_part_of_the_path(run_check):
+    md = '# AGENTS.md\n\nSee [CONTRIBUTING.md](CONTRIBUTING.md#pull-requests).\n'
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': md, 'CONTRIBUTING.md': '# Contributing\n\n## Pull requests\n'},
+    )
+    assert r['evidence']['missing_paths'] == []
+
+
+def test_home_directory_path_is_not_a_repo_path(run_check):
+    md = '# AGENTS.md\n\nThe corpus lives in `~/.cache/hyrum/charms`.\n'
+    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md})
+    assert r['evidence']['missing_paths'] == []
+    assert '~/.cache/hyrum/charms' not in r['evidence']['paths_checked']
+
+
+def test_bare_name_resolves_anywhere_in_the_repo(run_check):
+    md = '# AGENTS.md\n\nShared walkers live in `_ast.py`; the helper is `_attest/`.\n'
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {
+            'AGENTS.md': md,
+            'src/pkg/_ast.py': '',
+            'src/pkg/_attest/__init__.py': '',
+        },
+    )
+    assert r['evidence']['missing_paths'] == []
+
+
+def test_bare_name_still_missing_when_nowhere_in_the_repo(run_check):
+    md = '# AGENTS.md\n\nShared walkers live in `_gone.py`.\n'
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': md, '.venv/lib/_gone.py': ''},
+    )
+    assert r['status'] == 'fail'
+    assert r['evidence']['missing_paths'] == ['_gone.py']
+
+
+def test_path_with_directory_must_exist_as_written(run_check):
+    md = '# AGENTS.md\n\nSee `docs/_ast.py`.\n'
+    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md, 'src/_ast.py': ''})
+    assert r['evidence']['missing_paths'] == ['docs/_ast.py']
