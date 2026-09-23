@@ -23,17 +23,16 @@ the lockfile. A config that pins versions in rev: fields is flagged
 as a soft fail because it duplicates the source of truth.
 
 Carve-out: hooks from pre-commit/pre-commit-hooks (end-of-file-fixer,
-trailing-whitespace, check-yaml, check-added-large-files, …) are
-generic file-hygiene checks with no Python-tool counterpart in
-pyproject.toml dependency-groups. Pinning their rev: is the standard
-way to use them and does not duplicate any other source of truth, so
-they are exempted from the *tool-version* count.
+trailing-whitespace, check-yaml, check-added-large-files, …) are not
+counted as tool versions, because a rev: on that repo is the common way
+to use them. The preferred shape is still the decisions.md one:
+pre-commit-hooks is on PyPI, so it can go in a dependency group and
+each hook becomes a `language: system` hook running its console script
+(trailing-whitespace-fixer, check-yaml, …), with nothing left in rev:.
 
-The carve-out still has to be **SHA-pinned**, not tag-pinned — same
-discipline as gha-sha-pinning (see references/decisions.md § "Remote
-pre-commit hooks — SHA-pin, don't tag-pin"). A `rev: v5.0.0` on an
-exempt repo is a gap; a `rev: <40-char hex>  # frozen: v5.0.0` is
-the shape.
+A remote rev: that survives has to be **SHA-pinned**, not tag-pinned,
+for the same reason as gha-sha-pinning: a tag can be moved. A `rev:
+v5.0.0` is a gap; a `rev: <40-char hex>  # frozen: v5.0.0` is accepted.
 """
 
 from __future__ import annotations
@@ -156,14 +155,16 @@ def main() -> int:
             CHECK_ID,
             'fail',
             f'Pre-commit config has {tag_pinned_revs} rev: entry(s) pinned by tag rather than '
-            f'full SHA. Cycle convention (see decisions.md § Remote pre-commit hooks): SHA-pin, '
-            f"don't tag-pin — same discipline as gha-sha-pinning.",
+            f'full SHA. A tag can be moved, so the same discipline as gha-sha-pinning applies.',
             {'config': config, 'tag_pinned_revs': tag_pinned_revs},
             {
                 'kind': 'judgement',
                 'human_review': (
-                    'Resolve each tag-pinned rev: to its 40-char commit SHA and add a `# frozen: '
-                    '<tag>` trailing comment. Dependabot pre-commit ecosystem will bump the SHA.'
+                    'Preferred (decisions.md "Tool pinning"): add pre-commit-hooks to a '
+                    'pyproject.toml dependency group and replace each hook with a language: '
+                    'system hook running its console script, so no rev: is left. Otherwise, '
+                    'resolve each tag-pinned rev: to its 40-char commit SHA with a `# frozen: '
+                    '<tag>` trailing comment, and add a pre-commit ecosystem to Dependabot.'
                 ),
             },
         )
