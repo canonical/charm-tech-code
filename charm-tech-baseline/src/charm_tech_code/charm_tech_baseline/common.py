@@ -20,8 +20,10 @@ Imported by every check / fix script. No side effects on import.
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Iterable, Iterator
@@ -66,10 +68,18 @@ def origin_url() -> str:
 
     Empty string if no origin remote.
     """
+    return remote_url('origin')
+
+
+def remote_url(remote: str) -> str:
+    """Return a remote's URL normalised to https form, without a trailing .git.
+
+    Empty string if there is no such remote.
+    """
     try:
         url = subprocess.run(
             # ruff: ignore[start-process-with-partial-path]
-            ['git', 'config', '--get', 'remote.origin.url'],
+            ['git', 'config', '--get', f'remote.{remote}.url'],
             capture_output=True,
             text=True,
             check=True,
@@ -81,6 +91,53 @@ def origin_url() -> str:
     if url.endswith('.git'):
         url = url[:-4]
     return url
+
+
+@functools.cache
+def baseline_slug() -> str:
+    """Return the owner/repo whose baseline applies to the repo in the CWD.
+
+    That is the origin remote's, unless origin is a fork of a canonical/*
+    repo: Charm Tech engineers routinely work from a personal fork, and the
+    tier, the settings and the releases that matter are the upstream's, not
+    the fork owner's. The fork is found through `gh repo view --json
+    isFork,parent`, or failing that an `upstream` remote under canonical/.
+
+    Empty string when origin is absent or is not a GitHub URL.
+    """
+    slug = _github_slug(origin_url())
+    if not slug or slug.startswith('canonical/'):
+        return slug
+    if shutil.which('gh'):
+        parent = run([
+            'gh',
+            'repo',
+            'view',
+            slug,
+            '--json',
+            'isFork,parent',
+            '--jq',
+            r'select(.isFork) | .parent'
+            r' | select(.owner.login == "canonical")'
+            r' | "\(.owner.login)/\(.name)"',
+        ]).stdout.strip()
+        if parent:
+            return parent
+    upstream = _github_slug(remote_url('upstream'))
+    if upstream.startswith('canonical/'):
+        return upstream
+    return slug
+
+
+def _github_slug(url: str) -> str:
+    """Return owner/repo from a normalised GitHub URL, or '' if it is not one."""
+    prefix = 'https://github.com/'
+    if not url.startswith(prefix):
+        return ''
+    parts = url[len(prefix) :].strip('/').split('/')
+    if len(parts) != 2 or not all(parts):
+        return ''
+    return '/'.join(parts)
 
 
 _collector: list[dict[str, Any]] | None = None

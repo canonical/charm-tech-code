@@ -57,8 +57,8 @@ from ..common import (
     EXIT_NA,
     EXIT_PASS,
     EXIT_UNKNOWN,
+    baseline_slug,
     emit_check,
-    origin_url,
     parse_tier,
     run,
     tier_applies,
@@ -75,10 +75,8 @@ def main() -> int:
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
         return EXIT_NA
 
-    url = origin_url()
-    slug = url[len('https://github.com/') :] if url.startswith('https://github.com/') else url
-
-    if not slug or slug == url:
+    slug = baseline_slug()
+    if not slug:
         emit_check(CHECK_ID, 'unknown', 'Could not parse owner/repo from origin URL.')
         return EXIT_UNKNOWN
 
@@ -112,7 +110,7 @@ def main() -> int:
             'api',
             f'repos/canonical/canonical-repo-automation/git/trees/{cra_branch}?recursive=1',
             '--jq',
-            f'.tree[].path | select(test("(^|/)repos/{name}/"))',
+            f'.tree[].path | select(("/" + .) | contains("/repos/{name}/"))',
         ])
         if r2.returncode == 0:
             first = ''

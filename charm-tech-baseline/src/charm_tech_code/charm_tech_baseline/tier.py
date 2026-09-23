@@ -44,10 +44,9 @@ detect() returns the tier; main() prints it and exits 0.
 
 from __future__ import annotations
 
-import shutil
 import sys
 
-from .common import origin_url, run
+from .common import baseline_slug
 
 PRODUCT_REPOS = {'operator', 'pebble', 'jubilant', 'concierge', 'charmlibs'}
 
@@ -58,53 +57,10 @@ def detect() -> str:
     Returns "unknown" rather than guessing when the origin remote is absent
     or is not a GitHub URL.
     """
-    url = origin_url()
-    if not url:
+    slug = baseline_slug()
+    if not slug:
         return 'unknown'
-
-    prefix = 'https://github.com/'
-    if not url.startswith(prefix):
-        # Some other forwarding host; don't guess.
-        return 'unknown'
-
-    path = url[len(prefix) :]
-    parts = path.split('/', 1)
-    if len(parts) != 2 or not parts[0] or not parts[1]:
-        return 'unknown'
-    org, repo = parts
-
-    # If origin is not under canonical/, the repo may still be a fork of
-    # a canonical/* repo — in which case the upstream's baseline applies.
-    if org != 'canonical':
-        parent_slug = ''
-        if shutil.which('gh'):
-            result = run([
-                'gh',
-                'repo',
-                'view',
-                f'{org}/{repo}',
-                '--json',
-                'isFork,parent',
-                '--jq',
-                r'select(.isFork) | .parent'
-                r' | select(.owner.login == "canonical")'
-                r' | "\(.owner.login)/\(.name)"',
-            ])
-            parent_slug = result.stdout.strip()
-        if not parent_slug:
-            upstream = run(['git', 'config', '--get', 'remote.upstream.url']).stdout.strip()
-            if upstream.startswith('git@github.com:'):
-                upstream = 'https://github.com/' + upstream[len('git@github.com:') :]
-            if upstream.endswith('.git'):
-                upstream = upstream[:-4]
-            if upstream.startswith(prefix):
-                upstream_path = upstream[len(prefix) :]
-                if upstream_path.startswith('canonical/'):
-                    parent_slug = upstream_path
-        if parent_slug:
-            org = 'canonical'
-            repo = parent_slug[len('canonical/') :]
-
+    org, repo = slug.split('/')
     if org == 'canonical':
         return 'product' if repo in PRODUCT_REPOS else 'canonical'
     return 'personal'

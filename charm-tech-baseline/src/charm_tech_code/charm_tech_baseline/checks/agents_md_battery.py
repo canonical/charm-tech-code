@@ -38,7 +38,7 @@ runtime and the environment surface for no new signal.
 Batteries exist only for repos that have been through the Layer 2 authoring
 gate. A repo with no battery is `na`, not a gap.
 
-Convention: one script emits exactly one JSON result (see lib/common.py).
+Convention: one check emits exactly one result (see common.emit_check).
 """
 
 from __future__ import annotations
@@ -55,9 +55,9 @@ from ..common import (
     EXIT_FAIL,
     EXIT_NA,
     EXIT_PASS,
+    baseline_slug,
     cd_repo_root,
     emit_check,
-    origin_url,
     parse_tier,
     tier_applies,
 )
@@ -100,10 +100,10 @@ def battery_path() -> Path | None:
     if explicit:
         p = Path(explicit)
         return p if p.is_file() else None
-    url = origin_url()
-    if not url:
+    slug = baseline_slug()
+    if not slug:
         return None
-    name = url.rstrip('/').split('/')[-1]
+    name = slug.split('/')[-1]
     candidate = BATTERIES_DIR / f'{name}.yaml'
     return candidate if candidate.is_file() else None
 

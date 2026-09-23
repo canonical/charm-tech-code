@@ -62,3 +62,35 @@ def test_canonical_non_product_repo(tmp_path):
         check=True,
     )
     assert _run(cwd=tmp_path).stdout.strip() == 'canonical'
+
+
+def test_fork_resolves_to_upstream_remote(tmp_path):
+    # The origin owner does not exist, so the gh lookup finds nothing and the
+    # `upstream` remote (in ssh form) is what identifies the canonical repo.
+    # ruff: ignore[start-process-with-partial-path]
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    for name, url in (
+        ('origin', 'git@github.com:no-such-owner-charm-tech-baseline/operator.git'),
+        ('upstream', 'git@github.com:canonical/operator.git'),
+    ):
+        # ruff: ignore[start-process-with-partial-path]
+        subprocess.run(['git', 'remote', 'add', name, url], cwd=tmp_path, check=True)
+    assert _run(cwd=tmp_path).stdout.strip() == 'product'
+
+
+def test_personal_repo_without_canonical_upstream(tmp_path):
+    # ruff: ignore[start-process-with-partial-path]
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(
+        # ruff: ignore[start-process-with-partial-path]
+        [
+            'git',
+            'remote',
+            'add',
+            'origin',
+            'https://github.com/no-such-owner-charm-tech-baseline/x',
+        ],
+        cwd=tmp_path,
+        check=True,
+    )
+    assert _run(cwd=tmp_path).stdout.strip() == 'personal'

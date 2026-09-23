@@ -36,8 +36,8 @@ from ..common import (
     EXIT_NA,
     EXIT_PASS,
     EXIT_UNKNOWN,
+    baseline_slug,
     emit_check,
-    origin_url,
     parse_tier,
     run,
     tier_applies,
@@ -54,8 +54,7 @@ def main() -> int:
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
         return EXIT_NA
 
-    url = origin_url()
-    slug = url[len('https://github.com/') :] if url.startswith('https://github.com/') else url
+    slug = baseline_slug()
 
     if slug == 'canonical/pebble':
         emit_check(

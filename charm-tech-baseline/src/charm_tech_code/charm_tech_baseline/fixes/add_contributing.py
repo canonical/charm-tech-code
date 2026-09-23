@@ -26,7 +26,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from ..common import ASSETS, origin_url, repo_root
+from ..common import ASSETS, baseline_slug, repo_root
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -49,10 +49,8 @@ def main() -> int:
 
     shutil.copy(template, 'CONTRIBUTING.md')
 
-    url = origin_url()
-    prefix = 'https://github.com/'
-    if url.startswith(prefix) and len(url) > len(prefix):
-        slug = url[len(prefix) :]
+    slug = baseline_slug()
+    if slug:
         # Match shell: owner=${slug%%/*}, name=${slug##*/}.
         owner = slug.split('/', 1)[0]
         name = slug.rsplit('/', 1)[-1]

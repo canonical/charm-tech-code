@@ -35,7 +35,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from ..common import ASSETS, origin_url, repo_root, run
+from ..common import ASSETS, baseline_slug, repo_root, run
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -70,11 +70,9 @@ def main() -> int:
     shutil.copy(wf_template, workflow)
     shutil.copy(py_template, script)
 
-    # Rewrite the help-URL placeholder to point at THIS repo.
-    url = origin_url()
-    prefix = 'https://github.com/'
-    if url.startswith(prefix) and len(url) > len(prefix):
-        slug = url[len(prefix) :]
+    # Rewrite the help-URL placeholder to point at this repo (the upstream, for a fork).
+    slug = baseline_slug()
+    if slug:
         owner = slug.split('/', 1)[0]
         name = slug.rsplit('/', 1)[-1]
 

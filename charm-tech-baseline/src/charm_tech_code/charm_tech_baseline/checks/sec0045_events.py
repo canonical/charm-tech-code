@@ -39,9 +39,9 @@ from ..common import (
     EXIT_FAIL,
     EXIT_NA,
     EXIT_PASS,
+    baseline_slug,
     cd_repo_root,
     emit_check,
-    origin_url,
     parse_tier,
     tier_applies,
 )
@@ -93,8 +93,7 @@ def main() -> int:
 
     cd_repo_root()
 
-    url = origin_url()
-    slug = url[len('https://github.com/') :] if url.startswith('https://github.com/') else url
+    slug = baseline_slug()
 
     if slug == 'canonical/operator':
         emit_check(CHECK_ID, 'pass', 'SEC0045 done long ago via canonical/operator#1905.')
