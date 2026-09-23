@@ -1,0 +1,114 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Fix: install the operator-style Conventional Commits PR-title check.
+
+Two-file pattern (source: canonical/operator):
+  - .github/workflows/validate-pr-title.yaml — runs on pull_request
+    [opened, edited, synchronize], permissions: {}, no PR-title fetch from
+    the API; reads it from the event payload via the PR_TITLE env var.
+  - .github/check-conventional-pr-title.py — self-contained Python (stdlib
+    only). Allowed types: chore, ci, docs, feat, fix, perf, refactor, revert,
+    test. Scopes disallowed.
+
+Both files are staged from the asset templates. The Python script's _HELP_URL
+placeholder is rewritten to point at this repo's CONTRIBUTING.md so the error
+message links to the right place. The agent should still check the
+CONTRIBUTING.md exists and documents these types.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+from pathlib import Path
+
+from ..common import ASSETS, baseline_slug, repo_root, run
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def main() -> int:
+    """Install the PR-title workflow and script, and return the exit code."""
+    try:
+        os.chdir(repo_root())
+    except OSError:
+        return 3
+
+    workflow = '.github/workflows/validate-pr-title.yaml'
+    script = '.github/check-conventional-pr-title.py'
+
+    if Path(workflow).exists() or Path('.github/workflows/validate-pr-title.yml').exists():
+        sys.stderr.write(f'{workflow} (or .yml variant) already exists; refusing to overwrite.\n')
+        return 1
+    if Path(script).exists():
+        sys.stderr.write(f'{script} already exists; refusing to overwrite.\n')
+        return 1
+
+    wf_template = ASSETS / 'validate-pr-title.yaml.template'
+    py_template = ASSETS / 'check-conventional-pr-title.py.template'
+    if not wf_template.is_file():
+        sys.stderr.write(f'Workflow template missing: {wf_template}\n')
+        return 3
+    if not py_template.is_file():
+        sys.stderr.write(f'Python template missing: {py_template}\n')
+        return 3
+
+    Path('.github/workflows').mkdir(parents=True, exist_ok=True)
+    shutil.copy(wf_template, workflow)
+    shutil.copy(py_template, script)
+
+    # Rewrite the help-URL placeholder to point at this repo (the upstream, for a fork).
+    slug = baseline_slug()
+    if slug:
+        owner = slug.split('/', 1)[0]
+        name = slug.rsplit('/', 1)[-1]
+
+        r = run(['git', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+        default_branch = r.stdout.strip() if r.returncode == 0 else ''
+        if default_branch.startswith('origin/'):
+            default_branch = default_branch[len('origin/') :]
+        if not default_branch:
+            r2 = run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+            default_branch = r2.stdout.strip() if r2.returncode == 0 else 'main'
+        if not default_branch:
+            default_branch = 'main'
+
+        text = Path(script).read_text()
+        text = text.replace('REPLACE_WITH_OWNER', owner)
+        text = text.replace('REPLACE_WITH_REPO', name)
+        text = text.replace('/blob/main/', f'/blob/{default_branch}/')
+        Path(script).write_text(text)
+        sys.stdout.write(
+            f'Rewrote help-URL to '
+            f'https://github.com/{owner}/{name}/blob/{default_branch}/CONTRIBUTING.md#pull-requests\n'
+        )
+    else:
+        sys.stderr.write(
+            f'Could not determine origin slug; left REPLACE_WITH_OWNER/REPO placeholders in '
+            f'{script} — fix before committing.\n'
+        )
+
+    sys.stdout.write(f'Wrote {workflow} and {script}.\n')
+    sys.stdout.write(
+        'Confirm CONTRIBUTING.md (or HACKING.md, etc.) exists in this repo and documents the '
+        'allowed Conventional-Commits types; if not, add a "Pull requests" section listing '
+        'chore/ci/docs/feat/fix/perf/refactor/revert/test before merging.\n'
+    )
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

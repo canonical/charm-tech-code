@@ -1,0 +1,125 @@
+# Canonical shape for a Trusted-Publishing-based PyPI release workflow.
+# Tier: product (SBOM handled by canonical/sbomber via a reusable secscan job).
+# For tier=personal|canonical, use trusted-publishing.yaml.template instead.
+#
+# Fill in before use:
+#   - REPLACE_WITH_PROJECT_NAME (PyPI project slug, appears in environment.url)
+#   - Tag pattern under `on.push.tags`
+#
+# Register the trusted publisher twice, once on PyPI and once on TestPyPI,
+# both against THIS workflow's filename, with environments publish-pypi and
+# publish-testpypi respectively.
+#
+# Before committing: modernise every SHA-pinned action below. For each `uses:`
+# line, look up the latest release on GitHub, replace the SHA with the current
+# commit SHA of that release, and update the trailing `# vX.Y.Z` version
+# comment. The pins in this template are a snapshot and drift over time. The
+# result must pass zizmor with no findings.
+#
+# This template pairs with:
+#   - .github/workflows/sbom-secscan.yaml (from sbom-secscan.yaml.template)
+#   - .sbomber-manifest-sdist.yaml         (from sbomber-manifest-sdist.yaml.template)
+#   - .sbomber-manifest-wheel.yaml         (from sbomber-manifest-wheel.yaml.template)
+#
+# Anti-patterns this template avoids (and zizmor enforces):
+#   - No password:/username: on pypa/gh-action-pypi-publish (Trusted Publishing).
+#   - No twine upload step.
+#   - Every third-party action is SHA-pinned with a version comment.
+#   - id-token: write + attestations: write scoped to the publish job only.
+#   - persist-credentials: false on every checkout.
+#   - enable-cache: false on setup-uv.
+#
+# A tag push publishes to PyPI and a manual run publishes to TestPyPI, from one
+# workflow so that a rehearsal exercises the same steps as a real release. Do
+# not split this into a reusable workflow called by two thin wrappers: PyPI
+# validates the job_workflow_ref OIDC claim, so a reusable workflow cannot be
+# the workflow in a trusted publisher (warehouse#11096).
+#
+# The manual run needs the .dev suffix because TestPyPI refuses a version it
+# has already seen, so without it, rehearsing the same release twice burns a
+# version number.
+
+name: Publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Build and publish to ${{ github.event_name == 'push' && 'PyPI' || 'TestPyPI' }} (Trusted Publishing)
+    runs-on: ubuntu-latest
+    environment:
+      # The name must match the environment registered with the trusted
+      # publisher on PyPI (and separately on TestPyPI).
+      name: ${{ github.event_name == 'push' && 'publish-pypi' || 'publish-testpypi' }}
+      # Cosmetic: the link shown against the deployment in the GitHub UI.
+      url: ${{ github.event_name == 'push' && 'https://pypi.org/p/REPLACE_WITH_PROJECT_NAME' || 'https://test.pypi.org/p/REPLACE_WITH_PROJECT_NAME' }}
+    permissions:
+      id-token: write  # OIDC to PyPI + sigstore for attestations.
+      attestations: write  # Write build-provenance predicate.
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Check the tag matches the project version
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: python
+        run: |
+          import os, pathlib, sys, tomllib
+          tag = os.environ["TAG"]
+          version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          if tag != f"v{version}":
+              print(f"::error::Tag {tag} does not match pyproject.toml version {version} (expected v{version}).")
+              sys.exit(1)
+
+      - name: Give the build a .dev suffix
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        shell: python
+        run: |
+          import os, pathlib, re, sys, tomllib
+          run_number = os.environ["RUN_NUMBER"]
+          path = pathlib.Path("pyproject.toml")
+          # Write dev version.
+          path.write_text(re.sub(
+              r'^version = "([^"]+)"', rf'version = "\1.dev{run_number}"', path.read_text(),
+              count=1, flags=re.MULTILINE,
+          ))
+          # Ensure we wrote the dev version correctly.
+          version = tomllib.loads(path.read_text())["project"]["version"]
+          if not version.endswith(f".dev{run_number}"):
+              print(f"::error::Failed to add a .dev suffix; version is {version}.")
+              sys.exit(1)
+          print(f"Building {version}")
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        with:
+          enable-cache: false
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Attest build provenance (SLSA)
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763  # v4.1.1
+        with:
+          subject-path: 'dist/*'
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
+        with:
+          repository-url: ${{ github.event_name == 'push' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
+
+  secscan:
+    # SBOM + Canonical secscan (product-tier requirement).
+    # The reusable workflow generates SBOMs via canonical/sbomber for each
+    # artefact type in .sbomber-manifest-*.yaml.
+    uses: ./.github/workflows/sbom-secscan.yaml
