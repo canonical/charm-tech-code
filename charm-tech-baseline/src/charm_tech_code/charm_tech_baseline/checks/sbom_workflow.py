@@ -1,4 +1,19 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Check: SBOM workflow / manifest present and triggered per cycle.
+
 Tier coverage: product only.
 
 Mandate: SEC0027 (every release type). Generated via sbom-request.canonical.com.
@@ -36,7 +51,7 @@ WORKFLOW_KEY_RE = re.compile(r'sbom-request|sbomber|sbom-secscan', re.IGNORECASE
 
 
 def find_manifests() -> list[str]:
-    hits: list[str] = []
+    """Return up to three SBOM manifest paths under .github/, at most one level deep."""
     gh = Path('.github')
     root_candidates: list[Path] = []
     # maxdepth 2: .github + .github/<subdir>
@@ -48,18 +63,20 @@ def find_manifests() -> list[str]:
             ):
                 root_candidates.append(p)
             if p.is_dir():
-                for p2 in p.iterdir():
-                    if p2.is_file() and (
+                root_candidates.extend(
+                    p2
+                    for p2 in p.iterdir()
+                    if p2.is_file()
+                    and (
                         re.search(r'sbomber-manifest.*\.ya?ml$', p2.name)
                         or re.search(r'^sbom.*\.ya?ml$', p2.name)
-                    ):
-                        root_candidates.append(p2)
-    for p in root_candidates[:3]:
-        hits.append(str(p))
-    return hits
+                    )
+                )
+    return [str(p) for p in root_candidates[:3]]
 
 
 def find_workflow() -> str:
+    """Return the first workflow that mentions an SBOM request, or an empty string."""
     wf_dir = Path('.github/workflows')
     if not wf_dir.is_dir():
         return ''
@@ -67,7 +84,7 @@ def find_workflow() -> str:
         try:
             if WORKFLOW_KEY_RE.search(p.read_text(errors='replace')):
                 return str(p)
-        except OSError:
+        except OSError:  # ruff: ignore[try-except-in-loop]
             continue
     return ''
 
@@ -111,6 +128,7 @@ def cadence_check_yaml(workflow: str) -> tuple[bool, str]:
 
 
 def cadence_check_grep(workflow: str) -> tuple[bool, str]:
+    """Return (ok, reason) from grepping the workflow for a per-cycle trigger."""
     try:
         text = Path(workflow).read_text(errors='replace')
     except OSError:
@@ -137,6 +155,7 @@ def cadence_check_grep(workflow: str) -> tuple[bool, str]:
 
 
 def main() -> int:
+    """Check for an SBOM manifest or workflow and its cadence, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')

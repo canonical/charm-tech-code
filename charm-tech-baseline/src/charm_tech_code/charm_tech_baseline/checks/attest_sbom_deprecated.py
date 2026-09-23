@@ -1,4 +1,19 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Check: no use of the deprecated actions/attest-sbom action.
+
 Tier coverage: all.
 
 actions/attest-sbom is deprecated in favour of actions/attest. Since v4 it
@@ -29,6 +44,7 @@ APPLIES = 'all'
 
 
 def main() -> int:
+    """Look for actions/attest-sbom, emit the result, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
@@ -46,7 +62,7 @@ def main() -> int:
         try:
             if 'actions/attest-sbom' in path.read_text(errors='replace'):
                 hits.append(str(path))
-        except OSError:
+        except OSError:  # ruff: ignore[try-except-in-loop]
             continue
 
     if not hits:

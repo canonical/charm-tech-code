@@ -1,3 +1,17 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Shared helpers for charm-tech-baseline skill checks and fixes.
 
 Imported by every check / fix script. No side effects on import.
@@ -27,10 +41,14 @@ EXIT_UNKNOWN = 3
 
 
 def repo_root() -> Path:
-    """Return the repo root. Falls back to CWD when not inside a git tree
-    (the skill can be invoked against an unpacked tarball, for example)."""
+    """Return the repo root.
+
+    Falls back to CWD when not inside a git tree (the skill can be invoked
+    against an unpacked tarball, for example).
+    """
     try:
         out = subprocess.run(
+            # ruff: ignore[start-process-with-partial-path]
             ['git', 'rev-parse', '--show-toplevel'],
             capture_output=True,
             text=True,
@@ -44,10 +62,13 @@ def repo_root() -> Path:
 
 
 def origin_url() -> str:
-    """Return the origin remote URL normalised to https form, without a
-    trailing .git. Empty string if no origin remote."""
+    """Return the origin remote URL normalised to https form, without a trailing .git.
+
+    Empty string if no origin remote.
+    """
     try:
         url = subprocess.run(
+            # ruff: ignore[start-process-with-partial-path]
             ['git', 'config', '--get', 'remote.origin.url'],
             capture_output=True,
             text=True,
@@ -126,7 +147,8 @@ def tier_applies(check_tiers: str | Iterable[str], current_tier: str) -> bool:
 def parse_tier(argv: list[str] | None = None) -> str:
     """Extract --tier=<value> from argv. Returns empty string if absent.
 
-    Unknown flags are ignored (each check only cares about --tier)."""
+    Unknown flags are ignored (each check only cares about --tier).
+    """
     args = argv if argv is not None else sys.argv[1:]
     for arg in args:
         if arg.startswith('--tier='):
@@ -135,9 +157,11 @@ def parse_tier(argv: list[str] | None = None) -> str:
 
 
 def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    """Convenience wrapper around subprocess.run with text=True and
-    capture_output=True by default. Never raises on non-zero exit —
-    callers should inspect .returncode."""
+    """Run a command with text=True and capture_output=True by default.
+
+    A convenience wrapper around subprocess.run. Never raises on non-zero
+    exit — callers should inspect .returncode.
+    """
     kwargs.setdefault('text', True)
     kwargs.setdefault('capture_output', True)
     kwargs.setdefault('check', False)
@@ -145,8 +169,11 @@ def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
 
 
 def cd_repo_root() -> Path:
-    """Chdir to the repo root and return it. Exits EXIT_UNKNOWN if the
-    root cannot be reached (matches the shell behaviour of `cd || exit 3`)."""
+    """Chdir to the repo root and return it.
+
+    Exits EXIT_UNKNOWN if the root cannot be reached (matches the shell
+    behaviour of `cd || exit 3`).
+    """
     root = repo_root()
     try:
         os.chdir(root)

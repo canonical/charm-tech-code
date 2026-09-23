@@ -1,5 +1,21 @@
-"""Check: .github/dependabot.yml exists, declares package ecosystems, and each
-ecosystem has a cooldown of at least 7 days (Charm Tech baseline — see
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Check: Dependabot is configured, with a cooldown of at least 7 days.
+
+.github/dependabot.yml must exist, declare package ecosystems, and give each
+ecosystem a cooldown of at least 7 days (Charm Tech baseline — see
 charmlibs#499). The cooldown delays raising a PR for a freshly published
 release so a malicious upload caught and yanked inside the window never
 reaches CI.
@@ -43,6 +59,7 @@ PRECOMMIT_REV_RE = re.compile(r'^[ \t]*rev:[ \t]+', re.MULTILINE)
 
 
 def main() -> int:
+    """Check the Dependabot config and cooldowns, emit the result, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')

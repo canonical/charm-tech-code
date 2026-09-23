@@ -1,3 +1,17 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Fix: patch live GitHub repo settings to match the baseline.
 
 Use this ONLY when the repo is not (and will not be) enrolled in
@@ -54,6 +68,7 @@ The script prints each gh call before running; pass --dry-run to print only.
 
 
 def main() -> int:
+    """Patch the repo settings (or print the patch with --dry-run), and return the exit code."""
     dry_run = False
     for arg in sys.argv[1:]:
         if arg == '--dry-run':

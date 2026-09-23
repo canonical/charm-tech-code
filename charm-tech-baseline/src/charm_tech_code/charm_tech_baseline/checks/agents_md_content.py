@@ -1,4 +1,19 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Check: AGENTS.md content is trustworthy (Layer 1 staleness checks).
+
 Tier coverage: product, canonical, personal.
 
 Implements the five Layer 1 checks from
@@ -127,8 +142,11 @@ SCOPE_LINT_PATTERNS = [
 
 
 def extract_commands(text: str) -> list[tuple[str, str]]:
-    """Return (raw_command, source) pairs from fenced shell blocks and
-    markdown table cells that look like commands."""
+    """Return (raw_command, source) pairs for the commands in AGENTS.md.
+
+    Commands come from fenced shell blocks and from markdown table cells that
+    look like commands.
+    """
     commands: list[tuple[str, str]] = []
     for m in FENCE_RE.finditer(text):
         lang = m.group(1).lower()
@@ -158,10 +176,12 @@ def extract_commands(text: str) -> list[tuple[str, str]]:
 
 
 def entry_point_tool(cmd: str) -> str:
-    """First non-assignment token of the whole command line. A tool
-    introduced mid-line by an explicit install step (e.g. `go install X &&
+    """Return the first non-assignment token of the whole command line.
+
+    A tool introduced mid-line by an explicit install step (e.g. `go install X &&
     X ...`) is intentionally not checked here — it's expected to be absent
-    until that install step runs."""
+    until that install step runs.
+    """
     try:
         tokens = shlex.split(cmd)
     except ValueError:
@@ -192,6 +212,7 @@ def classify_command(cmd: str) -> tuple[str, str]:
 
 
 def looks_like_path(cand: str) -> bool:
+    """Return whether an inline-code snippet looks like a reference to a local file."""
     if not cand or ' ' in cand or cand.startswith(('http://', 'https://')):
         return False
     if '/' in cand:
@@ -200,9 +221,7 @@ def looks_like_path(cand: str) -> bool:
         # itself a relative-path marker ("." / "..") means "module path",
         # not "local file".
         first_seg = cand.split('/', 1)[0]
-        if '.' in first_seg and not first_seg.startswith('.'):
-            return False
-        return True
+        return '.' not in first_seg or first_seg.startswith('.')
     if cand.startswith('.'):
         return True
     if FILE_EXT_RE.search(cand):
@@ -211,6 +230,7 @@ def looks_like_path(cand: str) -> bool:
 
 
 def extract_referenced_paths(text: str) -> set[str]:
+    """Return the local paths referenced by markdown links and inline code."""
     paths: set[str] = set()
     for m in MD_LINK_RE.finditer(text):
         target = m.group(1)
@@ -225,6 +245,7 @@ def extract_referenced_paths(text: str) -> set[str]:
 
 
 def workflow_texts(root: Path) -> dict[str, str]:
+    """Return the text of each readable workflow file, keyed by repo-relative path."""
     wf_dir = root / '.github' / 'workflows'
     out: dict[str, str] = {}
     if not wf_dir.is_dir():
@@ -232,7 +253,7 @@ def workflow_texts(root: Path) -> dict[str, str]:
     for p in sorted(list(wf_dir.glob('*.yml')) + list(wf_dir.glob('*.yaml'))):
         try:
             out[str(p.relative_to(root))] = p.read_text(errors='replace')
-        except OSError:
+        except OSError:  # ruff: ignore[try-except-in-loop]
             continue
     return out
 
@@ -240,10 +261,13 @@ def workflow_texts(root: Path) -> dict[str, str]:
 def check_version_drift(
     pins: list[tuple[str, str]], workflows: dict[str, str]
 ) -> tuple[list[dict], list[dict]]:
-    """Return (drifted, checked). checked includes every pin that could be
-    cross-referenced against a workflow (pass or fail), for evidence
-    transparency — e.g. a tool version pinned differently in an unrelated
-    workflow is visible even when the AGENTS.md claim matches somewhere."""
+    """Return (drifted, checked) for the version pins mentioned in AGENTS.md.
+
+    checked includes every pin that could be cross-referenced against a
+    workflow (pass or fail), for evidence transparency — e.g. a tool version
+    pinned differently in an unrelated workflow is visible even when the
+    AGENTS.md claim matches somewhere.
+    """
     drifted: list[dict] = []
     checked: list[dict] = []
     for tool, doc_version in pins:
@@ -261,10 +285,12 @@ def check_version_drift(
 
 
 def scope_lint(text: str) -> list[str]:
+    """Return a label for each kind of harness-shaped content found in `text`."""
     return [label for pattern, label in SCOPE_LINT_PATTERNS if pattern.search(text)]
 
 
 def main() -> int:
+    """Run the Layer 1 content checks, emit the result, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')

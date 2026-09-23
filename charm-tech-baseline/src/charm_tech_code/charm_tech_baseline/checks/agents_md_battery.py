@@ -1,4 +1,19 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Check: this repo's AGENTS.md question battery still describes the repo.
+
 Tier coverage: product, canonical, personal.
 
 A question battery (assets/question-batteries/<repo>.yaml) records, for each
@@ -67,6 +82,7 @@ REQUIRED_ENTRY_KEYS = {
 
 
 def parse_flag(name: str) -> str:
+    """Return the value of a `--<name>=<value>` command-line flag, or '' if absent."""
     prefix = f'--{name}='
     for arg in sys.argv[1:]:
         if arg.startswith(prefix):
@@ -75,8 +91,11 @@ def parse_flag(name: str) -> str:
 
 
 def battery_path() -> Path | None:
-    """Explicit --battery=<path> wins; otherwise the battery named after the
-    repo the origin URL points at."""
+    """Return the path to this repo's question battery, or None if there is none.
+
+    Explicit --battery=<path> wins; otherwise the battery named after the
+    repo the origin URL points at.
+    """
     explicit = parse_flag('battery')
     if explicit:
         p = Path(explicit)
@@ -90,14 +109,17 @@ def battery_path() -> Path | None:
 
 
 def collapse(text: str) -> str:
+    """Collapse every run of whitespace in `text` to a single space."""
     return ' '.join(text.split())
 
 
 def validate_schema(entry: dict, index: int) -> list[str]:
+    """Return a description of each schema problem with a battery entry."""
     where = entry.get('id') or f'entry[{index}]'
-    problems = []
-    for key in sorted(REQUIRED_ENTRY_KEYS - set(entry)):
-        problems.append(f"{where}: missing required key '{key}'")
+    problems = [
+        f"{where}: missing required key '{key}'"
+        for key in sorted(REQUIRED_ENTRY_KEYS - set(entry))
+    ]
     if entry.get('classification') not in CLASSIFICATIONS and 'classification' in entry:
         problems.append(f'{where}: unknown classification {entry["classification"]!r}')
 
@@ -189,7 +211,7 @@ def run_assertion(assertion: dict, entry_id: str, root: Path) -> dict | None:
         try:
             if needle.search(go_file.read_text(errors='replace')):
                 return None
-        except OSError:
+        except OSError:  # ruff: ignore[try-except-in-loop]
             continue
     return {
         'entry': entry_id,
@@ -201,6 +223,7 @@ def run_assertion(assertion: dict, entry_id: str, root: Path) -> dict | None:
 
 
 def main() -> int:
+    """Validate the repo's question battery, emit the result, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')

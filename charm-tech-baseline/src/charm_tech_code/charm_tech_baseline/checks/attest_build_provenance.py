@@ -1,5 +1,22 @@
-"""Check: a build-provenance attestation is present in release / publish workflows,
-with a `subject-path:` input, AND ordered to run *before* the publish step.
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Check: release / publish workflows attest build provenance before publishing.
+
+A build-provenance attestation must be present, with a `subject-path:` input,
+AND ordered to run *before* the publish step.
+
 Tier coverage: product, canonical.
 
 Ordering rules:
@@ -66,6 +83,7 @@ def _targets_test_pypi(step: dict) -> bool:
 
 
 def is_publish_step(step) -> bool:
+    """Return whether a workflow step publishes to (non-test) PyPI."""
     if not isinstance(step, dict):
         return False
     uses = step.get('uses') or ''
@@ -74,12 +92,11 @@ def is_publish_step(step) -> bool:
     is_twine_publish = 'twine upload' in run_str
     if not (is_action_publish or is_twine_publish):
         return False
-    if _targets_test_pypi(step):
-        return False
-    return True
+    return not _targets_test_pypi(step)
 
 
 def is_attest_step(step) -> bool:
+    """Return whether a workflow step uses one of the attestation actions."""
     if not isinstance(step, dict):
         return False
     uses = step.get('uses') or ''
@@ -90,6 +107,7 @@ def is_attest_step(step) -> bool:
 
 
 def needs_of(job) -> list[str]:
+    """Return the names of the jobs that a job lists in its `needs:`."""
     needs = job.get('needs') if isinstance(job, dict) else None
     if needs is None:
         return []
@@ -99,6 +117,7 @@ def needs_of(job) -> list[str]:
 
 
 def transitive_needs(jobs: dict, start: str) -> set[str]:
+    """Return every job that `start` depends on, directly or through other jobs."""
     seen: set[str] = set()
     stack = [start]
     while stack:
@@ -112,6 +131,7 @@ def transitive_needs(jobs: dict, start: str) -> set[str]:
 
 
 def main() -> int:
+    """Check publish workflows attest first, emit the result, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
@@ -204,10 +224,9 @@ def main() -> int:
                 continue
 
             upstream = transitive_needs(jobs, pjob)
-            upstream_attests: list[tuple[str, dict]] = []
-            for uj in upstream:
-                for a in job_steps.get(uj, {}).get('attests', []):
-                    upstream_attests.append((uj, a))
+            upstream_attests: list[tuple[str, dict]] = [
+                (uj, a) for uj in upstream for a in job_steps.get(uj, {}).get('attests', [])
+            ]
             if not upstream_attests:
                 failures.append(
                     f'{path}:{pjob}: publish step has no attest step in this job or in any '

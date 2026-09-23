@@ -1,6 +1,22 @@
-"""Check: canonical-secscan-client (or equivalent) workflow present, with the
-SSDLC identification details wired up so results land in the long-term scan
-registry.
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Check: canonical-secscan-client (or equivalent) workflow present.
+
+The workflow must have the SSDLC identification details wired up so results
+land in the long-term scan registry.
+
 Tier coverage: product only.
 
 Mandate: SEC0025. Run at least once per cycle per product with SSDLC
@@ -50,16 +66,18 @@ SSDLC_CLI_RE = re.compile(r'ssdlc-product-name|ssdlc-cycle')
 
 
 def find_first(pattern: re.Pattern[str], files: list[Path]) -> str:
+    """Return the first of `files` whose text matches `pattern`, or an empty string."""
     for p in files:
         try:
             if pattern.search(p.read_text(errors='replace')):
                 return str(p)
-        except OSError:
+        except OSError:  # ruff: ignore[try-except-in-loop]
             continue
     return ''
 
 
 def main() -> int:
+    """Check for a secscan workflow with SSDLC details, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')

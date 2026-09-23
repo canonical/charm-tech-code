@@ -1,5 +1,21 @@
-"""Umbrella check runner. Dispatches every check that applies to the resolved
-tier and emits a single JSON report.
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Umbrella check runner.
+
+Dispatches every check that applies to the resolved tier and emits a single
+JSON report.
 
 Usage:
     charm-tech-baseline check [--tier=product|canonical|personal]
@@ -41,6 +57,7 @@ def _modules(package: ModuleType) -> dict[str, ModuleType]:
 
 
 def usage() -> None:
+    """Write the usage text to stderr."""
     sys.stderr.write((__doc__ or '').strip() + '\n')
 
 
@@ -108,7 +125,7 @@ def _check(argv: list[str]) -> int:
         try:
             with collecting() as collected:
                 module.main()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             notes.append(f'check {check_id} raised {type(exc).__name__}: {exc}')
             continue
         finally:
@@ -177,6 +194,7 @@ def _list() -> int:
 
 
 def main() -> int:
+    """Dispatch the subcommand in argv and return its exit code."""
     argv = sys.argv[1:]
     if not argv or argv[0] in ('-h', '--help'):
         usage()

@@ -1,5 +1,20 @@
-"""Check: every third-party GHA action is SHA-pinned. No exceptions —
-`actions/*`, `github/*`, `pypa/*`, `canonical/*` all pin to a commit
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Check: every third-party GHA action is SHA-pinned.
+
+No exceptions — `actions/*`, `github/*`, `pypa/*`, `canonical/*` all pin to a commit
 SHA, same as any other third-party action (see references/decisions.md).
 
 Tier coverage: product, canonical, personal.
@@ -33,6 +48,7 @@ SHA_RE = re.compile(r'^[0-9a-fA-F]{40}$')
 
 
 def main() -> int:
+    """Check that every third-party action is SHA-pinned, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')

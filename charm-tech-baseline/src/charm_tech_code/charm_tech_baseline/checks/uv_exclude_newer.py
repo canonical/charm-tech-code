@@ -1,5 +1,20 @@
-"""Check: pyproject.toml sets `[tool.uv].exclude-newer` to a rolling
-quarantine of at least 7 days.
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Check: pyproject.toml sets `[tool.uv].exclude-newer` to at least 7 days.
+
+The value must be a rolling quarantine of at least 7 days.
 
 Rationale (Canonical Security "How-To: Secure a repo" — Minimum
 release age section): a package-manager-level cooldown protects
@@ -44,9 +59,10 @@ MIN_DAYS = 7
 
 
 def parse_days(v: str):
-    """Classify the value:
+    r"""Classify an `exclude-newer` value.
+
     RFC3339 timestamp: contains 'T' and ends with 'Z' or timezone offset.
-    ISO 8601 duration: matches /^P(?:\\d+[YMWD])+(?:T(?:\\d+[HMS])+)?$/ or PT...
+    ISO 8601 duration: matches /^P(?:\d+[YMWD])+(?:T(?:\d+[HMS])+)?$/ or PT...
     Friendly duration: matches a number + unit word (hours/days/weeks/etc.)
     """
     v = v.strip()
@@ -107,6 +123,7 @@ def parse_days(v: str):
 
 
 def main() -> int:
+    """Check the `[tool.uv].exclude-newer` quarantine, and return the exit code."""
     tier = parse_tier()
     if not tier_applies(APPLIES, tier):
         emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
