@@ -18,12 +18,19 @@
 **This module is the package's I/O boundary, and the only one.** The clock is
 read here and nowhere else, and so is anything else that is not text in, text
 out: a file, a network call, git itself.
+
+Three subcommands do not read a git log at all, because they are the version
+and release-body decisions a release pipeline makes after the changelog is
+written: `detect-release`, `post-release` and `release-body`. The two that
+answer with more than one value print `key=value` lines, which a workflow
+step can append to `$GITHUB_OUTPUT` as they stand.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import pathlib
 import sys
 import textwrap
 from collections.abc import Sequence
@@ -31,6 +38,13 @@ from collections.abc import Sequence
 from ._constants import GIT_LOG_FORMAT
 from ._format import format_changes, format_release_notes
 from ._parse import parse_git_log
+from ._release import detect_release, is_prerelease, next_dev_version, resolve_branch
+from ._release_body import (
+    changelog_section,
+    is_placeholder,
+    release_body,
+    release_notes_from_description,
+)
 from ._version import infer_bump_size, next_version
 
 
@@ -207,7 +221,136 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    detect_release_parser = subparsers.add_parser(
+        'detect-release',
+        help='Print the version a push releases, or nothing if it is not a release.',
+        description=(
+            'Decide whether a push to a release branch is a release: the version '
+            'changed, and the new one has no .devN suffix. Prints version= and '
+            'prerelease= lines when it is, and nothing when it is not. Either way '
+            'the reason goes to stderr.'
+        ),
+    )
+    detect_release_parser.add_argument(
+        '--after',
+        required=True,
+        metavar='VERSION',
+        help='The version the push left behind.',
+    )
+    detect_release_parser.add_argument(
+        '--before',
+        default=None,
+        metavar='VERSION',
+        help='The version before the push. Leave it out if there was none.',
+    )
+
+    post_release_parser = subparsers.add_parser(
+        'post-release',
+        help='Print the branch a release came from and the version it goes to now.',
+        description=(
+            'Work out which branch a published release was cut from, and the '
+            'development version that branch goes to now. Prints branch= and '
+            'version= lines.'
+        ),
+    )
+    post_release_parser.add_argument(
+        '--tag', required=True, metavar='X.Y.Z', help='The tag of the release that was published.'
+    )
+    post_release_parser.add_argument(
+        '--target',
+        default='',
+        metavar='COMMITTISH',
+        help="The release's target_commitish: a branch name, or a commit SHA.",
+    )
+    post_release_parser.add_argument(
+        '--candidates',
+        default='',
+        metavar='A,B',
+        help='Every branch the repository releases from, comma-separated.',
+    )
+    post_release_parser.add_argument(
+        '--containing',
+        default='',
+        metavar='A,B',
+        help='Those of them whose history contains the released tag.',
+    )
+    post_release_parser.add_argument(
+        '--default-branch',
+        default='main',
+        metavar='NAME',
+        help='The branch that wins when several contain the tag. Defaults to main.',
+    )
+
+    release_body_parser = subparsers.add_parser(
+        'release-body',
+        help='Print a release body: the notes from a description, then the changelog.',
+        description=(
+            'Read a merged release pull request description on stdin, take the '
+            'release notes from between its release-notes markers, and print them '
+            "followed by the version's section of the changelog."
+        ),
+    )
+    release_body_parser.add_argument(
+        '--version', required=True, metavar='X.Y.Z', help='The version being released.'
+    )
+    release_body_parser.add_argument(
+        '--changes',
+        default='CHANGES.md',
+        metavar='PATH',
+        help='The changelog, whose first section is this release. Defaults to CHANGES.md.',
+    )
+
     return parser
+
+
+def _split(value: str) -> list[str]:
+    """Return a comma-separated list, with the empties dropped."""
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+
+def _detect_release(args: argparse.Namespace) -> int:
+    version, why = detect_release(args.before or None, args.after)
+    if version is None:
+        print(f'Not a release: {why}.', file=sys.stderr)
+        return 0
+    print(f'Releasing {version}: {why}.', file=sys.stderr)
+    _emit(f'version={version}\nprerelease={str(is_prerelease(version)).lower()}')
+    return 0
+
+
+def _post_release(args: argparse.Namespace) -> int:
+    try:
+        branch, why = resolve_branch(
+            args.target,
+            _split(args.candidates),
+            _split(args.containing),
+            default_branch=args.default_branch,
+        )
+        version = next_dev_version(args.tag, branch)
+    except ValueError as exc:
+        print(f'changelog: {exc}', file=sys.stderr)
+        return 2
+    print(f'{args.tag} was released from {branch}: {why}.', file=sys.stderr)
+    print(f'{branch} goes to {version}.', file=sys.stderr)
+    _emit(f'branch={branch}\nversion={version}')
+    return 0
+
+
+def _release_body(args: argparse.Namespace) -> int:
+    try:
+        notes = release_notes_from_description(sys.stdin.read())
+        section = changelog_section(pathlib.Path(args.changes).read_text(), args.version)
+    except (OSError, ValueError) as exc:
+        print(f'changelog: {exc}', file=sys.stderr)
+        return 2
+    if is_placeholder(notes):
+        print(
+            f'The {args.version} pull request was merged with the release-notes '
+            'placeholder in it, so the body carries that instead of notes.',
+            file=sys.stderr,
+        )
+    _emit(release_body(notes, section))
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -217,6 +360,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == 'git-log-format':
         _emit(GIT_LOG_FORMAT)
         return 0
+    if args.command == 'detect-release':
+        return _detect_release(args)
+    if args.command == 'post-release':
+        return _post_release(args)
+    if args.command == 'release-body':
+        return _release_body(args)
 
     categories = parse_git_log(
         sys.stdin.read(),
