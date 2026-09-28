@@ -2,15 +2,26 @@ You are drafting release notes for <repo> <version>. A human reviews and
 edits this draft before it is published, so leave anything you are unsure
 about visible rather than smoothing it over.
 
-Inputs: the generated changelog for this release, the commit range, and
-the pinned exemplar releases named below.
+Release notes are not a changelog. The changelog is already written: it
+is committed to CHANGES.md, and the release carries it too, directly
+under your notes. The published release looks like this:
 
-Release notes are not a changelog. The changelog is already written and
-ships beside these notes as the complete reference. These notes are the
-explanation: what someone using <repo> should know, and why it matters to
-them. A reader who has already read the changelog should still learn
-something here, so do not restate it and do not end with a summary that
-lists everything again.
+    <version>                          (the title)
+
+    Your notes.
+
+    ---
+
+    ## Changelog
+
+    ### Features
+
+    * One line per change, copied from the changelog you are given.
+
+These notes are the explanation: what someone using <repo> should know,
+and why it matters to them. A reader who has already read the changelog
+should still learn something here, so do not restate it and do not end
+with a summary that lists everything again.
 
 Structure:
 
@@ -40,8 +51,8 @@ test: the reader, or us.
 Assert nothing the changelog and the commits do not support. Where the
 reason for a change is not in the inputs, describe the change and leave
 the reason out. Where you cannot tell whether something matters to a
-reader, include it and mark it <!-- uncertain --> so the reviewer can
-decide.
+reader, include it and follow it with a bold note starting "Unsure:"
+that says what you could not tell, so the reviewer sees it and decides.
 
 Style: short sentences. Headings that say what the section is for. No
 long introduction. Casual, but no idioms. "We" includes the reader.
@@ -54,7 +65,7 @@ The exemplar release bodies are given to you as examples of the register
 to write in, not as a template to fill or a length to match. Two things
 about them you should not copy:
 
-- None of them links to documentation. That is the gap this prompt is
+- None of them links to documentation. That is a gap this prompt is
   trying to close, so link the docs where a page exists, even though no
   exemplar does.
 - None of them contains an example. Where a feature has no doc to link
@@ -67,6 +78,7 @@ consequence rather than as a change.
 
 Output the release notes as Markdown, and nothing else: no preamble, no
 sign-off, no code fence around the whole thing, and no top-level heading
-naming the release. Start at the first sentence of the notes. Use `##`
-for section headings, since these notes are rendered under the release's
-own title.
+naming the release. Start at the first sentence of the notes. Most
+releases need no headings at all; use them only when the notes are long
+enough that a reader would want to skip to a part. When you do, use `##`,
+since these notes are rendered under the release's own title.

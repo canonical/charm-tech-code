@@ -66,10 +66,9 @@ class TestSystemPrompt:
 
     def test_carries_no_maintainer_notes(self):
         # Notes for the people editing the prompt belong in the README; the
-        # model reads every character of this file. The one HTML comment in
-        # it is the marker the model is asked to use.
+        # model reads every character of this file.
         prompt = system_prompt('canonical/operator', '3.8.3')
-        assert re.findall(r'<!--.*?-->', prompt, re.DOTALL) == ['<!-- uncertain -->']
+        assert re.findall(r'<!--.*?-->', prompt, re.DOTALL) == []
 
 
 class TestUserPrompt:
