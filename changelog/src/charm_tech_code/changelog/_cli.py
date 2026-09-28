@@ -23,7 +23,9 @@ Three subcommands do not read a git log at all, because they are the version
 and release-body decisions a release pipeline makes after the changelog is
 written: `detect-release`, `post-release` and `release-body`. The two that
 answer with more than one value print `key=value` lines, which a workflow
-step can append to `$GITHUB_OUTPUT` as they stand.
+step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed bare;
+`prerelease` is `true` or `false`, which is valid JSON, so `fromJSON` turns it
+into a real boolean for an `if:`.
 """
 
 from __future__ import annotations
@@ -225,10 +227,10 @@ def _build_parser() -> argparse.ArgumentParser:
         'detect-release',
         help='Print the version a push releases, or nothing if it is not a release.',
         description=(
-            'Decide whether a push to a release branch is a release: the version '
-            'changed, and the new one has no .devN suffix. Prints version= and '
-            'prerelease= lines when it is, and nothing when it is not. Either way '
-            'the reason goes to stderr.'
+            'Decide from --before and --after alone whether a push released a '
+            'version: it changed, and the new one has no .devN suffix. Prints '
+            'version= and prerelease= lines when it is a release, and nothing when '
+            'it is not. Either way the reason goes to stderr.'
         ),
     )
     detect_release_parser.add_argument(
@@ -272,7 +274,13 @@ def _build_parser() -> argparse.ArgumentParser:
         '--containing',
         default='',
         metavar='A,B',
-        help='Those of them whose history contains the released tag.',
+        help=(
+            'Those of them whose history contains the released tag, comma-separated '
+            '(for example, the candidates where `git merge-base --is-ancestor <tag> '
+            '<branch>` succeeds). These decide the branch, with --target and then '
+            '--default-branch breaking a tie. Leave it empty when the tag is not in '
+            'the checkout, and --target must then be one of --candidates.'
+        ),
     )
     post_release_parser.add_argument(
         '--default-branch',
@@ -297,7 +305,10 @@ def _build_parser() -> argparse.ArgumentParser:
         '--changes',
         default='CHANGES.md',
         metavar='PATH',
-        help='The changelog, whose first section is this release. Defaults to CHANGES.md.',
+        help=(
+            "The changelog. Its first section must be this version's, or the "
+            'command fails. Defaults to CHANGES.md.'
+        ),
     )
 
     return parser
