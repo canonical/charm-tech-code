@@ -75,14 +75,9 @@ def fetch_job_log(repo: str, run_id: str, job_id: int) -> str:
     above exists to strip them. Runners carry a gh new enough to refuse (2.97.0
     when this was measured, in fork run 32673538357), so without the flag every
     fetch comes back empty and the signature degrades to the job name.
-
-    Older builds have no such check and no such flag, and reject it as unknown
-    rather than ignoring it, so those retry without.
     """
     endpoint = f'repos/{repo}/actions/jobs/{job_id}/logs'
     result = gh('api', endpoint, '--allow-escape-sequences', check=False)
-    if 'unknown flag' in (result.stderr or ''):
-        result = gh('api', endpoint, check=False)
     if not result.stdout.strip():
         # `gh` puts the status on stderr ("gh: Not Found (HTTP 404)"), and the
         # exit code alone is 1 for all of them. Without the status there is no
