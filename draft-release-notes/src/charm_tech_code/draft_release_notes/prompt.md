@@ -39,7 +39,10 @@ Structure:
   the API, not a tutorial.
 - Fixes worth knowing about: the ones a reader may have hit. Not all of
   them; the changelog has all of them.
-- Contributors, once, at the end.
+- Contributors, once, at the end: the people the changelog credits with
+  "by @handle" or "by Name" on an entry, and nobody else. If it credits
+  nobody, leave the section out. Never take a name from anywhere else,
+  such as the repository name.
 
 Include a change only if it changes what a reader can do, or what they
 have to do. Leave out infrastructure, CI and our own internal tests.
