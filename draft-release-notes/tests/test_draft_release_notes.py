@@ -30,8 +30,10 @@ import pytest
 from charm_tech_code.draft_release_notes import _cli
 from charm_tech_code.draft_release_notes._draft import (
     placeholder,
+    split_title,
     system_prompt,
     tidy,
+    title_placeholder,
     user_prompt,
 )
 from charm_tech_code.draft_release_notes._openrouter import error_detail
@@ -122,6 +124,44 @@ class TestTidy:
             'Notes.'
         )
 
+    def test_strips_the_title_markers_too(self):
+        assert tidy('<!-- release-title:start -->\nNotes.\n<!-- release-title:end -->') == (
+            'Notes.'
+        )
+
+
+class TestSplitTitle:
+    def test_takes_the_summary_off_the_first_line(self):
+        assert split_title('Title: fix the kettle\n\nA routine release.') == (
+            'fix the kettle',
+            'A routine release.',
+        )
+
+    def test_tolerates_bold(self):
+        assert split_title('**Title:** fix the kettle\n\nNotes.') == ('fix the kettle', 'Notes.')
+
+    def test_no_title_line_leaves_the_whole_answer_as_the_notes(self):
+        assert split_title('A routine release.\n\nMore.') == (None, 'A routine release.\n\nMore.')
+
+    def test_an_empty_title_is_no_title(self):
+        assert split_title('Title:\n\nNotes.') == (None, 'Notes.')
+
+    def test_only_the_first_line_counts(self):
+        """A "Title:" further down is part of the notes, not a title."""
+        answer = 'Notes first.\n\nTitle: not this'
+        assert split_title(answer) == (None, answer)
+
+
+class TestTitlePlaceholder:
+    def test_starts_the_way_release_title_recognises(self):
+        # The changelog package's `release-title` matches this opening.
+        assert title_placeholder('3.8.3', 'no key').startswith(
+            '_No title was drafted for 3.8.3: no key.'
+        )
+
+    def test_is_one_line(self):
+        assert '\n' not in title_placeholder('3.8.3', 'no key')
+
 
 class TestPlaceholder:
     def test_starts_the_way_the_release_body_recognises(self):
@@ -163,9 +203,14 @@ class TestConsoleScript:
         changelog.write_text(CHANGELOG)
         exemplars = tmp_path / 'exemplars.md'
         exemplars.write_text('## 3.8.1\n\nA good release.\n')
-        return {'changelog': changelog, 'exemplars': exemplars, 'output': tmp_path / 'notes.md'}
+        return {
+            'changelog': changelog,
+            'exemplars': exemplars,
+            'output': tmp_path / 'notes.md',
+            'title': tmp_path / 'title.md',
+        }
 
-    def run(self, files: dict[str, pathlib.Path]) -> int:
+    def run(self, files: dict[str, pathlib.Path], *extra: str) -> int:
         return _cli.main([
             '--repo',
             'canonical/operator',
@@ -183,6 +228,7 @@ class TestConsoleScript:
             'https://example.com/compare',
             '--output',
             str(files['output']),
+            *extra,
         ])
 
     def test_no_key_writes_the_placeholder_and_succeeds(self, files, capsys):
@@ -255,3 +301,39 @@ class TestConsoleScript:
         with mock.patch.object(urllib.request, 'urlopen', model_says('   ')):
             assert self.run(files) == 0
         assert 'the model answered with nothing' in files['output'].read_text()
+
+    def test_no_key_writes_the_title_placeholder_when_asked(self, files):
+        assert self.run(files, '--title-output', str(files['title'])) == 0
+        assert files['title'].read_text() == (
+            title_placeholder('3.8.3', 'no OPENROUTER_API_KEY is configured') + '\n'
+        )
+
+    def test_no_title_file_unless_asked(self, files):
+        assert self.run(files) == 0
+        assert not files['title'].exists()
+
+    def test_writes_the_suggested_title_and_the_notes_without_it(self, files, monkeypatch):
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-test')
+        monkeypatch.setenv('OPENROUTER_MODEL', 'some/model')
+        answer = 'Title: fix the kettle\n\nA routine release.'
+        with mock.patch.object(urllib.request, 'urlopen', model_says(answer)):
+            assert self.run(files, '--title-output', str(files['title'])) == 0
+        assert files['title'].read_text() == 'fix the kettle\n'
+        assert files['output'].read_text() == 'A routine release.\n'
+
+    def test_the_title_line_never_reaches_the_notes(self, files, monkeypatch):
+        """Even when nobody asked for the title, the notes don't start with one."""
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-test')
+        monkeypatch.setenv('OPENROUTER_MODEL', 'some/model')
+        answer = 'Title: fix the kettle\n\nA routine release.'
+        with mock.patch.object(urllib.request, 'urlopen', model_says(answer)):
+            assert self.run(files) == 0
+        assert files['output'].read_text() == 'A routine release.\n'
+
+    def test_no_suggested_title_writes_the_title_placeholder(self, files, monkeypatch):
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-test')
+        monkeypatch.setenv('OPENROUTER_MODEL', 'some/model')
+        with mock.patch.object(urllib.request, 'urlopen', model_says('A routine release.')):
+            assert self.run(files, '--title-output', str(files['title'])) == 0
+        assert 'the model did not suggest one' in files['title'].read_text()
+        assert files['output'].read_text() == 'A routine release.\n'

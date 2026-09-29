@@ -19,11 +19,11 @@
 read here and nowhere else, and so is anything else that is not text in, text
 out: a file, a network call, git itself.
 
-Three subcommands do not read a git log at all, because they are the version
-and release-body decisions a release pipeline makes after the changelog is
-written: `detect-release`, `post-release` and `release-body`. The two that
-answer with more than one value print `key=value` lines, which a workflow
-step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed bare;
+Four subcommands do not read a git log at all, because they are the version
+and release decisions a release pipeline makes after the changelog is
+written: `detect-release`, `post-release`, `release-body` and `release-title`.
+The two that answer with more than one value print `key=value` lines, which a
+workflow step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed bare;
 `prerelease` is `true` or `false`, which is valid JSON, so `fromJSON` turns it
 into a real boolean for an `if:`.
 """
@@ -44,8 +44,11 @@ from ._release import detect_release, is_prerelease, next_dev_version, resolve_b
 from ._release_body import (
     changelog_section,
     is_placeholder,
+    is_title_placeholder,
     release_body,
     release_notes_from_description,
+    release_summary_from_description,
+    release_title,
 )
 from ._version import infer_bump_size, next_version
 
@@ -310,6 +313,29 @@ def _build_parser() -> argparse.ArgumentParser:
             'command fails. Defaults to CHANGES.md.'
         ),
     )
+    release_body_parser.add_argument(
+        '--compare-url',
+        default=None,
+        metavar='URL',
+        help=(
+            'A link comparing the previous release with this one, to end the '
+            'body on as a "Full Changelog" line. Optional.'
+        ),
+    )
+
+    release_title_parser = subparsers.add_parser(
+        'release-title',
+        help="Print a release's title: the version, then the summary from a description.",
+        description=(
+            'Read a merged release pull request description on stdin, take the '
+            'summary from between its release-title markers, and print '
+            '"X.Y.Z: <summary>". With no summary, or the placeholder one, print '
+            'the bare version and say why on stderr.'
+        ),
+    )
+    release_title_parser.add_argument(
+        '--version', required=True, metavar='X.Y.Z', help='The version being released.'
+    )
 
     return parser
 
@@ -360,7 +386,31 @@ def _release_body(args: argparse.Namespace) -> int:
             'placeholder in it, so the body carries that instead of notes.',
             file=sys.stderr,
         )
-    _emit(release_body(notes, section))
+    _emit(release_body(notes, section, args.compare_url))
+    return 0
+
+
+def _release_title(args: argparse.Namespace) -> int:
+    # Never a failure: a release can go out titled with its bare version, and
+    # the title can be edited on the draft, so nothing here stops a release.
+    try:
+        summary = release_summary_from_description(sys.stdin.read())
+    except ValueError as exc:
+        print(f'{exc}, so the title is the bare version.', file=sys.stderr)
+        summary = None
+    else:
+        if summary is None:
+            print(
+                'There are no release-title markers, so the title is the bare version.',
+                file=sys.stderr,
+            )
+        elif is_title_placeholder(summary):
+            print(
+                f'The {args.version} pull request was merged with the release-title '
+                'placeholder in it, so the title is the bare version.',
+                file=sys.stderr,
+            )
+    _emit(release_title(args.version, summary))
     return 0
 
 
@@ -377,6 +427,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _post_release(args)
     if args.command == 'release-body':
         return _release_body(args)
+    if args.command == 'release-title':
+        return _release_title(args)
 
     categories = parse_git_log(
         sys.stdin.read(),

@@ -80,18 +80,21 @@ The repository decides what to count from, and what any of it means for the othe
 
 ## Around a release
 
-Three more subcommands make the decisions a release pipeline needs once the changelog is written. None of them reads a git log, and they take and print version strings: reading the version out of a file, and writing a new one back, stays in the repository.
+Four more subcommands make the decisions a release pipeline needs once the changelog is written. None of them reads a git log, and they take and print version strings: reading the version out of a file, and writing a new one back, stays in the repository.
 
 ```shell
 changelog detect-release --before "$BEFORE" --after "$AFTER"
 changelog post-release --tag "$TAG" --target "$TARGET_COMMITISH" \
     --candidates main,2.23-maintenance --containing main
-changelog release-body --version "$VERSION" --changes CHANGES.md < pr-description.md > release-body.md
+changelog release-body --version "$VERSION" --changes CHANGES.md \
+    --compare-url "$SERVER/$REPO/compare/$PREVIOUS...$VERSION" < pr-description.md > release-body.md
+changelog release-title --version "$VERSION" < pr-description.md
 ```
 
 * **`detect-release`** decides, from the before and after versions alone, whether a push to a release branch is a release: the version changed, and the new one has no `.devN` suffix. It prints `version=` and `prerelease=` lines when it is, and nothing when it is not, so a later step can test for the output. A post-release bump writes a `.devN` version, so it is never mistaken for a release.
 * **`post-release`** works out which branch a published release was cut from, and the development version that branch goes to now: a pre-release drops its suffix (3.4.0b3 leaves `3.4.0.dev0`), a `-maintenance` branch bumps the patch (2.23.5 leaves `2.23.6.dev0`), and anything else bumps the minor (3.8.2 leaves `3.9.0.dev0`). The branch comes from which release branches contain the tag, with the default branch (`--default-branch`, `main` unless you say otherwise) winning a tie. It prints `branch=` and `version=` lines. The version is a placeholder that stops the tree claiming to be the release just published; nothing counts from it.
-* **`release-body`** takes the release notes from between the `<!-- release-notes:start -->` and `<!-- release-notes:end -->` markers in a merged release pull request's description, and prints them followed by this version's section of the changelog, with its headings moved down a level. The changelog half is copied from the file rather than generated again, so the two cannot drift. Notes that are still `draft-release-notes`' placeholder go in as they stand, with a line on stderr saying so.
+* **`release-body`** takes the release notes from between the `<!-- release-notes:start -->` and `<!-- release-notes:end -->` markers in a merged release pull request's description, and prints them followed by this version's section of the changelog, with its headings moved down a level. The changelog half is copied from the file rather than generated again, so the two cannot drift. Notes that are still `draft-release-notes`' placeholder go in as they stand, with a line on stderr saying so. With `--compare-url`, the body ends on a `**Full Changelog**: <url>` line, as a release GitHub generates does.
+* **`release-title`** prints the release's title, `X.Y.Z: <summary>`, taking the summary from between the `<!-- release-title:start -->` and `<!-- release-title:end -->` markers in the same description. The version is always added here (and taken off the front of the summary if someone typed it there too), so the title can't name a different version from the release. No markers, broken markers, or `draft-release-notes`' title placeholder give the bare version, with a line on stderr saying why; it never fails, because a release can go out titled with just its version and the title can still be edited on the draft.
 
 The two that print `key=value` lines are for appending to `$GITHUB_OUTPUT`. On failure they print nothing on stdout and exit non-zero, so a failed step cannot half-write it.
 

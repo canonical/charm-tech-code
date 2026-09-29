@@ -19,7 +19,8 @@
 reached - no `OPENROUTER_API_KEY`, no `OPENROUTER_MODEL`, or a call that fails
 - this writes a short placeholder telling the reviewer to write the notes
 themselves, and exits successfully. The release must not be blocked by the
-drafting of prose that a human is going to rewrite anyway.
+drafting of prose that a human is going to rewrite anyway. The title's
+summary, when asked for with `--title-output`, works the same way.
 """
 
 from __future__ import annotations
@@ -30,7 +31,14 @@ import pathlib
 import sys
 from collections.abc import Sequence
 
-from ._draft import placeholder, system_prompt, tidy, user_prompt
+from ._draft import (
+    placeholder,
+    split_title,
+    system_prompt,
+    tidy,
+    title_placeholder,
+    user_prompt,
+)
 from ._openrouter import call_openrouter
 
 
@@ -66,7 +74,24 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar='PATH',
         help='Where to write the notes. Written whether or not a model was reached.',
     )
+    parser.add_argument(
+        '--title-output',
+        default=None,
+        metavar='PATH',
+        help=(
+            "Where to write a one-line summary for the release's title, the part "
+            'after "X.Y.Z: ". Optional; written whether or not a model was reached.'
+        ),
+    )
     return parser
+
+
+def _write(args: argparse.Namespace, notes: str, summary: str | None, why_no_summary: str) -> None:
+    """Write the notes, and the summary or its placeholder if one was asked for."""
+    pathlib.Path(args.output).write_text(notes)
+    if args.title_output:
+        text = summary or title_placeholder(args.version, why_no_summary)
+        pathlib.Path(args.title_output).write_text(text + '\n')
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -75,7 +100,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     api_key = os.environ.get('OPENROUTER_API_KEY', '')
     model = os.environ.get('OPENROUTER_MODEL', '')
-    output = pathlib.Path(args.output)
 
     # Neither of these is an error. The key and the model are repository
     # settings, so a release cut before those settings exist gets a
@@ -89,7 +113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if reason:
         print(f'{reason}: writing the placeholder body.', file=sys.stderr)
-        output.write_text(placeholder(args.version, reason))
+        _write(args, placeholder(args.version, reason), None, reason)
         return 0
 
     exemplars = pathlib.Path(args.exemplars).read_text() if args.exemplars else ''
@@ -104,19 +128,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         compare_url=args.compare_url,
     )
     try:
-        notes = tidy(call_openrouter(system, user, model, api_key))
+        answer = tidy(call_openrouter(system, user, model, api_key))
     except RuntimeError as exc:
         print(f'the draft failed ({exc}): writing the placeholder body.', file=sys.stderr)
-        output.write_text(placeholder(args.version, f'the draft failed ({exc})'))
+        reason = f'the draft failed ({exc})'
+        _write(args, placeholder(args.version, reason), None, reason)
         return 0
 
+    summary, notes = split_title(answer)
     if not notes:
         print('the model answered with nothing: writing the placeholder body.', file=sys.stderr)
-        output.write_text(placeholder(args.version, 'the model answered with nothing'))
+        reason = 'the model answered with nothing'
+        _write(args, placeholder(args.version, reason), summary, reason)
         return 0
 
-    output.write_text(notes + '\n')
-    print(f'{output}: {len(notes)} characters, drafted by {model}.', file=sys.stderr)
+    _write(args, notes + '\n', summary, 'the model did not suggest one')
+    print(
+        f'{args.output}: {len(notes)} characters, drafted by {model};'
+        f' title {"summary " + repr(summary) if summary else "not suggested"}.',
+        file=sys.stderr,
+    )
     return 0
 
 

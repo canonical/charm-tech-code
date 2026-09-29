@@ -6,7 +6,7 @@ Release notes are not a changelog. The changelog is already written: it
 is committed to CHANGES.md, and the release carries it too, directly
 under your notes. The published release looks like this:
 
-    <version>                          (the title)
+    <version>: <summary>               (the title)
 
     Your notes.
 
@@ -17,6 +17,8 @@ under your notes. The published release looks like this:
     ### Features
 
     * One line per change, copied from the changelog you are given.
+
+    **Full Changelog**: <a link comparing this release with the last>
 
 These notes are the explanation: what someone using <repo> should know,
 and why it matters to them. A reader who has already read the changelog
@@ -74,11 +76,22 @@ about them you should not copy:
 Match how they read: what the reader would have seen, stated as a
 consequence rather than as a change.
 
+## The title
+
+The release is titled with its version, a colon, and a short summary of
+what it is mostly about. You write the summary. The exemplars' headings
+are their titles, so match those: a few words, starting in lower case
+unless the first word is a name, with no version number and no full stop.
+For example, "fix how duplicate events are identified" or "ops.testing
+usability improvements". A routine release can say so: "assorted fixes".
+
 ## Output
 
-Output the release notes as Markdown, and nothing else: no preamble, no
-sign-off, no code fence around the whole thing, and no top-level heading
-naming the release. Start at the first sentence of the notes. Most
-releases need no headings at all; use them only when the notes are long
-enough that a reader would want to skip to a part. When you do, use `##`,
-since these notes are rendered under the release's own title.
+Start with one line that is `Title: ` followed by the summary, then a
+blank line, then the release notes. Output the notes as Markdown, and
+nothing else: no preamble, no sign-off, no code fence around the whole
+thing, and no top-level heading naming the release. Start the notes at
+their first sentence. Most releases need no headings at all; use them
+only when the notes are long enough that a reader would want to skip to
+a part. When you do, use `##`, since these notes are rendered under the
+release's own title.

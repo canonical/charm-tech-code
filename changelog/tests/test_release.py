@@ -40,8 +40,11 @@ from charm_tech_code.changelog._release import (
 from charm_tech_code.changelog._release_body import (
     changelog_section,
     is_placeholder,
+    is_title_placeholder,
     release_body,
     release_notes_from_description,
+    release_summary_from_description,
+    release_title,
 )
 
 # The shape a release pull request's description has, down to the blank lines
@@ -432,9 +435,84 @@ class TestReleaseBody:
         assert body.startswith('_No release notes were drafted for 3.8.3')
         assert '### Fixes' in body
 
+    def test_ends_on_the_compare_link_when_given_one(self):
+        """The line GitHub's own generated bodies end on."""
+        url = 'https://github.com/canonical/operator/compare/3.8.2...3.8.3'
+        body = release_body('The notes.', changelog_section(CHANGES, '3.8.3'), url)
+        assert body.endswith(f'\n\n**Full Changelog**: {url}\n')
+        assert body.index('**Full Changelog**') > body.index('### Documentation')
+
+    def test_has_no_compare_link_without_one(self):
+        body = release_body('The notes.', changelog_section(CHANGES, '3.8.3'))
+        assert 'Full Changelog' not in body
+
+
+TITLE_DESCRIPTION = DESCRIPTION.replace(
+    '<!-- release-notes:start -->',
+    '<!-- release-title:start -->\n\nfix how the kettle reports itself\n\n'
+    '<!-- release-title:end -->\n\n<!-- release-notes:start -->',
+)
+
+
+class TestReleaseTitle:
+    """The version, then the summary a human left between the title markers."""
+
+    def test_takes_the_summary_between_the_markers(self):
+        summary = release_summary_from_description(TITLE_DESCRIPTION)
+        assert summary == 'fix how the kettle reports itself'
+        assert release_title('3.8.3', summary) == '3.8.3: fix how the kettle reports itself'
+
+    def test_the_notes_are_unaffected_by_the_title_markers(self):
+        notes = release_notes_from_description(TITLE_DESCRIPTION)
+        assert notes.startswith('A routine maintenance release')
+        assert 'release-title' not in notes
+
+    def test_no_markers_is_no_summary(self):
+        """A description from before titles existed is not an error."""
+        assert release_summary_from_description(DESCRIPTION) is None
+        assert release_title('3.8.3', None) == '3.8.3'
+
+    def test_the_placeholder_is_no_summary(self):
+        summary = '_No title was drafted for 3.8.3: no OPENROUTER_API_KEY is configured._'
+        assert is_title_placeholder(summary)
+        assert release_title('3.8.3', summary) == '3.8.3'
+
+    def test_a_typed_version_is_not_doubled(self):
+        """Somebody typed the whole title in: the version is still only once."""
+        assert release_title('3.8.3', '3.8.3: fix the kettle') == '3.8.3: fix the kettle'
+        assert release_title('3.8.3', '3.8.3 - fix the kettle') == '3.8.3: fix the kettle'
+
+    def test_a_mistyped_version_does_not_replace_the_real_one(self):
+        """How 2.23.5 came to be titled "2.3.5: ...": the version here is the release's."""
+        assert release_title('2.23.5', '2.3.5: fix duplicates') == '2.23.5: 2.3.5: fix duplicates'
+
+    def test_is_one_line_with_no_closing_full_stop(self):
+        assert release_title('3.8.3', '  fix the\n  kettle.\n') == '3.8.3: fix the kettle'
+
+    def test_an_empty_summary_is_the_bare_version(self):
+        assert release_title('3.8.3', '') == '3.8.3'
+        assert release_title('3.8.3', '3.8.3:') == '3.8.3'
+
+    def test_one_marker_without_the_other_is_an_error(self):
+        """Half a pair is an edit gone wrong, not an absence."""
+        with pytest.raises(ValueError, match='0 `<!-- release-title:end -->` markers'):
+            release_summary_from_description(
+                TITLE_DESCRIPTION.replace('<!-- release-title:end -->', '')
+            )
+
+    def test_markers_out_of_order_are_an_error(self):
+        swapped = (
+            TITLE_DESCRIPTION
+            .replace('<!-- release-title:start -->', '@@')
+            .replace('<!-- release-title:end -->', '<!-- release-title:start -->')
+            .replace('@@', '<!-- release-title:end -->')
+        )
+        with pytest.raises(ValueError, match='ends the release title before it starts it'):
+            release_summary_from_description(swapped)
+
 
 class TestReleaseConsoleScript:
-    """The three release subcommands, as a workflow step runs them."""
+    """The four release subcommands, as a workflow step runs them."""
 
     def run_cli(self, *argv: str, stdin: str = '') -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -572,3 +650,52 @@ class TestReleaseConsoleScript:
             stdin=DESCRIPTION,
         )
         assert (returncode, out) == (2, '')
+
+    def test_release_body_ends_on_the_compare_link(self, tmp_path: pathlib.Path):
+        changes = tmp_path / 'CHANGES.md'
+        changes.write_text(CHANGES)
+        url = 'https://github.com/canonical/operator/compare/3.8.2...3.8.3'
+        returncode, out, _ = self.run_cli(
+            'release-body',
+            '--version',
+            '3.8.3',
+            '--changes',
+            str(changes),
+            '--compare-url',
+            url,
+            stdin=DESCRIPTION,
+        )
+        assert returncode == 0
+        assert out.endswith(f'**Full Changelog**: {url}\n')
+
+    def test_release_title_prints_the_title(self):
+        returncode, out, err = self.run_cli(
+            'release-title', '--version', '3.8.3', stdin=TITLE_DESCRIPTION
+        )
+        assert (returncode, out, err) == (0, '3.8.3: fix how the kettle reports itself\n', '')
+
+    def test_release_title_without_markers_is_the_version(self):
+        returncode, out, err = self.run_cli(
+            'release-title', '--version', '3.8.3', stdin=DESCRIPTION
+        )
+        assert (returncode, out) == (0, '3.8.3\n')
+        assert 'no release-title markers' in err
+
+    def test_release_title_with_the_placeholder_is_the_version(self):
+        description = TITLE_DESCRIPTION.replace(
+            'fix how the kettle reports itself',
+            '_No title was drafted for 3.8.3: no OPENROUTER_API_KEY is configured._',
+        )
+        returncode, out, err = self.run_cli(
+            'release-title', '--version', '3.8.3', stdin=description
+        )
+        assert (returncode, out) == (0, '3.8.3\n')
+        assert 'placeholder' in err
+
+    def test_release_title_with_broken_markers_is_the_version_not_a_failure(self):
+        description = TITLE_DESCRIPTION.replace('<!-- release-title:end -->', '')
+        returncode, out, err = self.run_cli(
+            'release-title', '--version', '3.8.3', stdin=description
+        )
+        assert (returncode, out) == (0, '3.8.3\n')
+        assert 'bare version' in err

@@ -228,6 +228,19 @@ RELEASE_NOTES_END_REGEX = re.compile(r'^[ \t]*<!--\s*release-notes:end\s*-->[ \t
 #: apart costs nothing worse than a missing line in a log.
 RELEASE_NOTES_PLACEHOLDER_REGEX = re.compile(r'^_No release notes were drafted for \S+:')
 
+#: The markers the same description wraps the release title's summary in:
+#: the part after `X.Y.Z: `, which is added when the title is built so that
+#: nobody types the version by hand.
+RELEASE_TITLE_START_REGEX = re.compile(
+    r'^[ \t]*<!--\s*release-title:start\s*-->[ \t]*$', re.MULTILINE
+)
+RELEASE_TITLE_END_REGEX = re.compile(r'^[ \t]*<!--\s*release-title:end\s*-->[ \t]*$', re.MULTILINE)
+
+#: How `draft-release-notes` starts the summary it writes when no model
+#: suggested one. A summary left like that is no summary, so the release is
+#: titled with the bare version instead.
+RELEASE_TITLE_PLACEHOLDER_REGEX = re.compile(r'^_No title was drafted for \S+:')
+
 #: A `CHANGES.md` section heading, as `format_changes` writes it:
 #: `# 3.8.3 - 22 September 2026`.
 CHANGES_SECTION_HEADING_REGEX = re.compile(r'^# (?P<version>\S+) - (?P<date>.*)$')
