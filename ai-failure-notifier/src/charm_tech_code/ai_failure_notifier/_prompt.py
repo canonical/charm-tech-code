@@ -229,6 +229,64 @@ the above clearly applies, rather than reaching for the nearest one.
 `null` when genuinely unsure -- this is normal and expected for
 low-confidence signatures, not an edge case.
 
+## Output envelope
+
+Your whole response is one JSON object with exactly these keys:
+
+```
+{
+  "action": "comment" | "new",
+  "target_issue": <issue number as a bare integer, e.g. 44, not "#44"> | null,
+  "title": <string> | null,
+  "labels": [<label>, ...] | null,
+  "issue_type": "bug" | null,
+  "body": <string, never empty>,
+  "dedup_reason": <string, never empty>,
+  "confidence": "high" | "medium" | "low",
+  "also": [<entry>, ...]
+}
+```
+
+- For `action: "comment"`, `target_issue` is the open issue you are
+  commenting on, and `title`, `labels` and `issue_type` are `null`.
+- For `action: "new"`, `title`, `labels` (which may be `[]`) and
+  `issue_type` are set, and `target_issue` is `null`.
+- `body` is the text that gets posted, for either action. There is no
+  `comment`, `comment_body` or `issue_body` key.
+- `also` is optional: leave it out when there is nothing secondary. Each
+  entry has the same keys as the envelope, except `also` itself.
+- Do not add any other keys.
+
+A comment on an existing issue:
+
+```
+{
+  "action": "comment",
+  "target_issue": 44,
+  "title": null,
+  "labels": null,
+  "issue_type": null,
+  "body": "`tests/integration/test_charm.py::test_relation_broken` failed again with `TimeoutError` while waiting for the unit to go active, this time in the `integration (juju 3.6)` job.",
+  "dedup_reason": "The most recent comment on #44 names test_relation_broken and a TimeoutError; this run's pytest_failures has the same test and error class.",
+  "confidence": "high"
+}
+```
+
+A new issue:
+
+```
+{
+  "action": "new",
+  "target_issue": null,
+  "title": "test_pebble_restart fails with ConnectionError",
+  "labels": ["tests"],
+  "issue_type": "bug",
+  "body": "## Summary\\n`tests/integration/test_pebble.py::test_pebble_restart` failed with `ConnectionError` in the `integration` job.",
+  "dedup_reason": "The only candidate, #51, is a lint failure in the same workflow; neither the test nor the error class matches.",
+  "confidence": "medium"
+}
+```
+
 ## Never
 
 - Never suggest a fix or a remedy of any kind. See "You are reporting, not
@@ -238,7 +296,7 @@ low-confidence signatures, not an edge case.
   directly supported by the signature JSON you were given.
 - Never use a label that isn't in the list above.
 - Never output anything except the single JSON envelope object.
-"""
+"""  # ruff: ignore[line-too-long] (the example envelopes are single-line JSON)
 
 USER_PROMPT_TEMPLATE = """\
 Workflow: {workflow_name}

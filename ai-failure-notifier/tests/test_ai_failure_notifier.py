@@ -1232,65 +1232,6 @@ class NormalisationTests(unittest.TestCase):
         self.assertEqual(dropped, ['envelope.also[0]: title'])
         self.assertEqual(_envelope.validate_envelope(cleaned), [])
 
-    def test_a_hash_prefixed_target_issue_is_coerced(self):
-        """The model writes issues the way people do, and the schema wants an int."""
-        envelope: dict[str, Any] = {
-            'action': 'comment',
-            'target_issue': '#44',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
-        }
-        cleaned, dropped = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['target_issue'], 44)
-        self.assertEqual(dropped, [])
-        self.assertEqual(_envelope.validate_envelope(cleaned), [])
-
-    def test_a_bare_digit_string_target_issue_is_coerced(self):
-        envelope: dict[str, Any] = {
-            'action': 'comment',
-            'target_issue': ' 44 ',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
-        }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['target_issue'], 44)
-
-    def test_a_target_issue_that_is_not_a_reference_is_left_for_the_schema(self):
-        envelope: dict[str, Any] = {
-            'action': 'comment',
-            'target_issue': 'the loki one',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
-        }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['target_issue'], 'the loki one')
-        self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
-
-    def test_also_entries_get_the_same_coercion(self):
-        inner: dict[str, Any] = {
-            'action': 'comment',
-            'target_issue': '#1',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
-        }
-        envelope: dict[str, Any] = {
-            'action': 'new',
-            'title': 't',
-            'body': 'b',
-            'labels': [],
-            'issue_type': None,
-            'dedup_reason': 'd',
-            'confidence': 'low',
-            'also': [inner],
-        }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['also'][0]['target_issue'], 1)
-        self.assertEqual(_envelope.validate_envelope(cleaned), [])
-
     def test_an_unknown_property_is_stripped_rather_than_discarding_the_envelope(self):
         """An extra property must not cost a usable body and dedup decision.
 
@@ -1356,94 +1297,13 @@ class NormalisationTests(unittest.TestCase):
         self.assertIn('envelope: issue (not in the schema)', notes)
         self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
 
-    def test_a_body_written_under_comment_is_read_from_there(self):
-        """Right text, wrong key.
-
-        `strict` is not enforced by the provider, so the model can and does
-        return a key the schema does not declare. Stripping `comment` as
-        unknown without first reading it would throw away the one thing the
-        envelope exists to carry.
-        """
-        envelope = {
-            'action': 'comment',
-            'target_issue': 2633,
-            'comment': 'Same `test_deploy_cos` timeout, plus a KeyError in test_loki_data.',
-            'dedup_reason': 'matching test and step',
-            'confidence': 'medium',
-        }
-        cleaned, notes = _envelope.normalise_envelope(envelope)
-        self.assertEqual(
-            cleaned['body'], 'Same `test_deploy_cos` timeout, plus a KeyError in test_loki_data.'
-        )
-        self.assertNotIn('comment', cleaned)
-        self.assertIn('envelope: read the body from "comment"', notes)
-        self.assertEqual(_envelope.validate_envelope(cleaned), [])
-
-    def test_a_real_body_is_never_overwritten_by_an_alias(self):
+    def test_a_comment_with_no_body_is_rejected(self):
         envelope = {
             'action': 'comment',
             'target_issue': 7,
-            'body': 'the real body',
-            'comment': 'something else',
             'dedup_reason': 'r',
             'confidence': 'high',
         }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['body'], 'the real body')
-
-    def test_a_comment_with_no_body_falls_back_to_the_dedup_reason(self):
-        """A correct target and a real reason, and no body.
-
-        The alternative is discarding the target and the reason together and
-        posting the generic placeholder on a different issue.
-        """
-        envelope = {
-            'action': 'comment',
-            'target_issue': 2641,
-            'dedup_reason': "All four jobs fail during bootstrap with the same 'unknown error'.",
-            'confidence': 'high',
-        }
-        cleaned, notes = _envelope.normalise_envelope(envelope)
-        self.assertEqual(
-            cleaned['body'], "All four jobs fail during bootstrap with the same 'unknown error'."
-        )
-        self.assertIn('envelope: no body supplied; commented with dedup_reason instead', notes)
-        self.assertEqual(_envelope.validate_envelope(cleaned), [])
-
-    def test_a_null_body_on_a_comment_is_repaired_too(self):
-        """A `"body": null` is treated the same as a missing body."""
-        envelope = {
-            'action': 'comment',
-            'target_issue': 2633,
-            'body': None,
-            'dedup_reason': 'Same test_deploy_cos timeout as in #2633',
-            'confidence': 'high',
-        }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['body'], 'Same test_deploy_cos timeout as in #2633')
-        self.assertEqual(_envelope.validate_envelope(cleaned), [])
-
-    def test_a_new_issue_with_no_body_is_still_rejected(self):
-        """The dedup_reason fallback is for comments only.
-
-        A new issue is a bigger artefact than one sentence of reasoning, and
-        there is still a notifier placeholder to fall back to, so this one is
-        left to fail rather than padded out.
-        """
-        envelope = {
-            'action': 'new',
-            'title': 't',
-            'labels': [],
-            'issue_type': None,
-            'dedup_reason': 'nothing matched',
-            'confidence': 'low',
-        }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertNotIn('body', cleaned)
-        self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
-
-    def test_a_comment_with_neither_body_nor_reason_is_still_rejected(self):
-        envelope = {'action': 'comment', 'target_issue': 7, 'confidence': 'high'}
         cleaned, _ = _envelope.normalise_envelope(envelope)
         self.assertNotIn('body', cleaned)
         self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
@@ -1768,6 +1628,7 @@ class OpenRouterCallTests(unittest.TestCase):
             sent['response_format']['json_schema']['schema'], _envelope.ENVELOPE_JSON_SCHEMA
         )
         self.assertTrue(sent['response_format']['json_schema']['strict'])
+        self.assertEqual(sent['provider'], {'require_parameters': True})
 
     def _http_error(self, status: int, body: bytes) -> urllib.error.HTTPError:
         # HTTPError holds a file object and warns on implicit cleanup, which
