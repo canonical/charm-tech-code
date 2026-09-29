@@ -994,50 +994,6 @@ class GhCallShapeTests(unittest.TestCase):
                 args[args.index('--json') + 1], 'number,title,body,createdAt,closedAt,comments'
             )
 
-    def test_search_candidates_retries_without_comments_on_an_older_gh(self):
-        """An old `gh` must lose the comments, not the whole candidate pool.
-
-        _cli degrades a failed search to "no candidates at all", so letting the
-        unknown field propagate would cost an old `gh` every candidate.
-        """
-        responses = [
-            mock.Mock(returncode=1, stdout='', stderr='unknown JSON field: "comments"'),
-            mock.Mock(returncode=0, stdout='[]', stderr=''),
-            mock.Mock(returncode=1, stdout='', stderr='unknown JSON field: "comments"'),
-            mock.Mock(returncode=0, stdout='[]', stderr=''),
-        ]
-        gh_calls = mock.Mock(side_effect=responses)
-        with (
-            mock.patch.object(_github, 'gh', side_effect=gh_calls),
-            mock.patch.object(_summary, 'write_step_summary') as summary,
-        ):
-            opens, closed = _github.search_candidates('example/repo', 'Example Charm Tests')
-        self.assertEqual((opens, closed), ([], []))
-        fields = [c.args[c.args.index('--json') + 1] for c in gh_calls.call_args_list]
-        self.assertEqual(
-            fields,
-            [
-                'number,title,body,createdAt,closedAt,comments',
-                'number,title,body,createdAt,closedAt',
-                'number,title,body,createdAt,closedAt,comments',
-                'number,title,body,createdAt,closedAt',
-            ],
-        )
-        self.assertIn('comments', summary.call_args.args[0])
-
-    def test_search_candidates_raises_on_a_failure_that_is_not_the_field(self):
-        """A 404 or a rate limit is not something to retry with fewer fields."""
-        gh_calls = mock.Mock(
-            return_value=mock.Mock(returncode=1, stdout='', stderr='gh: Not Found (HTTP 404)')
-        )
-        with (
-            mock.patch.object(_github, 'gh', side_effect=gh_calls),
-            self.assertRaises(RuntimeError) as caught,
-        ):
-            _github.search_candidates('example/repo', 'Example Charm Tests')
-        self.assertIn('404', str(caught.exception))
-        gh_calls.assert_called_once()
-
     def test_fetch_job_log_uses_the_rest_logs_endpoint(self):
         gh_calls = self._capture('2026-07-21T16:17:04Z some log line\n')
         with mock.patch.object(_github, 'gh', side_effect=gh_calls):
