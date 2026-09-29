@@ -204,6 +204,34 @@ MINOR_BUMP_CATEGORIES: tuple[str, ...] = (BREAKING, FEATURE)
 #: the caller's own policy: see `next_version`.
 RELEASE_VERSION_REGEX = re.compile(r'(\d+)\.(\d+)\.(\d+)')
 
+#: Every version shape a release pipeline handles, taken apart: `X.Y.Z`,
+#: optionally with an `aN`, `bN` or `rcN` pre-release, and optionally with a
+#: `.devN` development suffix. The groups are major, minor, patch, pre-release
+#: and dev. Anything else -- a `v` prefix, a post-release, a local version --
+#: is refused by the functions that use this rather than guessed at.
+PIPELINE_VERSION_REGEX = re.compile(r'^(\d+)\.(\d+)\.(\d+)((?:a|b|rc)\d+)?(\.dev\d+)?$')
+
+#: What makes a branch a maintenance branch, such as `2.23-maintenance`. A
+#: release from one bumps the patch afterwards rather than the minor.
+MAINTENANCE_BRANCH_SUFFIX = '-maintenance'
+
+#: The markers a release pull request's description wraps its release notes
+#: in. Each is on a line of its own and appears once; anything outside them is
+#: for the reviewers of that pull request and goes no further.
+RELEASE_NOTES_START_REGEX = re.compile(
+    r'^[ \t]*<!--\s*release-notes:start\s*-->[ \t]*$', re.MULTILINE
+)
+RELEASE_NOTES_END_REGEX = re.compile(r'^[ \t]*<!--\s*release-notes:end\s*-->[ \t]*$', re.MULTILINE)
+
+#: How `draft-release-notes` starts the body it writes when no model drafted
+#: any notes. Only a message hangs off recognising it, so the two drifting
+#: apart costs nothing worse than a missing line in a log.
+RELEASE_NOTES_PLACEHOLDER_REGEX = re.compile(r'^_No release notes were drafted for \S+:')
+
+#: A `CHANGES.md` section heading, as `format_changes` writes it:
+#: `# 3.8.3 - 22 September 2026`.
+CHANGES_SECTION_HEADING_REGEX = re.compile(r'^# (?P<version>\S+) - (?P<date>.*)$')
+
 #: Commit type to the heading it is rendered under. A type with no entry
 #: here is capitalised instead, which is what makes an unrecognised type
 #: degrade to something readable rather than to a KeyError.
