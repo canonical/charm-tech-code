@@ -81,26 +81,51 @@ def _resolve_origin(config: _RunConfig) -> tuple[int | None, str | None, int]:
         return None, config.notify_origin, config.notify_issue
 
 
-def _comment_on_rerun(config: _RunConfig, enriched_issue: int) -> None:
+def _write_on_origin(
+    config: _RunConfig, origin_kind: str | None, origin_issue: int, body: str
+) -> None:
+    """Put `body` on `origin_issue`, in place of the notifier's comment if it left one.
+
+    When the notifier commented on an issue that already existed, what the
+    enricher has to say about the same failure belongs in that comment, not in
+    a second one under it. Finding the comment is best effort: if it can't be
+    found or edited, this adds a comment instead, so nothing is lost.
+    """
+    if origin_kind == 'comment':
+        try:
+            comment_id = _github.find_notifier_comment(config.repo, origin_issue, config.run_id)
+            if comment_id is not None:
+                _github.edit_comment(config.repo, comment_id, body)
+                return
+            reason = 'not found'
+        except Exception as exc:  # API rejection, rate limit, transient 5xx.
+            reason = str(exc)
+        _summary.write_step_summary(
+            f"Couldn't edit the notifier's comment on #{origin_issue} ({reason}); "
+            'adding a new one.'
+        )
+    _github.gh('issue', 'comment', str(origin_issue), '--repo', config.repo, '--body', body)
+
+
+def _comment_on_rerun(
+    config: _RunConfig, enriched_issue: int, origin_kind: str | None, origin_issue: int
+) -> None:
     """Rung zero: a re-run of the same failing jobs re-triggered us.
 
     Comment, don't skip and don't redo the full LLM pass. On a corpus of past
     scheduled failures this rung accounted for half the real duplicate pairs,
-    making it the highest-value one.
+    making it the highest-value one. The notifier has usually just commented on
+    the same issue, and the note replaces that comment rather than following it.
     """
-    _github.gh(
-        'issue',
-        'comment',
-        str(enriched_issue),
-        '--repo',
-        config.repo,
-        '--body',
+    body = (
         f'Re-run attempt still failing: {config.run_url}\n\n'
-        f'<!-- {MARKER_PREFIX}:run={config.run_id} -->',
+        f'<!-- {MARKER_PREFIX}:run={config.run_id} -->'
     )
+    same_issue = origin_issue == enriched_issue
+    _write_on_origin(config, origin_kind if same_issue else None, enriched_issue, body)
     _summary.write_step_summary(
         f'Rung zero: run {config.run_id} already enriched on #{enriched_issue}; '
-        'commented re-run note.'
+        'left a re-run note.'
     )
 
 
@@ -122,35 +147,30 @@ def _build_run_signature(config: _RunConfig) -> RunSignature:
     )
 
 
-def _plain_fallback_entry(config: _RunConfig, origin_kind: str | None, origin_issue: int) -> Any:
-    """Build the envelope-shaped entry `apply_entry` uses when there is no LLM output."""
-    if origin_kind == 'comment':
-        return {
-            'action': 'comment',
-            'body': plain_fallback_body(config.workflow_name),
-            'target_issue': origin_issue,
-        }
-    return {
-        'action': 'new',
-        'body': plain_fallback_body(config.workflow_name),
-        'title': f"Scheduled workflow '{config.workflow_name}' failed",
-        'labels': [],
-        'issue_type': None,
-    }
-
-
 def _apply_plain_fallback(
     config: _RunConfig, origin_kind: str | None, origin_issue: int, trailer: str
 ) -> None:
-    """Apply the plain fallback entry against `origin_issue`."""
-    apply_entry(
-        config.repo,
-        _plain_fallback_entry(config, origin_kind, origin_issue),
-        trailer,
-        config.workflow_name,
-        config.run_url,
-        default_target=origin_issue,
+    """Stamp the plain fallback body on whatever the notifier made for this failure."""
+    body = render_body(
+        plain_fallback_body(config.workflow_name), config.workflow_name, config.run_url, trailer
     )
+    if origin_kind == 'comment':
+        _write_on_origin(config, origin_kind, origin_issue, body)
+    elif origin_kind == 'new':
+        # The notifier has just opened a placeholder for this failure, so this
+        # goes over it, as an enriched body would, rather than beside it in a
+        # second issue.
+        _github.gh('issue', 'edit', str(origin_issue), '--repo', config.repo, '--body', body)
+    else:
+        # We don't know what the notifier did, so there's nothing to upgrade.
+        entry = {
+            'action': 'new',
+            'body': plain_fallback_body(config.workflow_name),
+            'title': f"Scheduled workflow '{config.workflow_name}' failed",
+            'labels': [],
+            'issue_type': None,
+        }
+        apply_entry(config.repo, entry, trailer, config.workflow_name, config.run_url)
 
 
 def _search_candidates(config: _RunConfig, origin_kind: str | None, origin_issue: int) -> str:
@@ -247,25 +267,16 @@ def _apply_envelope(
             edit_args += ['--add-label', label]
         _github.gh(*edit_args)
     elif envelope['action'] == 'comment' and envelope.get('target_issue') == origin_issue:
-        apply_entry(
-            config.repo,
-            envelope,
-            trailer,
-            config.workflow_name,
-            config.run_url,
-            default_target=origin_issue,
-        )
+        body = render_body(envelope['body'], config.workflow_name, config.run_url, trailer)
+        _write_on_origin(config, origin_kind, origin_issue, body)
     elif envelope['action'] == 'comment':
         # LLM picked a different candidate than the notifier's coarse match.
         apply_entry(config.repo, envelope, trailer, config.workflow_name, config.run_url)
         if origin_kind == 'comment':
-            _github.gh(
-                'issue',
-                'comment',
-                str(origin_issue),
-                '--repo',
-                config.repo,
-                '--body',
+            _write_on_origin(
+                config,
+                origin_kind,
+                origin_issue,
                 f'This looks like a distinct issue -- see #{envelope["target_issue"]}.\n\n'
                 f'Run: {config.run_url}\n\n{enriched_marker}',
             )
@@ -273,13 +284,10 @@ def _apply_envelope(
         # action == "new" but origin_kind == "comment": the coarse title
         # match landed on an unrelated older issue; this is genuinely new.
         apply_entry(config.repo, envelope, trailer, config.workflow_name, config.run_url)
-        _github.gh(
-            'issue',
-            'comment',
-            str(origin_issue),
-            '--repo',
-            config.repo,
-            '--body',
+        _write_on_origin(
+            config,
+            origin_kind,
+            origin_issue,
             f'This looks like a distinct issue from this one -- opened separately.\n\n'
             f'Run: {config.run_url}\n\n{enriched_marker}',
         )
@@ -295,7 +303,7 @@ def main() -> int:
     enriched_issue, origin_kind, origin_issue = _resolve_origin(config)
 
     if enriched_issue is not None:
-        _comment_on_rerun(config, enriched_issue)
+        _comment_on_rerun(config, enriched_issue, origin_kind, origin_issue)
         return 0
 
     signature = _build_run_signature(config)

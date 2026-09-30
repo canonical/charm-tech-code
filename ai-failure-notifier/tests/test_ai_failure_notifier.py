@@ -31,6 +31,7 @@ import email.message
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -951,6 +952,175 @@ class MainFlowTests(unittest.TestCase):
         call_openrouter.assert_not_called()
 
 
+def _gh_router(notifier_comment_ids: str = '') -> mock.Mock:
+    """A `gh` mock that answers the comment lookup and the issue create by argv.
+
+    `notifier_comment_ids` is what the comments endpoint query prints: one REST
+    id per line for each comment carrying this run's `origin=comment` marker.
+    """
+
+    def respond(*args: str, **kwargs: Any) -> mock.Mock:
+        if args[:2] == ('api', '--paginate'):
+            stdout = notifier_comment_ids
+        elif args[:2] == ('issue', 'create'):
+            stdout = 'https://github.com/example/repo/issues/9'
+        else:
+            stdout = ''
+        return mock.Mock(returncode=0, stdout=stdout, stderr='')
+
+    return mock.Mock(side_effect=respond)
+
+
+def _calls(gh_calls: mock.Mock, *prefix: str) -> list[Any]:
+    return [c for c in gh_calls.call_args_list if c.args[: len(prefix)] == prefix]
+
+
+def _patch_body(call: Any) -> str:
+    args = call.args
+    field = args[args.index('-f') + 1]
+    assert field.startswith('body=')
+    return field.removeprefix('body=')
+
+
+class OneArtefactPerFailureTests(unittest.TestCase):
+    """The enricher upgrades what the notifier made instead of adding to it.
+
+    When the notifier comments on an issue that already existed, the enricher
+    used to post a second comment under it, so every such failure left two
+    comments; and when the model gave nothing back for a fresh placeholder, the
+    fallback opened a second issue beside it.
+    """
+
+    def setUp(self):
+        self.env = {
+            'REPO': 'example/repo',
+            'RUN_ID': '28141163589',
+            'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
+            'RUN_URL': 'https://github.com/example/repo/actions/runs/28141163589',
+            'OPENROUTER_API_KEY': 'test-key',
+            'NOTIFY_ISSUE': '4242',
+        }
+
+    def _run(
+        self,
+        gh_calls: mock.Mock,
+        locate_return: tuple[int | None, str | None, int],
+        *,
+        envelope: Any = None,
+        api_key: bool = True,
+    ) -> mock.Mock:
+        env = dict(self.env)
+        if not api_key:
+            env.pop('OPENROUTER_API_KEY')
+        with (
+            mock.patch.dict('os.environ', env, clear=True),
+            mock.patch.object(_github, 'resolve_origin', return_value=locate_return),
+            mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(_github, 'search_candidates', return_value=(FIXTURE_CANDIDATES, [])),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'existing_issue_types', return_value=set()),
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(_openrouter, 'call_openrouter', return_value=envelope),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
+        ):
+            self.assertEqual(_cli.main(), 0)
+        return summary
+
+    def test_a_comment_on_the_same_issue_replaces_the_notifiers_comment(self):
+        gh_calls = _gh_router('555\n')
+        envelope = {
+            'action': 'comment',
+            'target_issue': 4242,
+            'body': 'Same failure as before.',
+            'dedup_reason': 'd',
+            'confidence': 'high',
+        }
+        self._run(gh_calls, (None, 'comment', 4242), envelope=envelope)
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertEqual(patches[0].args[3], 'repos/example/repo/issues/comments/555')
+        body = _patch_body(patches[0])
+        self.assertIn('Same failure as before.', body)
+        self.assertIn(f'Run: {self.env["RUN_URL"]}', body)
+        self.assertIn('<!-- ai-failure-notifications:run=28141163589:sig=', body)
+
+    def test_the_fallback_on_a_commented_issue_replaces_the_notifiers_comment(self):
+        gh_calls = _gh_router('555\n')
+        self._run(gh_calls, (None, 'comment', 4242), api_key=False)
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertIn('<!-- ai-failure-notifications:signature {', _patch_body(patches[0]))
+
+    def test_the_fallback_on_a_new_placeholder_edits_it_rather_than_opening_another(self):
+        gh_calls = _gh_router()
+        self._run(gh_calls, (None, 'new', 4242), api_key=False)
+        self.assertEqual(_calls(gh_calls, 'issue', 'create'), [])
+        edits = _calls(gh_calls, 'issue', 'edit', '4242')
+        self.assertEqual(len(edits), 1)
+        args = edits[0].args
+        body = args[args.index('--body') + 1]
+        self.assertIn('Workflow: Broad Charm Compatibility Tests', body)
+        self.assertIn('<!-- ai-failure-notifications:run=28141163589:sig=', body)
+
+    def test_the_pointer_note_replaces_the_notifiers_comment(self):
+        gh_calls = _gh_router('555\n')
+        envelope = {
+            'action': 'new',
+            'title': 'x',
+            'body': 'y',
+            'labels': [],
+            'issue_type': None,
+            'dedup_reason': 'd',
+            'confidence': 'medium',
+        }
+        self._run(gh_calls, (None, 'comment', 4242), envelope=envelope)
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'create')), 1)
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertIn('opened separately', _patch_body(patches[0]))
+
+    def test_a_rerun_note_replaces_the_notifiers_comment_on_the_same_issue(self):
+        gh_calls = _gh_router('555\n')
+        self._run(gh_calls, (4242, 'comment', 4242))
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertIn('Re-run attempt still failing', _patch_body(patches[0]))
+
+    def test_a_rerun_note_on_another_issue_is_a_new_comment(self):
+        gh_calls = _gh_router('555\n')
+        self._run(gh_calls, (9010, 'comment', 4242))
+        self.assertEqual(_calls(gh_calls, 'api', '--method', 'PATCH'), [])
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'comment', '9010')), 1)
+
+    def test_no_notifier_comment_to_edit_adds_a_comment_and_says_so(self):
+        gh_calls = _gh_router('')
+        summary = self._run(gh_calls, (None, 'comment', 4242), api_key=False)
+        self.assertEqual(_calls(gh_calls, 'api', '--method', 'PATCH'), [])
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'comment', '4242')), 1)
+        self.assertTrue(
+            any(
+                "Couldn't edit the notifier's comment" in c.args[0] for c in summary.call_args_list
+            )
+        )
+
+    def test_a_failed_edit_adds_a_comment_instead(self):
+        def respond(*args: str, **kwargs: Any) -> mock.Mock:
+            if args[:2] == ('api', '--paginate'):
+                return mock.Mock(returncode=0, stdout='555\n', stderr='')
+            if args[:3] == ('api', '--method', 'PATCH'):
+                raise subprocess.CalledProcessError(1, ['gh', *args])
+            return mock.Mock(returncode=0, stdout='', stderr='')
+
+        gh_calls = mock.Mock(side_effect=respond)
+        self._run(gh_calls, (None, 'comment', 4242), api_key=False)
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'comment', '4242')), 1)
+
+
 class GhCallShapeTests(unittest.TestCase):
     """Pins the argv of each read-only gh call.
 
@@ -1088,6 +1258,42 @@ class GhCallShapeTests(unittest.TestCase):
         self.assertIsNone(_github.match_issue_type('bug', set()))
         self.assertIsNone(_github.match_issue_type('chore', {'Bug', 'Task'}))
         self.assertIsNone(_github.match_issue_type(None, {'Bug'}))
+
+    def test_find_notifier_comment_reads_the_rest_comments_endpoint(self):
+        gh_calls = self._capture('111\n222\n')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            comment_id = _github.find_notifier_comment('example/repo', 4242, '123')
+        args = gh_calls.call_args.args
+        self.assertEqual(
+            args[:3], ('api', '--paginate', 'repos/example/repo/issues/4242/comments')
+        )
+        self.assertIn(
+            'contains("ai-failure-notifications:run=123:origin=comment")',
+            args[args.index('--jq') + 1],
+        )
+        # A re-run's notifier comment comes after the first attempt's.
+        self.assertEqual(comment_id, 222)
+
+    def test_find_notifier_comment_returns_none_when_there_is_none(self):
+        gh_calls = self._capture('')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            self.assertIsNone(_github.find_notifier_comment('example/repo', 4242, '123'))
+
+    def test_edit_comment_patches_the_rest_comment(self):
+        gh_calls = self._capture('')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            _github.edit_comment('example/repo', 555, 'New @body')
+        self.assertEqual(
+            gh_calls.call_args.args,
+            (
+                'api',
+                '--method',
+                'PATCH',
+                'repos/example/repo/issues/comments/555',
+                '-f',
+                'body=New @body',
+            ),
+        )
 
 
 class NormalisationTests(unittest.TestCase):

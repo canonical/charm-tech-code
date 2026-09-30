@@ -22,6 +22,7 @@ import subprocess
 from typing import Any
 
 from . import _summary
+from ._constants import MARKER_PREFIX
 from ._markers import find_run_markers
 from ._models import CandidateIssue, FailedJob
 
@@ -114,6 +115,39 @@ def fetch_issue_texts(repo: str, number: int) -> list[str]:
     texts = [data.get('body') or '']
     texts.extend(comment.get('body') or '' for comment in data.get('comments') or [])
     return texts
+
+
+def find_notifier_comment(repo: str, number: int, run_id: str) -> int | None:
+    """Return the REST id of the comment the notifier left on issue `number` for `run_id`.
+
+    `gh issue view --json comments` only has GraphQL node ids, and editing a
+    comment through the REST API needs the numeric one, so this reads the
+    comments endpoint instead. If there's more than one match, the most recent
+    wins. `None` means there's no such comment, which is also what an earlier
+    edit leaves behind, since the edit replaces the notifier's marker.
+    """
+    needle = f'{MARKER_PREFIX}:run={run_id}:origin=comment'
+    result = gh(
+        'api',
+        '--paginate',
+        f'repos/{repo}/issues/{number}/comments',
+        '--jq',
+        f'.[] | select(.body | contains("{needle}")) | .id',
+    )
+    ids = result.stdout.split()
+    return int(ids[-1]) if ids else None
+
+
+def edit_comment(repo: str, comment_id: int, body: str) -> None:
+    """Replace the body of an issue comment."""
+    gh(
+        'api',
+        '--method',
+        'PATCH',
+        f'repos/{repo}/issues/comments/{comment_id}',
+        '-f',
+        f'body={body}',
+    )
 
 
 def resolve_origin(
