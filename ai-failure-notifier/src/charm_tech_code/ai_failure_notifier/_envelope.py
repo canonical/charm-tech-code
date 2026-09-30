@@ -52,35 +52,60 @@ def drop_inapplicable_fields(entry: Any) -> tuple[Any, list[str]]:
     return {k: v for k, v in entry.items() if k not in dropped}, dropped
 
 
-def coerce_target_issue(entry: Any) -> Any:
-    """Turn a `target_issue` the model wrote as text into the integer it means.
+def drop_unknown_fields(entry: Any, allowed: frozenset[str]) -> tuple[Any, list[str]]:
+    """Strip properties the schema does not declare; report what went.
 
-    Issues are written `#44` everywhere a person sees them, and the model
-    returns that string often enough to matter: the schema wants an integer, so
-    the whole envelope was rejected and a usable body was thrown away for a `#`.
-    Anything that is not a plain issue reference is left exactly as it is, for
-    the schema to reject on its own terms.
+    The schema sets `additionalProperties: false`, so a single property the
+    model invented would reject the whole envelope, and `_cli` would discard a
+    usable title and body and leave the notifier's placeholder standing.
+
+    An unknown property is by definition one `apply_entry` never reads, so
+    removing it can't change what gets posted. Stripping it, rather than
+    loosening the schema, keeps `additionalProperties: false` meaningful and
+    puts the field name in the step summary.
+
+    `allowed` is derived from the schema so that there is only one copy of the
+    property list.
     """
-    if not isinstance(entry, dict) or not isinstance(entry.get('target_issue'), str):
-        return entry
-    text = entry['target_issue'].strip().removeprefix('#')
-    if not text.isdigit():
-        return entry
-    return {**entry, 'target_issue': int(text)}
+    if not isinstance(entry, dict):
+        return entry, []
+    unknown = [k for k in entry if k not in allowed]
+    if not unknown:
+        return entry, []
+    return {k: v for k, v in entry.items() if k in allowed}, unknown
+
+
+def _normalise_entry(entry: Any, path: str, allowed: frozenset[str]) -> tuple[Any, list[str]]:
+    """Strip unknown properties, then drop inapplicable ones."""
+    entry, unknown = drop_unknown_fields(entry, allowed)
+    notes = [f'{path}: {f} (not in the schema)' for f in unknown]
+    entry, dropped = drop_inapplicable_fields(entry)
+    notes += [f'{path}: {f}' for f in dropped]
+    return entry, notes
 
 
 def normalise_envelope(envelope: Any) -> tuple[Any, list[str]]:
-    """Drop inapplicable fields from the envelope and each `also` entry."""
+    """Repair what the applier can read anyway, in the envelope and each `also` entry.
+
+    Each repair turns an envelope that would otherwise be rejected, leaving the
+    notifier's placeholder standing, into one the applier can act on. A
+    property that doesn't apply to the chosen action goes; a property the
+    schema doesn't declare at all goes.
+
+    What is not repaired is anything that would amount to choosing on the
+    model's behalf. Stripping an unknown `issue` does not invent the
+    `target_issue` it was probably meant to be, and a missing body is not
+    filled in, so either is still rejected rather than silently acted on.
+    """
     if not isinstance(envelope, dict):
         return envelope, []
-    cleaned, dropped = drop_inapplicable_fields(coerce_target_issue(envelope))
-    notes = [f'envelope: {f}' for f in dropped]
+    cleaned, notes = _normalise_entry(envelope, 'envelope', _TOP_LEVEL_PROPERTIES)
     also = cleaned.get('also')
     if isinstance(also, list):
         entries: list[Any] = []
         for i, entry in enumerate(also):
-            entry, entry_dropped = drop_inapplicable_fields(coerce_target_issue(entry))
-            notes += [f'envelope.also[{i}]: {f}' for f in entry_dropped]
+            entry, entry_notes = _normalise_entry(entry, f'envelope.also[{i}]', _ENTRY_PROPERTIES)
+            notes += entry_notes
             entries.append(entry)
         cleaned = {**cleaned, 'also': entries}
     return cleaned, notes
@@ -151,6 +176,11 @@ ENVELOPE_JSON_SCHEMA = {
     },
 }
 
+
+# Derived from the schema above rather than written out a second time, so the
+# lists `drop_unknown_fields` strips against can't drift from it.
+_TOP_LEVEL_PROPERTIES = frozenset(ENVELOPE_JSON_SCHEMA['properties'])
+_ENTRY_PROPERTIES = frozenset(ENVELOPE_JSON_SCHEMA['$defs']['envelopeEntry']['properties'])
 
 _VALIDATOR = jsonschema.Draft202012Validator(ENVELOPE_JSON_SCHEMA)
 

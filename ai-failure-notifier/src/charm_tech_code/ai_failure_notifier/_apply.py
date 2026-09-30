@@ -22,20 +22,30 @@ from typing import Any
 from . import _github, _summary
 
 
-def plain_fallback_body(workflow_name: str, run_url: str) -> str:
-    """Render the generic body used whenever enrichment is unavailable."""
-    return f"Scheduled workflow '{workflow_name}' failed: {run_url}"
+def plain_fallback_body(workflow_name: str) -> str:
+    """Render the generic body used whenever enrichment is unavailable.
+
+    There's no run link here because `render_body` adds one to every body.
+    """
+    return f"Scheduled workflow '{workflow_name}' failed."
 
 
-def render_body(body: str, workflow_name: str, marker: str) -> str:
-    """Assemble an issue or comment body, footer and marker included.
+def render_body(body: str, workflow_name: str, run_url: str, marker: str) -> str:
+    """Assemble an issue or comment body, footer, run link and marker included.
 
     The `Workflow: <name>` footer is what keeps the notifier's coarse search
     working after enrichment has rewritten the title and body: the search
     matches on the workflow name, and without the footer it would depend on
     the model happening to leave the name in the title.
+
+    The `Run: <url>` line is added here, as a required argument, so that every
+    body links to the failing run. That includes an enriched issue, which is
+    edited over the notifier's placeholder (whose only content is the run
+    link). The model rarely includes a run link on its own, and adding it here
+    rather than asking for it in the prompt means it is always the URL this run
+    was invoked with.
     """
-    return f'{body.rstrip()}\n\nWorkflow: {workflow_name}\n\n{marker}'
+    return f'{body.rstrip()}\n\nWorkflow: {workflow_name}\nRun: {run_url}\n\n{marker}'
 
 
 def apply_entry(
@@ -43,11 +53,12 @@ def apply_entry(
     entry: dict[str, Any],
     marker: str,
     workflow_name: str,
+    run_url: str,
     *,
     default_target: int | None = None,
 ) -> str:
     """Create or comment on an issue per one envelope entry, stamping `marker`."""
-    body = render_body(entry['body'], workflow_name, marker)
+    body = render_body(entry['body'], workflow_name, run_url, marker)
     if entry['action'] == 'new':
         # The repo's label set is centrally managed, so anything the model
         # asked for that doesn't exist is dropped rather than created.

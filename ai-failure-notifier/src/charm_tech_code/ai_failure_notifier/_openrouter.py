@@ -49,6 +49,9 @@ def call_openrouter(
                 'schema': ENVELOPE_JSON_SCHEMA,
             },
         },
+        # Without this, OpenRouter may route to a provider that ignores
+        # `response_format`, and the schema above is only a suggestion.
+        'provider': {'require_parameters': True},
     }
     request = urllib.request.Request(
         'https://openrouter.ai/api/v1/chat/completions',
