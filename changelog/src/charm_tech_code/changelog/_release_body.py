@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-"""Assemble the body of a GitHub release out of two things already written.
+"""Assemble a GitHub release's title and body out of things already written.
 
 Neither half of the body is written here:
 
@@ -25,10 +25,15 @@ Neither half of the body is written here:
   generated a second time: one source of truth, so the file and the release
   cannot drift.
 
+The title's summary comes out of the same description, from between the
+`release-title` markers, and the version in front of it is added here.
+
 The notes may be the placeholder `draft-release-notes` writes when it cannot
 reach a model. That is not an error - somebody merged the pull request with it
 in, which is their decision - so it goes into the body as it stands, and
-`is_placeholder` lets the caller say so.
+`is_placeholder` lets the caller say so. A title is different: a release can
+go out without a summary, so a missing or placeholder summary leaves the bare
+version as the title rather than stopping anything.
 """
 
 from __future__ import annotations
@@ -37,9 +42,13 @@ import re
 
 from ._constants import (
     CHANGES_SECTION_HEADING_REGEX,
+    FULL_CHANGELOG_PREFIX,
     RELEASE_NOTES_END_REGEX,
     RELEASE_NOTES_PLACEHOLDER_REGEX,
     RELEASE_NOTES_START_REGEX,
+    RELEASE_TITLE_END_REGEX,
+    RELEASE_TITLE_PLACEHOLDER_REGEX,
+    RELEASE_TITLE_START_REGEX,
 )
 
 # Any Markdown heading, for demoting the changelog's headings a level when
@@ -60,20 +69,73 @@ def release_notes_from_description(description: str) -> str:
         ValueError: if the markers are missing, repeated, out of order, or
             have nothing between them.
     """
-    starts = list(RELEASE_NOTES_START_REGEX.finditer(description))
-    ends = list(RELEASE_NOTES_END_REGEX.finditer(description))
-    for markers, name in ((starts, 'start'), (ends, 'end')):
-        if len(markers) != 1:
-            raise ValueError(
-                f'the description has {len(markers)} `<!-- release-notes:{name} -->` markers,'
-                ' and needs exactly one'
-            )
-    if ends[0].start() < starts[0].end():
-        raise ValueError('the description ends the release notes before it starts them')
-    notes = description[starts[0].end() : ends[0].start()].strip()
+    notes = _between_markers(
+        description, RELEASE_NOTES_START_REGEX, RELEASE_NOTES_END_REGEX, 'release-notes'
+    )
     if not notes:
         raise ValueError('there is nothing between the release-notes markers')
     return notes
+
+
+def release_summary_from_description(description: str) -> str | None:
+    """Return the title's summary from between its markers, or None if there are none.
+
+    A description with no `release-title` markers at all has no summary, which
+    is not an error: it only means the release is titled with its version.
+    Markers that are there but broken are an error, the same as for the
+    notes, because they are somebody's edit gone wrong rather than an absence.
+
+    Raises:
+        ValueError: if only one kind of marker is there, either is repeated,
+            or they are out of order.
+    """
+    if not (
+        RELEASE_TITLE_START_REGEX.search(description)
+        or RELEASE_TITLE_END_REGEX.search(description)
+    ):
+        return None
+    return _between_markers(
+        description, RELEASE_TITLE_START_REGEX, RELEASE_TITLE_END_REGEX, 'release-title'
+    )
+
+
+def _between_markers(
+    description: str, start: re.Pattern[str], end: re.Pattern[str], name: str
+) -> str:
+    starts = list(start.finditer(description))
+    ends = list(end.finditer(description))
+    for markers, which in ((starts, 'start'), (ends, 'end')):
+        if len(markers) != 1:
+            raise ValueError(
+                f'the description has {len(markers)} `<!-- {name}:{which} -->` markers,'
+                ' and needs exactly one'
+            )
+    if ends[0].start() < starts[0].end():
+        what = 'release notes' if name == 'release-notes' else 'release title'
+        pronoun = 'them' if name == 'release-notes' else 'it'
+        raise ValueError(f'the description ends the {what} before it starts {pronoun}')
+    return description[starts[0].end() : ends[0].start()].strip()
+
+
+def release_title(version: str, summary: str | None) -> str:
+    """Return the release's title: `X.Y.Z: <summary>`, or the bare version.
+
+    The version is always added here, and taken off the front of the summary
+    if somebody typed it there too, so the title cannot name a different
+    version from the release it is on. The summary is folded onto one line,
+    and a closing full stop goes, since a title is not a sentence. No summary,
+    or the placeholder, gives the bare version.
+    """
+    if summary is None or is_title_placeholder(summary):
+        return version
+    text = ' '.join(summary.split())
+    text = re.sub(rf'^{re.escape(version)}\s*[:-]\s*', '', text).removesuffix('.').strip()
+    return f'{version}: {text}' if text else version
+
+
+def is_title_placeholder(summary: str) -> bool:
+    """Return whether this summary is the "nobody suggested one" placeholder."""
+    return bool(RELEASE_TITLE_PLACEHOLDER_REGEX.match(summary.strip()))
 
 
 def is_placeholder(notes: str) -> bool:
@@ -109,7 +171,7 @@ def changelog_section(changes: str, version: str) -> str:
     return '\n'.join(lines[first:end]).strip()
 
 
-def release_body(notes: str, section: str) -> str:
+def release_body(notes: str, section: str, compare_url: str | None = None) -> str:
     """Return the notes and the changelog section, as a release body.
 
     The notes come first and the changelog under them, which is the order they
@@ -118,6 +180,13 @@ def release_body(notes: str, section: str) -> str:
     with a `# <version> - <date>` heading that the release already has as its
     title, and `## Category` headings that would outrank the `##` the notes
     are written in.
+
+    With a `compare_url`, the body ends on the same "Full Changelog" line a
+    release GitHub generates does. The caller supplies it because the
+    previous release is the caller's to know.
     """
     entries = _HEADING.sub(r'#\1', '\n'.join(section.splitlines()[1:]).strip())
-    return f'{notes.strip()}\n\n---\n\n## Changelog\n\n{entries}\n'
+    body = f'{notes.strip()}\n\n---\n\n## Changelog\n\n{entries}\n'
+    if compare_url:
+        body += f'\n{FULL_CHANGELOG_PREFIX}: {compare_url}\n'
+    return body

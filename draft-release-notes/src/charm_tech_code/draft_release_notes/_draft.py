@@ -20,11 +20,16 @@ from __future__ import annotations
 import importlib.resources
 import re
 
-# The release pull request's description wraps the notes in these, so that
-# the release body can be lifted back out of it later (the `changelog`
-# package's `release-body`). A model that emits one of them itself would
-# truncate its own notes, so they are stripped from whatever comes back.
-MARKERS = re.compile(r'<!--\s*release-notes:(?:start|end)\s*-->')
+# The release pull request's description wraps the notes and the title's
+# summary in these, so that they can be lifted back out of it later (the
+# `changelog` package's `release-body` and `release-title`). A model that
+# emits one of them itself would cut its own text short, so they are stripped
+# from whatever comes back.
+MARKERS = re.compile(r'<!--\s*release-(?:notes|title):(?:start|end)\s*-->')
+
+# The line the prompt asks the answer to start with. Bold is tolerated, since
+# a model asked for Markdown sometimes adds it.
+TITLE_LINE = re.compile(r'\A\**Title:\**\s*(?P<summary>.*?)\s*\Z', re.IGNORECASE)
 
 # A model told to emit Markdown and nothing else sometimes wraps the lot in a
 # fence anyway.
@@ -76,6 +81,33 @@ def tidy(notes: str) -> str:
     if fence:
         notes = fence.group('body').strip()
     return MARKERS.sub('', notes).strip()
+
+
+def split_title(answer: str) -> tuple[str | None, str]:
+    """Return the summary from the answer's `Title:` line, and the notes after it.
+
+    The summary is None when the answer does not start with the line, or the
+    line has nothing on it; the notes are then the whole answer. The line is
+    only looked for at the very start, so a "Title:" further down is left as
+    part of the notes.
+    """
+    first, _, rest = answer.strip().partition('\n')
+    match = TITLE_LINE.match(first.strip())
+    if not match:
+        return None, answer.strip()
+    return match.group('summary').strip().strip('*').strip() or None, rest.strip()
+
+
+def title_placeholder(version: str, reason: str) -> str:
+    """Return the title summary to use when there is none: a note asking for one.
+
+    The opening words are what the `changelog` package's `release-title`
+    recognises as the placeholder, so keep them as they are.
+    """
+    return (
+        f'_No title was drafted for {version}: {reason}. Replace this line with a short'
+        f' summary, or leave it and the release is titled {version}._'
+    )
 
 
 def placeholder(version: str, reason: str) -> str:

@@ -14,12 +14,12 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
     --repo "$GITHUB_REPOSITORY" --version "$VERSION" --previous "$PREVIOUS" --branch "$BRANCH" \
     --changelog changes-entry.md --exemplars exemplars.md \
     --compare-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$PREVIOUS...$VERSION" \
-    --output release-notes.md
+    --output release-notes.md --title-output release-title.md
 ```
 
-`--changelog` is this release's entry, as `changelog changes-entry` prints it. `--exemplars` is optional: the bodies of a few past releases whose notes are worth writing like, which is the only thing a repository chooses for itself. The key and the model come from the environment, as `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`.
+`--changelog` is this release's entry, as `changelog changes-entry` prints it. `--title-output` is optional: where to write a one-line summary for the release's title, the part after `X.Y.Z: `, which the model gives as a `Title:` line ahead of the notes. Like the notes, it is always written, as a placeholder when there is no model or the model did not suggest one. `--exemplars` is optional: the bodies of a few past releases whose notes are worth writing like, which is the only thing a repository chooses for itself. The key and the model come from the environment, as `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`.
 
-`canonical/operator`'s `.github/workflows/propose-release.yaml` is the calling side, including how it fetches the exemplars and wraps the notes in the `release-notes` markers that the `changelog` package's `release-body` reads them back out of.
+`canonical/operator`'s `.github/workflows/propose-release.yaml` is the calling side, including how it fetches the exemplars and wraps the notes and the summary in the `release-notes` and `release-title` markers that the `changelog` package's `release-body` and `release-title` read them back out of.
 
 ## The prompt
 
