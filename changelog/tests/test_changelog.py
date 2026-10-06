@@ -220,9 +220,6 @@ OPERATOR_3_8_2_LOG = git_log(*OPERATOR_3_8_2_COMMITS)
 OPERATOR_BREAKING_LOG = git_log(*OPERATOR_BREAKING_COMMITS)
 OPERATOR_REVERT_RANGE_LOG = git_log(*OPERATOR_REVERT_RANGE_COMMITS)
 
-#: `OPERATOR_TEAM` as a workflow would pass it: one repository variable.
-TEAM_ARGUMENT = ','.join(OPERATOR_TEAM)
-
 
 class TestWholeRelease:
     """The 3.8.2 fixture, end to end."""
@@ -1011,6 +1008,14 @@ class TestRevert:
 class TestConsoleScript:
     """The `changelog` console script: a range on stdin, one answer on stdout."""
 
+    @pytest.fixture(autouse=True)
+    def fixture_team(self):
+        # The fixtures' invented maintainers stand in for the built-in team,
+        # so that the expected output can come from the library with the
+        # same team; `TestCharmTechTeam` checks the real one.
+        with mock.patch.object(_cli, 'CHARM_TECH_TEAM', OPERATOR_TEAM):
+            yield
+
     def run_cli(self, *argv: str, stdin: str = OPERATOR_3_8_2_LOG) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with (
@@ -1043,7 +1048,7 @@ class TestConsoleScript:
 
     def test_release_notes_is_the_library_output(self):
         categories = parse_git_log(OPERATOR_3_8_2_LOG, team=OPERATOR_TEAM, repo=REPO)
-        _, out, _ = self.run_cli('release-notes', '--repo', REPO, '--team', TEAM_ARGUMENT)
+        _, out, _ = self.run_cli('release-notes', '--repo', REPO)
         # No newline is added here, because the library's last line is the
         # blank one after the final category. With a compare link at the end
         # there is no trailing blank line, and `_emit` adds one; the
@@ -1055,7 +1060,7 @@ class TestConsoleScript:
         # The bullets end in `#N`, which GitHub links for itself, so unlike
         # `changes-entry` there is nothing here to build out of a repository
         # name.
-        returncode, out, _ = self.run_cli('release-notes', '--team', TEAM_ARGUMENT)
+        returncode, out, _ = self.run_cli('release-notes')
         assert returncode == 0
         assert 'in #2684' in out
 
@@ -1081,8 +1086,6 @@ class TestConsoleScript:
             '3.8.2',
             '--date',
             '2026-08-31',
-            '--team',
-            TEAM_ARGUMENT,
         )
         # Including the blank line it ends with: this text is prepended to
         # CHANGES.md verbatim, so the trailing layout is part of the answer.
@@ -1096,48 +1099,16 @@ class TestConsoleScript:
         with pytest.raises(SystemExit):
             self.run_cli('changes-entry', '--tag', '3.8.2')
 
-    def test_the_team_is_comma_separated(self):
-        # A workflow passes the team as one repository variable with commas
-        # in it, which is the only spelling the flag takes.
-        # A handle rather than an email, because it has to suppress the
-        # credit on both input paths and only the git log has an email to
-        # match: see `test_an_email_cannot_match_an_author_the_notes_name`.
-        ali = '@ducky-debugger'
-        _, out, _ = self.run_cli(
-            'changes-entry',
-            '--repo',
-            REPO,
-            '--tag',
-            '3.8.2',
-            '--date',
-            '2026-08-31',
-            '--team',
-            f'{TEAM_ARGUMENT},{ali}',
-        )
-        # Everyone in this range is now accounted for, so the one bullet
-        # that was credited no longer is.
-        assert (
-            '* Stop the framework mistaking two notices for twins '
-            '([#2684](https://github.com/canonical/operator/pull/2684))' in out
-        )
-        assert '@ducky-debugger' not in out
-
-    def test_without_a_team_everyone_is_credited(self):
-        # The safe way round: over-crediting shows up in the draft release
-        # and takes one edit, while crediting nobody is invisible. Note that
-        # Focal Fossa is credited by *name* here: they commit from an
-        # @canonical.com address, so the git log has no handle for them.
-        _, out, _ = self.run_cli(
-            'changes-entry', '--repo', REPO, '--tag', '3.8.2', '--date', '2026-08-31'
-        )
-        assert (
-            '* Stop the framework mistaking two notices for twins by @ducky-debugger '
-            '([#2684](https://github.com/canonical/operator/pull/2684))' in out
-        )
-        assert (
-            '* Stop dressing cross-references up as quotations by Focal Fossa '
-            '([#2666](https://github.com/canonical/operator/pull/2666))' in out
-        )
+    @pytest.mark.parametrize(
+        'command',
+        [['release-notes'], ['changes-entry', '--repo', REPO, '--tag', '3.8.2']],
+    )
+    def test_there_is_no_team_to_pass(self, command: list[str]):
+        # The team is built in, so a `--team` would be a second list to keep
+        # in step with it. Refusing one says so, rather than ignoring it.
+        with pytest.raises(SystemExit) as exc_info, contextlib.redirect_stderr(io.StringIO()):
+            self.run_cli(*command, '--team', '@ducky-debugger')
+        assert exc_info.value.code == 2
 
     def test_changes_entry_defaults_to_today(self):
         with mock.patch.object(_cli, '_today', return_value=datetime.date(2026, 9, 11)):
@@ -1172,3 +1143,18 @@ class TestConsoleScript:
         pyproject = (pathlib.Path(__file__).parent.parent / 'pyproject.toml').read_text()
         assert 'changelog = "charm_tech_code.changelog._cli:main"' in pyproject
         assert callable(_cli.main)
+
+
+class TestCharmTechTeam:
+    """The console script with the real, built-in team rather than the fixtures'."""
+
+    def test_a_maintainer_is_not_credited_and_a_contributor_is(self):
+        log = git_log(
+            (('Tony Meyer', 'tony.meyer@canonical.com'), 'fix: mend the runes (#1)', ''),
+            (DUCKY, 'fix: polish the runes (#2)', ''),
+        )
+        out = io.StringIO()
+        with mock.patch('sys.stdin', io.StringIO(log)), contextlib.redirect_stdout(out):
+            assert _cli.main(['release-notes']) == 0
+        assert '* Mend the runes in #1\n' in out.getvalue()
+        assert '* Polish the runes by @ducky-debugger in #2\n' in out.getvalue()

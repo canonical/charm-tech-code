@@ -37,7 +37,7 @@ import sys
 import textwrap
 from collections.abc import Sequence
 
-from ._constants import GIT_LOG_FORMAT
+from ._constants import CHARM_TECH_TEAM, GIT_LOG_FORMAT
 from ._format import format_changes, format_release_notes
 from ._parse import parse_git_log
 from ._release import detect_release, is_prerelease, next_dev_version, resolve_branch
@@ -77,28 +77,6 @@ def _emit(text: str) -> None:
     sys.stdout.write(text if text.endswith('\n') else text + '\n')
 
 
-def _input_options() -> argparse.ArgumentParser:
-    """Build the parent parser for the options that say what arrives on stdin.
-
-    Shared by the four subcommands that read it, as a parent parser, so that
-    a caller switching input path changes one flag on every command rather
-    than learning four spellings of it.
-    """
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument(
-        '--team',
-        default='',
-        metavar='EMAIL-OR-HANDLE,...',
-        help=(
-            'Authors not to credit, comma-separated, as email addresses '
-            'and/or GitHub handles. These are the people who maintain the '
-            'repository; everyone else is credited by handle, or by name '
-            'where no handle can be worked out. The default credits everyone.'
-        ),
-    )
-    return parser
-
-
 def _repo_option(parser: argparse.ArgumentParser, *, required: bool) -> None:
     parser.add_argument(
         '--repo',
@@ -126,20 +104,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
               git log --reverse --no-merges --format="$(changelog git-log-format)" \\
                   "$LAST_TAG..$BRANCH" > log.txt
-              SIZE=$(changelog bump-size --team "$TEAM" < log.txt)
-              VERSION=$(changelog next-version --previous "$LAST_TAG" --team "$TEAM" < log.txt)
-              changelog release-notes --repo "$REPO" --team "$TEAM" < log.txt > release-notes.md
-              changelog changes-entry --repo "$REPO" --tag "$VERSION" --team "$TEAM" \\
-                  < log.txt > changes-entry.md
+              SIZE=$(changelog bump-size < log.txt)
+              VERSION=$(changelog next-version --previous "$LAST_TAG" < log.txt)
+              changelog release-notes --repo "$REPO" < log.txt > release-notes.md
+              changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entry.md
         """),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest='command', required=True)
-    shared = [_input_options()]
 
     subparsers.add_parser(
         'bump-size',
-        parents=shared,
         help="Print 'minor' or 'patch' for the changes on stdin.",
         description=(
             "Print 'minor' if the range contains a feature or a breaking change, "
@@ -152,7 +127,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     next_version_parser = subparsers.add_parser(
         'next-version',
-        parents=shared,
         help='Print the version that follows --previous, given the changes on stdin.',
         description=(
             'Apply the inferred bump size to --previous and print the result. '
@@ -170,7 +144,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     release_notes_parser = subparsers.add_parser(
         'release-notes',
-        parents=shared,
         help='Print the release body, as Markdown.',
         description=(
             'Print the body of a GitHub release: the changes by category, '
@@ -192,7 +165,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     changes_entry_parser = subparsers.add_parser(
         'changes-entry',
-        parents=shared,
         help='Print one CHANGES.md entry, as Markdown.',
         description=(
             'Print a single CHANGES.md entry for the release, to be prepended '
@@ -432,10 +404,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     categories = parse_git_log(
         sys.stdin.read(),
-        # A workflow passes the team as one repository variable with commas
-        # in it, which is the only spelling `--team` takes. Empty entries are
-        # dropped by `normalise_team`.
-        team=args.team.split(','),
+        # Always the Charm Tech team: every repository that runs this is one
+        # of ours, so there is no other team for a workflow to pass.
+        team=CHARM_TECH_TEAM,
         # Only `release-notes` and `changes-entry` take `--repo`.
         repo=getattr(args, 'repo', None),
     )
