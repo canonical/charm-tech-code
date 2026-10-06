@@ -1033,10 +1033,14 @@ class TestConsoleScript:
         assert self.run_cli('bump-size') == (0, 'patch\n', '')
         assert self.run_cli('bump-size', stdin=OPERATOR_BREAKING_LOG) == (0, 'minor\n', '')
 
-    def test_next_version_prints_one_bare_word(self):
-        assert self.run_cli('next-version', '--previous', '3.8.1') == (0, '3.8.2\n', '')
+    def test_next_version_prints_the_version_and_the_size(self):
+        # `key=value` lines, the same as `detect-release` and `post-release`,
+        # so the step appends them to `$GITHUB_OUTPUT` as they stand and a
+        # maintenance-branch check reads the size from the same call.
+        patch = self.run_cli('next-version', '--previous', '3.8.1')
+        assert patch == (0, 'version=3.8.2\nsize=patch\n', '')
         minor = self.run_cli('next-version', '--previous', '3.7.1', stdin=OPERATOR_BREAKING_LOG)
-        assert minor == (0, '3.8.0\n', '')
+        assert minor == (0, 'version=3.8.0\nsize=minor\n', '')
 
     def test_next_version_fails_rather_than_guessing(self):
         returncode, out, err = self.run_cli('next-version', '--previous', '3.9.0.dev0')
@@ -1101,7 +1105,12 @@ class TestConsoleScript:
 
     @pytest.mark.parametrize(
         'command',
-        [['release-notes'], ['changes-entry', '--repo', REPO, '--tag', '3.8.2']],
+        [
+            ['bump-size'],
+            ['next-version', '--previous', '3.8.1'],
+            ['release-notes'],
+            ['changes-entry', '--repo', REPO, '--tag', '3.8.2'],
+        ],
     )
     def test_there_is_no_team_to_pass(self, command: list[str]):
         # The team is built in, so a `--team` would be a second list to keep

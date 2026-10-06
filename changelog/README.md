@@ -55,14 +55,14 @@ Everything goes through the `changelog` console script. It reads a git log on st
 
 ```shell
 git log --reverse --no-merges --format="$(changelog git-log-format)" "$LAST_TAG..$BRANCH" > log.txt
-SIZE=$(changelog bump-size < log.txt)
-VERSION=$(changelog next-version --previous "$LAST_TAG" < log.txt)
+changelog next-version --previous "$LAST_TAG" < log.txt >> "$GITHUB_OUTPUT"
+# ...then, in a later step, with $VERSION set from that output:
 changelog release-notes --repo "$REPO" \
     --compare-url "https://github.com/$REPO/compare/$LAST_TAG...$VERSION" < log.txt > release-notes.md
 changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entry.md
 ```
 
-The two commands that print one word are for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
+`next-version` prints `version=` and `size=` lines for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
 
 `--compare-url` is optional: a git log carries no compare link and the tags at either end are the workflow's to know. `--date` defaults to today in UTC, and the console script is the only part of the package that reads the clock. `changelog --help` has the rest.
 
@@ -74,7 +74,7 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
 
 ## Versions
 
-`bump-size` says whether a range is a minor or a patch - a `feat` or a breaking change means minor, anything else means patch - and `next-version` applies that to a plain `X.Y.Z`. A major bump is never inferred, nor is a pre-release: `next-version` raises rather than guess at anything that isn't `X.Y.Z`, `3.9.0.dev0` included, since that is the guess the last post-release bump left in the version file rather than a version anyone shipped.
+`bump-size` says whether a range is a minor or a patch - a `feat` or a breaking change means minor, anything else means patch - and `next-version` applies that to a plain `X.Y.Z`, printing both the version and the size, so a caller that checks the size gets it from the same call. `bump-size` on its own prints the bare word, for a repository that bumps its version some other way, such as `hatch version minor`. A major bump is never inferred, nor is a pre-release: `next-version` raises rather than guess at anything that isn't `X.Y.Z`, `3.9.0.dev0` included, since that is the guess the last post-release bump left in the version file rather than a version anyone shipped.
 
 The repository decides what to count from, and what any of it means for the other packages it ships. A `minor` on a branch where a feature has no business appearing, such as operator's `2.23-maintenance`, is an error rather than a patch - but which branches those are is the repository's to know, so that check belongs there.
 

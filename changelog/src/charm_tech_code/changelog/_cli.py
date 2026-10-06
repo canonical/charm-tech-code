@@ -22,10 +22,11 @@ out: a file, a network call, git itself.
 Four subcommands do not read a git log at all, because they are the version
 and release decisions a release pipeline makes after the changelog is
 written: `detect-release`, `post-release`, `release-body` and `release-title`.
-The two that answer with more than one value print `key=value` lines, which a
-workflow step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed bare;
-`prerelease` is `true` or `false`, which is valid JSON, so `fromJSON` turns it
-into a real boolean for an `if:`.
+Every subcommand that answers with more than one value -- `next-version`,
+`detect-release` and `post-release` -- prints `key=value` lines, which a
+workflow step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed
+bare; `prerelease` is `true` or `false`, which is valid JSON, so `fromJSON`
+turns it into a real boolean for an `if:`.
 """
 
 from __future__ import annotations
@@ -104,8 +105,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
               git log --reverse --no-merges --format="$(changelog git-log-format)" \\
                   "$LAST_TAG..$BRANCH" > log.txt
-              SIZE=$(changelog bump-size < log.txt)
-              VERSION=$(changelog next-version --previous "$LAST_TAG" < log.txt)
+              changelog next-version --previous "$LAST_TAG" < log.txt >> "$GITHUB_OUTPUT"
+              # ...and, in a later step, with $VERSION set from that output:
               changelog release-notes --repo "$REPO" < log.txt > release-notes.md
               changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entry.md
         """),
@@ -129,10 +130,12 @@ def _build_parser() -> argparse.ArgumentParser:
         'next-version',
         help='Print the version that follows --previous, given the changes on stdin.',
         description=(
-            'Apply the inferred bump size to --previous and print the result. '
-            'Only a plain X.Y.Z is accepted; whether the answer then gains a '
-            'pre-release or dev suffix, and what it implies for any other '
-            'package version in the repository, is for the caller to decide.'
+            'Apply the inferred bump size to --previous and print version= and '
+            'size= lines, so that a caller checking the size gets it from the '
+            'same call. Only a plain X.Y.Z is accepted; whether the answer then '
+            'gains a pre-release or dev suffix, and what it implies for any '
+            'other package version in the repository, is for the caller to '
+            'decide.'
         ),
     )
     next_version_parser.add_argument(
@@ -414,8 +417,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == 'bump-size':
         _emit(infer_bump_size(categories))
     elif args.command == 'next-version':
+        size = infer_bump_size(categories)
         try:
-            _emit(next_version(previous=args.previous, size=infer_bump_size(categories)))
+            _emit(f'version={next_version(previous=args.previous, size=size)}\nsize={size}')
         except ValueError as exc:
             print(f'changelog: {exc}', file=sys.stderr)
             return 2
