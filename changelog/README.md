@@ -37,7 +37,7 @@ Release notes are the same content with `###` headings and `in #2684` in place o
 
 Most of the rules are visible there:
 
-* **A contributor from outside the maintaining team is credited; a maintainer is not.** Pass the team to `--team`, comma-separated, as emails and/or handles; an empty team credits everyone, which is the safe way round, since over-crediting is visible in the draft release and crediting nobody is not.
+* **A contributor from outside the maintaining team is credited; a maintainer is not.** The team is built in (`CHARM_TECH_TEAM` in `_constants.py`), because it is the same for every repository we maintain, so a workflow has nothing to pass. When in doubt, leave someone off the list: over-crediting is visible in the draft release, and crediting nobody is not.
 * **A handle is only sometimes recoverable.** `46688206+ducky-debugger@users.noreply.github.com` gives `@ducky-debugger`, GitHub's default for an account with a private email; where the log has no handle, the person is credited by name.
 * **`chore` is dropped on purpose.** Dependency bumps, charm pins and the release's own version bump are not what a reader came for, and `git log` still has them.
 * **The headings, their order and the commit-type map are fixed.** The format is common across our repositories, so there is nothing for an adopting repository to supply.
@@ -55,11 +55,11 @@ Everything goes through the `changelog` console script. It reads a git log on st
 
 ```shell
 git log --reverse --no-merges --format="$(changelog git-log-format)" "$LAST_TAG..$BRANCH" > log.txt
-SIZE=$(changelog bump-size --team "$TEAM" < log.txt)
-VERSION=$(changelog next-version --previous "$LAST_TAG" --team "$TEAM" < log.txt)
-changelog release-notes --repo "$REPO" --team "$TEAM" \
+SIZE=$(changelog bump-size < log.txt)
+VERSION=$(changelog next-version --previous "$LAST_TAG" < log.txt)
+changelog release-notes --repo "$REPO" \
     --compare-url "https://github.com/$REPO/compare/$LAST_TAG...$VERSION" < log.txt > release-notes.md
-changelog changes-entry --repo "$REPO" --tag "$VERSION" --team "$TEAM" < log.txt > changes-entry.md
+changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entry.md
 ```
 
 The two commands that print one word are for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
