@@ -22,10 +22,11 @@ out: a file, a network call, git itself.
 Four subcommands do not read a git log at all, because they are the version
 and release decisions a release pipeline makes after the changelog is
 written: `detect-release`, `post-release`, `release-body` and `release-title`.
-The two that answer with more than one value print `key=value` lines, which a
-workflow step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed bare;
-`prerelease` is `true` or `false`, which is valid JSON, so `fromJSON` turns it
-into a real boolean for an `if:`.
+Every subcommand that answers with more than one value -- `next-version`,
+`detect-release` and `post-release` -- prints `key=value` lines, which a
+workflow step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed
+bare; `prerelease` is `true` or `false`, which is valid JSON, so `fromJSON`
+turns it into a real boolean for an `if:`.
 """
 
 from __future__ import annotations
@@ -80,9 +81,9 @@ def _emit(text: str) -> None:
 def _input_options() -> argparse.ArgumentParser:
     """Build the parent parser for the options that say what arrives on stdin.
 
-    Shared by the four subcommands that read it, as a parent parser, so that
-    a caller switching input path changes one flag on every command rather
-    than learning four spellings of it.
+    Shared by the two subcommands that credit anyone, `release-notes` and
+    `changes-entry`, as a parent parser, so that a caller passes the team the
+    same way to both rather than learning two spellings of it.
     """
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
@@ -126,8 +127,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
               git log --reverse --no-merges --format="$(changelog git-log-format)" \\
                   "$LAST_TAG..$BRANCH" > log.txt
-              SIZE=$(changelog bump-size --team "$TEAM" < log.txt)
-              VERSION=$(changelog next-version --previous "$LAST_TAG" --team "$TEAM" < log.txt)
+              changelog next-version --previous "$LAST_TAG" < log.txt >> "$GITHUB_OUTPUT"
+              # ...and, in a later step, with $VERSION set from that output:
               changelog release-notes --repo "$REPO" --team "$TEAM" < log.txt > release-notes.md
               changelog changes-entry --repo "$REPO" --tag "$VERSION" --team "$TEAM" \\
                   < log.txt > changes-entry.md
@@ -137,9 +138,11 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest='command', required=True)
     shared = [_input_options()]
 
+    # `bump-size` and `next-version` read a log but credit nobody, so they
+    # take the log without `--team`: who wrote a commit doesn't change the
+    # size of a release.
     subparsers.add_parser(
         'bump-size',
-        parents=shared,
         help="Print 'minor' or 'patch' for the changes on stdin.",
         description=(
             "Print 'minor' if the range contains a feature or a breaking change, "
@@ -152,13 +155,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     next_version_parser = subparsers.add_parser(
         'next-version',
-        parents=shared,
         help='Print the version that follows --previous, given the changes on stdin.',
         description=(
-            'Apply the inferred bump size to --previous and print the result. '
-            'Only a plain X.Y.Z is accepted; whether the answer then gains a '
-            'pre-release or dev suffix, and what it implies for any other '
-            'package version in the repository, is for the caller to decide.'
+            'Apply the inferred bump size to --previous and print version= and '
+            'size= lines, so that a caller checking the size gets it from the '
+            'same call. Only a plain X.Y.Z is accepted; whether the answer then '
+            'gains a pre-release or dev suffix, and what it implies for any '
+            'other package version in the repository, is for the caller to '
+            'decide.'
         ),
     )
     next_version_parser.add_argument(
@@ -434,8 +438,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdin.read(),
         # A workflow passes the team as one repository variable with commas
         # in it, which is the only spelling `--team` takes. Empty entries are
-        # dropped by `normalise_team`.
-        team=args.team.split(','),
+        # dropped by `normalise_team`. Only `release-notes` and
+        # `changes-entry` take `--team`.
+        team=getattr(args, 'team', '').split(','),
         # Only `release-notes` and `changes-entry` take `--repo`.
         repo=getattr(args, 'repo', None),
     )
@@ -443,8 +448,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == 'bump-size':
         _emit(infer_bump_size(categories))
     elif args.command == 'next-version':
+        size = infer_bump_size(categories)
         try:
-            _emit(next_version(previous=args.previous, size=infer_bump_size(categories)))
+            _emit(f'version={next_version(previous=args.previous, size=size)}\nsize={size}')
         except ValueError as exc:
             print(f'changelog: {exc}', file=sys.stderr)
             return 2

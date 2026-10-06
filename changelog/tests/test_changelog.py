@@ -1028,10 +1028,22 @@ class TestConsoleScript:
         assert self.run_cli('bump-size') == (0, 'patch\n', '')
         assert self.run_cli('bump-size', stdin=OPERATOR_BREAKING_LOG) == (0, 'minor\n', '')
 
-    def test_next_version_prints_one_bare_word(self):
-        assert self.run_cli('next-version', '--previous', '3.8.1') == (0, '3.8.2\n', '')
+    def test_next_version_prints_the_version_and_the_size(self):
+        # `key=value` lines, the same as `detect-release` and `post-release`,
+        # so the step appends them to `$GITHUB_OUTPUT` as they stand and a
+        # maintenance-branch check reads the size from the same call.
+        patch = self.run_cli('next-version', '--previous', '3.8.1')
+        assert patch == (0, 'version=3.8.2\nsize=patch\n', '')
         minor = self.run_cli('next-version', '--previous', '3.7.1', stdin=OPERATOR_BREAKING_LOG)
-        assert minor == (0, '3.8.0\n', '')
+        assert minor == (0, 'version=3.8.0\nsize=minor\n', '')
+
+    @pytest.mark.parametrize('command', [['bump-size'], ['next-version', '--previous', '3.8.1']])
+    def test_the_version_commands_take_no_team(self, command: list[str]):
+        # Who wrote a commit doesn't change the size of a release, so a
+        # `--team` here would be accepted and ignored. Refusing it says so.
+        with pytest.raises(SystemExit) as exc_info, contextlib.redirect_stderr(io.StringIO()):
+            self.run_cli(*command, '--team', TEAM_ARGUMENT)
+        assert exc_info.value.code == 2
 
     def test_next_version_fails_rather_than_guessing(self):
         returncode, out, err = self.run_cli('next-version', '--previous', '3.9.0.dev0')
