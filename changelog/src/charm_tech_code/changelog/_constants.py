@@ -274,3 +274,41 @@ UNKNOWN_PREAMBLE = (
     'These changes have a commit type this changelog does not recognise, or '
     'no conventional-commit type at all, and need categorising by hand:'
 )
+
+#: The authors the `changelog` console script does not credit: the Charm Tech
+#: team, as emails and GitHub handles. A contributor from outside it is
+#: credited; someone on it is not, because a maintainer being thanked for
+#: maintaining the project is noise. "Outside the team" is not "outside
+#: Canonical": a Canonical colleague from another team is a contributor.
+#:
+#: It lives here rather than in each repository because it is the same for
+#: every repository the team maintains. The git log carries the address, so
+#: an address is what usually matches, and a handle catches anyone
+#: committing from a no-reply address.
+#:
+#: Leaving someone off over-credits them, which is visible in the draft
+#: release and takes one edit to fix. Adding someone who should be credited
+#: is invisible until they notice. So when in doubt, leave them off.
+CHARM_TECH_TEAM: tuple[str, ...] = (
+    'ben.hoyt@canonical.com',
+    'benhoyt',
+    'david.wilding@canonical.com',
+    'dwilding',
+    'harry.pidcock@canonical.com',
+    'hpidcock',
+    'james.garner@canonical.com',
+    'james-garner-canonical',
+    'matt.patchava@canonical.com',
+    'MattPatchava',
+    'tony.meyer@canonical.com',
+    'tonyandrewmeyer',
+    'trongnhan.mai@canonical.com',
+    'tromai',
+    # Previously on the team, and in ranges that are still being released from.
+    'dima.tisnek@canonical.com',
+    'tiexin.guo@canonical.com',
+    # Ours, and not people.
+    'ben.hoyt+prints-charming-bot@canonical.com',
+    'dependabot[bot]',
+    'Copilot',
+)

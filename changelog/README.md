@@ -37,7 +37,7 @@ Release notes are the same content with `###` headings and `in #2684` in place o
 
 Most of the rules are visible there:
 
-* **A contributor from outside the maintaining team is credited; a maintainer is not.** Pass the team to `--team`, comma-separated, as emails and/or handles; an empty team credits everyone, which is the safe way round, since over-crediting is visible in the draft release and crediting nobody is not.
+* **A contributor from outside the maintaining team is credited; a maintainer is not.** The team is built in (`CHARM_TECH_TEAM` in `_constants.py`), because it is the same for every repository we maintain, so a workflow has nothing to pass. When in doubt, leave someone off the list: over-crediting is visible in the draft release, and crediting nobody is not.
 * **A handle is only sometimes recoverable.** `46688206+ducky-debugger@users.noreply.github.com` gives `@ducky-debugger`, GitHub's default for an account with a private email; where the log has no handle, the person is credited by name.
 * **`chore` is dropped on purpose.** Dependency bumps, charm pins and the release's own version bump are not what a reader came for, and `git log` still has them.
 * **The headings, their order and the commit-type map are fixed.** The format is common across our repositories, so there is nothing for an adopting repository to supply.
@@ -57,9 +57,9 @@ Everything goes through the `changelog` console script. It reads a git log on st
 git log --reverse --no-merges --format="$(changelog git-log-format)" "$LAST_TAG..$BRANCH" > log.txt
 changelog next-version --previous "$LAST_TAG" < log.txt >> "$GITHUB_OUTPUT"
 # ...then, in a later step, with $VERSION set from that output:
-changelog release-notes --repo "$REPO" --team "$TEAM" \
+changelog release-notes --repo "$REPO" \
     --compare-url "https://github.com/$REPO/compare/$LAST_TAG...$VERSION" < log.txt > release-notes.md
-changelog changes-entry --repo "$REPO" --tag "$VERSION" --team "$TEAM" < log.txt > changes-entry.md
+changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entry.md
 ```
 
 `next-version` prints `version=` and `size=` lines for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
@@ -74,7 +74,7 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
 
 ## Versions
 
-`bump-size` says whether a range is a minor or a patch - a `feat` or a breaking change means minor, anything else means patch - and `next-version` applies that to a plain `X.Y.Z`, printing both the version and the size, so a caller that checks the size gets it from the same call. `bump-size` on its own prints the bare word, for a repository that bumps its version some other way, such as `hatch version minor`. Neither takes `--team`: who wrote a commit doesn't change the size of a release. A major bump is never inferred, nor is a pre-release: `next-version` raises rather than guess at anything that isn't `X.Y.Z`, `3.9.0.dev0` included, since that is the guess the last post-release bump left in the version file rather than a version anyone shipped.
+`bump-size` says whether a range is a minor or a patch - a `feat` or a breaking change means minor, anything else means patch - and `next-version` applies that to a plain `X.Y.Z`, printing both the version and the size, so a caller that checks the size gets it from the same call. `bump-size` on its own prints the bare word, for a repository that bumps its version some other way, such as `hatch version minor`. A major bump is never inferred, nor is a pre-release: `next-version` raises rather than guess at anything that isn't `X.Y.Z`, `3.9.0.dev0` included, since that is the guess the last post-release bump left in the version file rather than a version anyone shipped.
 
 The repository decides what to count from, and what any of it means for the other packages it ships. A `minor` on a branch where a feature has no business appearing, such as operator's `2.23-maintenance`, is an error rather than a patch - but which branches those are is the repository's to know, so that check belongs there.
 
