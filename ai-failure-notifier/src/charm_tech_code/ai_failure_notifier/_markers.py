@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Literal
 
 from ._constants import (
@@ -26,6 +27,7 @@ from ._constants import (
     MARKER_PREFIX,
     MARKER_RE,
     MAX_STAMPED_ITEMS,
+    MODEL_STAMP_RE,
     SIGNATURE_STAMP_RE,
 )
 from ._models import RunSignature
@@ -132,6 +134,31 @@ def parse_signature_stamp(text: str) -> dict[str, Any] | None:
             continue
         if isinstance(parsed, dict):
             found = parsed
+    return found
+
+
+# Anything outside the characters OpenRouter model ids are made of. The model
+# name comes back in OpenRouter's response, so it is not trusted to keep out
+# of an HTML comment's way on its own.
+_NOT_MODEL_ID = re.compile(r'[^A-Za-z0-9._:/@~-]')
+
+
+def render_model_stamp(model: str) -> str:
+    """Render the hidden comment naming the model that produced an enriched artefact."""
+    slug = _NOT_MODEL_ID.sub('_', model.strip())[:200] or 'unknown'
+    return f'<!-- {MARKER_PREFIX}:model {slug} -->'
+
+
+def parse_model_stamp(text: str) -> str | None:
+    """The model named by the last model stamp in `text`, or None if there is none.
+
+    Artefacts written before the stamp existed have none, and that is not an
+    error: the model is a note for a reader, not something any decision here
+    depends on.
+    """
+    found = None
+    for match in MODEL_STAMP_RE.finditer(text or ''):
+        found = match['model']
     return found
 
 

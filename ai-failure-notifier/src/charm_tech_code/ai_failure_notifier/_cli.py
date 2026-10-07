@@ -28,7 +28,7 @@ from ._apply import apply_entry, plain_fallback_body, render_body
 from ._candidates import build_candidates_block
 from ._constants import DEFAULT_MODEL, MARKER_PREFIX
 from ._envelope import normalise_envelope, validate_envelope
-from ._markers import render_enriched_marker, render_signature_stamp
+from ._markers import render_enriched_marker, render_model_stamp, render_signature_stamp
 from ._models import RunSignature
 from ._signatures import build_job_signature, build_run_signature
 
@@ -199,22 +199,26 @@ def _search_candidates(config: _RunConfig, origin_kind: str | None, origin_issue
 
 def _fetch_envelope(
     config: _RunConfig, origin_kind: str | None, origin_issue: int, signature: RunSignature
-) -> Any:
-    """Ask the LLM to triage the failure, returning `None` on any failure along the way."""
+) -> tuple[Any, str | None]:
+    """Ask the LLM to triage the failure.
+
+    Returns the envelope and the model that answered, or `(None, None)` on any
+    failure along the way.
+    """
     candidates_block = _search_candidates(config, origin_kind, origin_issue)
     system_prompt, user_prompt = _prompt.build_prompt(
         config.workflow_name, config.run_url, signature, candidates_block
     )
 
     try:
-        envelope = _openrouter.call_openrouter(
+        envelope, answered_by = _openrouter.call_openrouter(
             system_prompt, user_prompt, config.model, config.api_key
         )
     except Exception as exc:  # network error, non-2xx, bad JSON, and so on.
         _summary.write_step_summary(
             f'OpenRouter call failed ({exc}); using the plain fallback body.'
         )
-        return None
+        return None, None
 
     envelope, dropped_fields = normalise_envelope(envelope)
     if dropped_fields:
@@ -225,11 +229,12 @@ def _fetch_envelope(
     errors = validate_envelope(envelope)
     if errors:
         _summary.write_step_summary(
-            'LLM output failed schema validation:\n' + '\n'.join(f'- {e}' for e in errors)
+            f'LLM output from {answered_by} failed schema validation:\n'
+            + '\n'.join(f'- {e}' for e in errors)
         )
-        return None
+        return None, None
 
-    return envelope
+    return envelope, answered_by
 
 
 def _apply_envelope(
@@ -242,11 +247,11 @@ def _apply_envelope(
 ) -> None:
     """Act on a validated LLM envelope: upgrade, comment, or open a new issue.
 
-    `trailer` is the enriched marker plus this run's signature stamp, and goes
-    on every artefact that is *about* this failure. The two pointer notes below
-    get the bare `enriched_marker` instead: they are posted on an issue this
-    failure was decided not to belong to, and stamping that issue with this
-    signature would tell the next run's candidate block the opposite.
+    `trailer` is the enriched marker plus the model and signature stamps, and
+    goes on every artefact that is *about* this failure. The two pointer notes
+    below get the bare `enriched_marker` instead: they are posted on an issue
+    this failure was decided not to belong to, and stamping that issue with
+    this signature would tell the next run's candidate block the opposite.
     """
     if envelope['action'] == 'new' and origin_kind == 'new':
         # Upgrade the placeholder in place rather than creating a duplicate.
@@ -313,7 +318,8 @@ def main() -> int:
     # failure -- the stamp so that when this artefact turns up in a later run's
     # candidate pool, the block can show its test ids and error classes instead
     # of the one line of placeholder body it would otherwise be reduced to.
-    trailer = f'{enriched_marker}\n{render_signature_stamp(config.run_id, signature)}'
+    signature_stamp = render_signature_stamp(config.run_id, signature)
+    trailer = f'{enriched_marker}\n{signature_stamp}'
 
     if not config.api_key:
         _summary.write_step_summary(
@@ -322,11 +328,15 @@ def main() -> int:
         _apply_plain_fallback(config, origin_kind, origin_issue, trailer)
         return 0
 
-    envelope = _fetch_envelope(config, origin_kind, origin_issue, signature)
-    if envelope is None:
+    envelope, answered_by = _fetch_envelope(config, origin_kind, origin_issue, signature)
+    if envelope is None or answered_by is None:
         _apply_plain_fallback(config, origin_kind, origin_issue, trailer)
         return 0
 
+    # Which model wrote this, which with a fallback list is not always the
+    # configured one. Only on the artefacts the answer produced: the plain
+    # fallback above had no model behind it.
+    trailer = f'{enriched_marker}\n{render_model_stamp(answered_by)}\n{signature_stamp}'
     _apply_envelope(config, envelope, origin_kind, origin_issue, enriched_marker, trailer)
     return 0
 
