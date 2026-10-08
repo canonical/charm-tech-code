@@ -21,11 +21,8 @@ import re
 
 MARKER_PREFIX = 'ai-failure-notifications'
 DEFAULT_MODEL = 'deepseek/deepseek-chat'  # DeepSeek V3 on OpenRouter.
-# Tried in order, after the configured model, by OpenRouter's own model
-# routing: it moves on only when the model before it errors, a provider rate
-# limit included. `deepseek/deepseek-chat` has two providers that take the
-# structured-output parameters, so one of them being rate-limited halves the
-# pool; V3.2 has ten.
+# Tried in order after the configured model, by OpenRouter's own routing, which
+# moves on only when the model before it errors (a provider rate limit included).
 FALLBACK_MODELS = ('deepseek/deepseek-v3.2',)
 
 # Retrying a failed OpenRouter call. These are waits between attempts, so
@@ -145,21 +142,6 @@ MARKER_RE = re.compile(
 SIGNATURE_STAMP_RE = re.compile(
     r'<!--\s*' + re.escape(MARKER_PREFIX) + r':signature\s+(?P<json>\{.*?\})\s*-->',
     re.DOTALL,
-)
-
-# The model stamp, a third hidden comment the enricher writes beside the
-# marker on an enriched artefact, naming the model OpenRouter says answered:
-#   <!-- ai-failure-notifications:model deepseek/deepseek-v3.2 -->
-#
-# With a fallback list that is not always the configured model, and the
-# answer's quality is worth being able to attribute. Separate from the marker
-# for the same reason as the signature stamp: MARKER_RE, rung zero and the
-# notifier's own comment lookup all match on ":run=" straight after the
-# prefix, so neither they nor older releases of them see this. The slug is
-# limited to the characters OpenRouter model ids use, so nothing it says can
-# close the comment early.
-MODEL_STAMP_RE = re.compile(
-    r'<!--\s*' + re.escape(MARKER_PREFIX) + r':model\s+(?P<model>[A-Za-z0-9._:/@~-]+)\s*-->'
 )
 
 # An exception class as it appears in a pytest summary line or a traceback's

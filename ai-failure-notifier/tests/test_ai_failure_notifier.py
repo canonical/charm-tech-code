@@ -443,9 +443,9 @@ class MarkerTests(unittest.TestCase):
                 assert line is not None
                 self.assertIn('tests/t.py::test_x', line)
                 self.assertNotIn('deepseek', ' '.join(issue.recent_comments()))
-        self.assertIsNone(_markers.parse_model_stamp(self.OLD_ENRICHED_TRAILER))
-        self.assertEqual(
-            _markers.parse_model_stamp(self._new_enriched_trailer()), 'deepseek/deepseek-v3.2'
+        self.assertNotIn(':model', self.OLD_ENRICHED_TRAILER)
+        self.assertIn(
+            _markers.render_model_stamp('deepseek/deepseek-v3.2'), self._new_enriched_trailer()
         )
 
     def test_a_model_stamp_is_not_a_run_marker_or_a_signature_stamp(self):
@@ -463,11 +463,7 @@ class MarkerTests(unittest.TestCase):
         stamp = _markers.render_model_stamp('evil --> <b>hi</b>')
         self.assertEqual(stamp.count('-->'), 1)
         self.assertTrue(stamp.endswith(' -->'))
-        self.assertEqual(_markers.parse_model_stamp(stamp), 'evil_--___b_hi_/b_')
-
-    def test_the_last_model_stamp_wins(self):
-        text = f'{_markers.render_model_stamp("a/b")}\n{_markers.render_model_stamp("c/d")}'
-        self.assertEqual(_markers.parse_model_stamp(text), 'c/d')
+        self.assertEqual(stamp, '<!-- ai-failure-notifications:model evil_--___b_hi_/b_ -->')
 
     def test_no_marker_present_returns_all_none(self):
         enriched, origin_kind, origin_issue = _markers.find_run_markers(
@@ -936,7 +932,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertIn('<!-- ai-failure-notifications:signature {', body)
         # The model that answered is recorded beside the marker, and the
         # marker it sits beside still reads as this run's enrichment.
-        self.assertEqual(_markers.parse_model_stamp(body), ANSWERED_BY)
+        self.assertIn(_markers.render_model_stamp(ANSWERED_BY), body)
         self.assertEqual(_markers.find_run_markers([(4242, body)], '28141163589')[0], 4242)
 
     def test_the_pointer_note_links_the_run_but_carries_no_signature_stamp(self):
@@ -984,14 +980,14 @@ class MainFlowTests(unittest.TestCase):
         self.assertIn('opened separately', body)
         self.assertIn(f'Run: {self.env["RUN_URL"]}', body)
         self.assertNotIn('ai-failure-notifications:signature', body)
-        self.assertIsNone(_markers.parse_model_stamp(body))
+        self.assertNotIn('ai-failure-notifications:model', body)
         # The new issue itself is about this failure, so it does get the stamps.
         created = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'create')]
         self.assertEqual(len(created), 1)
         created_args = created[0].args
         created_body = created_args[created_args.index('--body') + 1]
         self.assertIn('ai-failure-notifications:signature', created_body)
-        self.assertEqual(_markers.parse_model_stamp(created_body), ANSWERED_BY)
+        self.assertIn(_markers.render_model_stamp(ANSWERED_BY), created_body)
 
     def test_invalid_llm_response_falls_back_to_plain_comment(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
@@ -1014,7 +1010,7 @@ class MainFlowTests(unittest.TestCase):
         self.assertEqual(comment_calls[0].args[2], '4242')
         # The plain fallback had no model behind it, so it names none.
         args = comment_calls[0].args
-        self.assertIsNone(_markers.parse_model_stamp(args[args.index('--body') + 1]))
+        self.assertNotIn('ai-failure-notifications:model', args[args.index('--body') + 1])
 
     def test_no_api_key_uses_plain_fallback_without_calling_llm(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
@@ -1972,7 +1968,7 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertEqual([c.args[0] for c in sleep.call_args_list], [5.0, 15.0])
 
     def test_other_4xx_are_not_retried(self):
-        """A 400 is the request and a 403 is the key's budget: neither is a wait-and-see."""
+        """A 400 is the request and a 402 is the key's credit: neither is a wait-and-see."""
         for status in (400, 401, 402, 403, 404):
             with self.subTest(status=status):
                 message, urlopen, sleep = self._call_raises(self._http_error(status), self._ok())

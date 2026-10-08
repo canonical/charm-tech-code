@@ -27,7 +27,6 @@ from ._constants import (
     MARKER_PREFIX,
     MARKER_RE,
     MAX_STAMPED_ITEMS,
-    MODEL_STAMP_RE,
     SIGNATURE_STAMP_RE,
 )
 from ._models import RunSignature
@@ -144,22 +143,13 @@ _NOT_MODEL_ID = re.compile(r'[^A-Za-z0-9._:/@~-]')
 
 
 def render_model_stamp(model: str) -> str:
-    """Render the hidden comment naming the model that produced an enriched artefact."""
+    """Render the hidden comment naming the model that produced an enriched artefact.
+
+    It is a separate comment from the run marker, like the signature stamp, so
+    that nothing matching on the marker's `:run=` sees it.
+    """
     slug = _NOT_MODEL_ID.sub('_', model.strip())[:200] or 'unknown'
     return f'<!-- {MARKER_PREFIX}:model {slug} -->'
-
-
-def parse_model_stamp(text: str) -> str | None:
-    """The model named by the last model stamp in `text`, or None if there is none.
-
-    Artefacts written before the stamp existed have none, and that is not an
-    error: the model is a note for a reader, not something any decision here
-    depends on.
-    """
-    found = None
-    for match in MODEL_STAMP_RE.finditer(text or ''):
-        found = match['model']
-    return found
 
 
 def render_enriched_marker(run_id: str, signature: RunSignature) -> str:
