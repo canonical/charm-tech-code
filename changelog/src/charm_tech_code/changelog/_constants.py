@@ -108,8 +108,8 @@ PR_SUFFIX_REGEX = re.compile(r'\s*\(#(\d+)\)$')
 ADVISORY_MERGE_SUBJECT = 'Merge commit from fork'
 
 #: Words in a commit summary that are code, and so belong in backticks. PR
-#: titles are written quickly and often leave them out, and a bare
-#: `__init__` or `_a_b` is Markdown emphasis rather than a name. Only shapes
+#: titles often leave them out, and a bare `__init__` or `_a_b` is Markdown
+#: emphasis rather than a name. Only shapes
 #: that are not English are matched, so that this never wraps a word that was
 #: meant as a word:
 #: * A name with a leading underscore, dotted or not, such as `_CharmSpec`,
