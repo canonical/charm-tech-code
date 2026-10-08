@@ -29,6 +29,8 @@ import pytest
 
 from charm_tech_code.draft_release_notes import _cli
 from charm_tech_code.draft_release_notes._draft import (
+    commit_digest,
+    doc_page_url,
     placeholder,
     split_title,
     system_prompt,
@@ -100,12 +102,115 @@ class TestUserPrompt:
         assert 'Compare: https://example.com/compare' in prompt
         assert prompt.endswith('# Exemplar releases\n\n## 3.8.1\n\nA good release.\n')
 
+    def test_adds_the_commit_messages_before_the_exemplars(self):
+        prompt = user_prompt(
+            repo='canonical/operator',
+            version='3.8.3',
+            previous='3.8.2',
+            branch='main',
+            changelog=CHANGELOG,
+            exemplars='## 3.8.1\n\nA good release.\n',
+            commits='## fix: the kettle (#101)\n\nIt was cold.',
+        )
+        assert '# The commit messages for this release\n\n## fix: the kettle (#101)' in prompt
+        assert prompt.index('# The commit messages') < prompt.index('# Exemplar releases')
+
     def test_blank_exemplars_are_no_exemplars(self):
         prompt = user_prompt(
             repo='r/r', version='1.0.0', previous='0.9.0', branch='main', changelog='x',
             exemplars='\n\n',
         )  # fmt: skip
         assert 'Exemplar' not in prompt
+
+
+def commits_log(*commits: tuple[str, str, list[str]]) -> str:
+    """Return a `--commits` log, as git writes one, for (subject, body, files) tuples."""
+    return ''.join(
+        f'\x1e{subject}\x1f{body}\x1f\n\n' + ''.join(f'{f}\n' for f in files)
+        for subject, body, files in commits
+    )
+
+
+DOCS = 'https://example.com/docs/latest'
+
+
+class TestCommitDigest:
+    def test_keeps_the_subject_body_and_files(self):
+        digest = commit_digest(
+            commits_log(('feat: whistle (#7)', 'It whistles.\n', ['ops/kettle.py']))
+        )
+        assert digest == '## feat: whistle (#7)\n\nIt whistles.\n\nFiles: ops/kettle.py'
+
+    def test_leaves_out_what_the_changelog_leaves_out(self):
+        digest = commit_digest(
+            commits_log(
+                ('chore: bump the kettle (#1)', 'Bumps.', ['uv.lock']),
+                ('chore(deps): bump the pot (#2)', 'Bumps.', ['uv.lock']),
+                ('Merge commit from fork', '* fix: a leak', ['ops/model.py']),
+                ('fix: a real fix (#3)', '', ['ops/model.py']),
+            )
+        )
+        assert digest == '## fix: a real fix (#3)\n\nFiles: ops/model.py'
+
+    def test_ci_and_test_commits_keep_only_their_subject_and_files(self):
+        digest = commit_digest(
+            commits_log(
+                ('ci: run it nightly (#1)', 'A long story.', ['.github/workflows/a.yaml']),
+                ('test(scenario): cover the kettle (#2)', 'Another one.', ['test/test_k.py']),
+            )
+        )
+        assert 'story' not in digest
+        assert 'Another' not in digest
+        assert 'Files: test/test_k.py' in digest
+
+    def test_drops_the_trailers_and_the_dashes_above_them(self):
+        body = 'It whistles.\n\n---------\n\nCo-authored-by: Someone <s@example.com>\n'
+        digest = commit_digest(commits_log(('feat: whistle (#7)', body, [])))
+        assert digest == '## feat: whistle (#7)\n\nIt whistles.'
+
+    def test_cuts_a_very_long_body_short(self):
+        digest = commit_digest(commits_log(('feat: whistle (#7)', 'x' * 10_000, [])))
+        assert len(digest) < 4100
+        assert digest.endswith('[...]')
+
+    def test_links_the_documentation_pages_a_commit_changed(self):
+        digest = commit_digest(
+            commits_log((
+                'docs: add a how-to guide for brewing (#9)',
+                '',
+                ['docs/.custom_wordlist.txt', 'docs/howto/index.md', 'docs/howto/brew.md'],
+            )),
+            docs_url=DOCS,
+        )
+        assert digest.endswith(f'Documentation pages: {DOCS}/howto/brew/')
+
+    def test_no_docs_url_is_no_links(self):
+        digest = commit_digest(
+            commits_log(('docs: brew (#9)', '', ['docs/howto/brew.md'])),
+        )
+        assert 'Documentation pages' not in digest
+
+
+class TestDocPageUrl:
+    @pytest.mark.parametrize(
+        ('path', 'expected'),
+        [
+            ('docs/howto/brew.md', f'{DOCS}/howto/brew/'),
+            ('docs/reference/kettle.rst', f'{DOCS}/reference/kettle/'),
+            ('docs/howto/index.md', None),
+            ('docs/index.md', None),
+            ('docs/.custom_wordlist.txt', None),
+            ('docs/_templates/page.md', None),
+            ('docs/conf.py', None),
+            ('ops/model.py', None),
+            ('README.md', None),
+        ],
+    )
+    def test_where_a_file_is_published(self, path: str, expected: str | None):
+        assert doc_page_url(path, DOCS) == expected
+
+    def test_another_docs_directory(self):
+        assert doc_page_url('site/howto/brew.md', DOCS + '/', 'site') == f'{DOCS}/howto/brew/'
 
 
 class TestTidy:
@@ -265,6 +370,20 @@ class TestConsoleScript:
         )
         assert 'Compare: https://example.com/compare' in user['content']
         assert '## 3.8.1' in user['content']
+
+    def test_sends_the_commit_messages_with_their_doc_links(self, files, monkeypatch, tmp_path):
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-test')
+        monkeypatch.setenv('OPENROUTER_MODEL', 'some/model')
+        commits = tmp_path / 'commits.txt'
+        commits.write_text(
+            commits_log(('docs: a how-to for brewing (#9)', 'Brew.', ['docs/howto/brew.md']))
+        )
+        urlopen = model_says('A routine release.')
+        with mock.patch.object(urllib.request, 'urlopen', urlopen):
+            assert self.run(files, '--commits', str(commits), '--docs-url', DOCS) == 0
+        user = json.loads(urlopen.call_args.args[0].data)['messages'][1]['content']
+        assert '## docs: a how-to for brewing (#9)\n\nBrew.' in user
+        assert f'Documentation pages: {DOCS}/howto/brew/' in user
 
     def test_a_failed_call_writes_the_placeholder_and_succeeds(self, files, monkeypatch):
         monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-test')

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import importlib.resources
+import pathlib
 import re
 
 # The release pull request's description wraps the notes and the title's
@@ -35,6 +36,96 @@ TITLE_LINE = re.compile(r'\A\**Title:\**\s*(?P<summary>.*?)\s*\Z', re.IGNORECASE
 # fence anyway.
 WRAPPING_FENCE = re.compile(r'\A```(?:markdown|md)?\n(?P<body>.*)\n```\s*\Z', re.DOTALL)
 
+# The `git log` format `--commits` expects, with `--name-only`: a record
+# separator, the subject, a unit separator, the body, and another unit
+# separator, after which git lists the files the commit changed.
+COMMITS_LOG_FORMAT = '%x1e%s%x1f%b%x1f'
+
+# Commits the changelog leaves out, so the model is not shown them either: a
+# `chore`, and the merge of a security advisory's private fork, whose fix has
+# already been released. These mirror the `changelog` package's
+# `IGNORED_TYPES` and `ADVISORY_MERGE_SUBJECT`.
+SKIPPED_SUBJECT = re.compile(r'\Achore(?:\([^()]*\))?!?:|\AMerge commit from fork\Z')
+
+# Commits whose body the model is not shown, only the subject and files: the
+# prompt has it leave CI and our own tests out, so the detail is no use.
+SUBJECT_ONLY = re.compile(r'\A(?:ci|test)(?:\([^()]*\))?!?:')
+
+# Trailers that say who wrote a commit, which is not what the model is for.
+TRAILER = re.compile(r'^(?:Co-authored-by|Signed-off-by):.*$\n?', re.MULTILINE | re.IGNORECASE)
+
+# A squash commit's body ends with a line of dashes above the trailers.
+DASHES = re.compile(r'^-{3,}\s*$\n?', re.MULTILINE)
+
+# How much of each commit the model sees. A pull-request description is
+# usually far shorter; this is for the ones that paste a log into it.
+MAX_BODY = 4000
+MAX_FILES = 20
+
+
+def commit_digest(log_text: str, *, docs_url: str | None = None, docs_dir: str = 'docs') -> str:
+    """Return the commit messages for the model to read, from a `--commits` log.
+
+    `log_text` is ``git log --reverse --no-merges --name-only`` output in
+    `COMMITS_LOG_FORMAT`. Each commit the changelog would list is kept, with
+    its body (trailers dropped, and cut short if it is very long) and the
+    files it changed. A `ci` or `test` commit keeps only its subject and
+    files, since those are left out of the notes. With a `docs_url`, each
+    Markdown or reStructuredText page under `docs_dir` that a commit changed
+    is also given as the address it is published at, so that the model can
+    link it rather than ask for the link: `docs/howto/secure-your-charm.md` under
+    `https://example.com/docs` is `https://example.com/docs/howto/secure-your-charm/`.
+    """
+    sections: list[str] = []
+    for record in log_text.split('\x1e'):
+        subject, _, rest = record.partition('\x1f')
+        body, _, files_text = rest.partition('\x1f')
+        subject = subject.strip()
+        if not subject or SKIPPED_SUBJECT.search(subject):
+            continue
+        if SUBJECT_ONLY.search(subject):
+            body = ''
+        body = DASHES.sub('', TRAILER.sub('', body)).strip()
+        if len(body) > MAX_BODY:
+            body = body[:MAX_BODY].rstrip() + '\n[...]'
+        files = [line.strip() for line in files_text.splitlines() if line.strip()]
+        lines = [f'## {subject}', '']
+        if body:
+            lines += [body, '']
+        if files:
+            shown = ', '.join(files[:MAX_FILES])
+            more = f' (and {len(files) - MAX_FILES} more)' if len(files) > MAX_FILES else ''
+            lines.append(f'Files: {shown}{more}')
+        pages = [doc_page_url(f, docs_url, docs_dir) for f in files] if docs_url else []
+        pages = [page for page in pages if page]
+        if pages:
+            lines.append(f'Documentation pages: {", ".join(pages)}')
+        sections.append('\n'.join(lines).strip())
+    return '\n\n'.join(sections)
+
+
+def doc_page_url(path: str, docs_url: str, docs_dir: str = 'docs') -> str | None:
+    """Return where a documentation source file is published, or None if it is not a page.
+
+    The site is assumed to serve `<docs_dir>/<path>.md` at `<docs_url>/<path>/`,
+    which is how the Sphinx sites built from the Canonical starter pack do it.
+    An `index` page is not given: a commit changes one to list a new page,
+    and the new page is the one to link.
+    """
+    source = pathlib.PurePosixPath(path)
+    try:
+        relative = source.relative_to(docs_dir.strip('/'))
+    except ValueError:
+        return None
+    if source.suffix not in ('.md', '.rst') or any(
+        part.startswith(('.', '_')) for part in relative.parts
+    ):
+        return None
+    page = relative.with_suffix('')
+    if page.name == 'index':
+        return None
+    return f'{docs_url.rstrip("/")}/{page}/'
+
 
 def system_prompt(repo: str, version: str) -> str:
     """Return the system prompt, with the release filled in."""
@@ -51,11 +142,13 @@ def user_prompt(
     changelog: str,
     exemplars: str = '',
     compare_url: str | None = None,
+    commits: str = '',
 ) -> str:
     """Return the user message: everything about this particular release.
 
-    The generated changelog, the range it covers, and the exemplar releases,
-    if the caller has any.
+    The generated changelog, the range it covers, and, if the caller has
+    them, the commit messages (as `commit_digest` gives them) and the
+    exemplar releases.
     """
     parts = [
         '# This release',
@@ -69,6 +162,8 @@ def user_prompt(
     if compare_url:
         parts.append(f'Compare: {compare_url}')
     parts += ['', '# The generated changelog for this release', '', changelog.strip()]
+    if commits.strip():
+        parts += ['', '# The commit messages for this release', '', commits.strip()]
     if exemplars.strip():
         parts += ['', '# Exemplar releases', '', exemplars.strip()]
     return '\n'.join(parts) + '\n'
