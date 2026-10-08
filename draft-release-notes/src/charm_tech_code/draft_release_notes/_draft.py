@@ -108,7 +108,7 @@ def doc_page_url(path: str, docs_url: str, docs_dir: str = 'docs') -> str | None
     """Return where a documentation source file is published, or None if it is not a page.
 
     The site is assumed to serve `<docs_dir>/<path>.md` at `<docs_url>/<path>/`,
-    which is how the Sphinx sites built from the Canonical starter pack do it.
+    which is how the sites built with the Canonical Sphinx Stack do it.
     An `index` page is not given: a commit changes one to list a new page,
     and the new page is the one to link.
     """

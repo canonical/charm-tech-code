@@ -26,7 +26,7 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
 git log --reverse --no-merges --name-only --format='%x1e%s%x1f%b%x1f' "$PREVIOUS..$BRANCH" > commits.txt
 ```
 
-The commits the changelog leaves out (`chore`, and a security advisory's merge) are dropped, `ci` and `test` commits keep only their subject and files, and trailers go. With `--docs-url`, a page under `--docs-dir` (`docs` unless you say otherwise) that a commit changed is passed to the model with its published address, so that a new how-to is linked rather than left as a question for the reviewer. `docs/howto/brew.md` is taken to be published at `<docs-url>/howto/brew/`, which is how the Sphinx starter pack sites serve pages.
+The commits the changelog leaves out (`chore`, and a security advisory's merge) are dropped, `ci` and `test` commits keep only their subject and files, and trailers go. With `--docs-url`, a page under `--docs-dir` (`docs` unless you say otherwise) that a commit changed is passed to the model with its published address, so that a new how-to is linked rather than left as a question for the reviewer. `docs/howto/brew.md` is taken to be published at `<docs-url>/howto/brew/`, which is how sites built with the Canonical Sphinx Stack serve pages.
 
 `canonical/operator`'s `.github/workflows/propose-release.yaml` is the calling side, including how it fetches the exemplars and wraps the notes and the summary in the `release-notes` and `release-title` markers that the `changelog` package's `release-body` and `release-title` read them back out of.
 
