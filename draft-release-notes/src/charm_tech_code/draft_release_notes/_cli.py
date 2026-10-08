@@ -32,6 +32,7 @@ import sys
 from collections.abc import Sequence
 
 from ._draft import (
+    commit_digest,
     placeholder,
     split_title,
     system_prompt,
@@ -68,6 +69,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Past release bodies to write in the register of. Optional.',
     )
     parser.add_argument('--compare-url', default=None, metavar='URL')
+    parser.add_argument(
+        '--commits',
+        default=None,
+        metavar='PATH',
+        help=(
+            "The range's commit messages, as git log --reverse --no-merges --name-only "
+            "--format='%%x1e%%s%%x1f%%b%%x1f' prints them. Optional."
+        ),
+    )
+    parser.add_argument(
+        '--docs-url',
+        default=None,
+        metavar='URL',
+        help=(
+            'Where the documentation is published, so that a page a commit changed '
+            'can be linked. Only used with --commits. Optional.'
+        ),
+    )
+    parser.add_argument(
+        '--docs-dir',
+        default='docs',
+        metavar='PATH',
+        help='Where the documentation source is in the repository. Defaults to docs.',
+    )
     parser.add_argument(
         '--output',
         required=True,
@@ -117,6 +142,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     exemplars = pathlib.Path(args.exemplars).read_text() if args.exemplars else ''
+    commits = (
+        commit_digest(
+            pathlib.Path(args.commits).read_text(),
+            docs_url=args.docs_url,
+            docs_dir=args.docs_dir,
+        )
+        if args.commits
+        else ''
+    )
     system = system_prompt(args.repo, args.version)
     user = user_prompt(
         repo=args.repo,
@@ -126,6 +160,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         changelog=pathlib.Path(args.changelog).read_text(),
         exemplars=exemplars,
         compare_url=args.compare_url,
+        commits=commits,
     )
     try:
         answer = tidy(call_openrouter(system, user, model, api_key))

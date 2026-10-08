@@ -38,6 +38,12 @@ PULL_REQUEST_URL_TEMPLATE = 'https://github.com/{repo}/pull/{number}'
 #: notes rendered here read the same as notes rendered there.
 FULL_CHANGELOG_PREFIX = '**Full Changelog**'
 
+#: The prefix of the compare line a release *body* ends with, which is not
+#: GitHub's. The body already has a `## Changelog` heading, and a "Full
+#: Changelog" under it reads as a second, longer version of the same list,
+#: when the link is to the commits.
+ALL_COMMITS_PREFIX = '**All commits**'
+
 #: The ``git log --format=`` string `parse_git_log` expects, and the two
 #: control characters it is built out of.
 #:
@@ -92,6 +98,37 @@ COMMIT_SUBJECT_REGEX = re.compile(
 #: Such a change is real and belongs in the changelog, so it is carried with
 #: no number rather than with a placeholder that hides it.
 PR_SUFFIX_REGEX = re.compile(r'\s*\(#(\d+)\)$')
+
+#: The subject GitHub gives the commit that merges a security advisory's
+#: temporary private fork. It is not conventional, so it would land under
+#: `UNKNOWN`, credited to whoever merged it. It is left out instead: an
+#: advisory's fix goes out in a security release of its own, with an entry
+#: written by hand (3.8.3, from a branch, then this commit on `main` and in
+#: 3.9.0's range), so by the time it is in a range here it has been released.
+ADVISORY_MERGE_SUBJECT = 'Merge commit from fork'
+
+#: Words in a commit summary that are code, and so belong in backticks. PR
+#: titles often leave them out, and a bare `__init__` or `_a_b` is Markdown
+#: emphasis rather than a name. Only shapes
+#: that are not English are matched, so that this never wraps a word that was
+#: meant as a word:
+#: * A name with a leading underscore, dotted or not, such as `_CharmSpec`,
+#:   `__init__` or `ops._private.yaml`.
+#: * A PascalCase exception or warning name, such as `RelationNotFoundError`.
+#: * Anything immediately followed by a call's parentheses: `load_config()`,
+#:   `_Abort(0)`. The parentheses are part of the match.
+#: Text already in backticks is never looked at; see `_parse.code_spans`.
+CODE_WORD_REGEX = re.compile(
+    r'(?<![\w`.])(?:'
+    r'(?:[A-Za-z]\w*\.)*_\w+(?:\.\w+)*(?:\([^()\s]*\))?'
+    r'|(?:[A-Za-z]\w*\.)*[A-Z][a-z\d]+(?:[A-Z][a-z\d]*)*(?:Error|Exception|Warning)\b'
+    r'(?:\([^()\s]*\))?'
+    r'|(?:[A-Za-z]\w*\.)*[A-Za-z]\w*\([^()\s]*\)'
+    r')'
+)
+
+#: A span already in backticks, which `code_spans` steps over.
+CODE_SPAN_REGEX = re.compile(r'`[^`]*`')
 
 #: What GitHub's "Revert" button writes into the body of the revert pull
 #: request: ``Reverts canonical/operator#2538``. It names the *pull request*
@@ -244,6 +281,18 @@ RELEASE_TITLE_PLACEHOLDER_REGEX = re.compile(r'^_No title was drafted for \S+:')
 #: A `CHANGES.md` section heading, as `format_changes` writes it:
 #: `# 3.8.3 - 22 September 2026`.
 CHANGES_SECTION_HEADING_REGEX = re.compile(r'^# (?P<version>\S+) - (?P<date>.*)$')
+
+#: The credit on a `CHANGES.md` entry, as `format_changes` writes it: ` by
+#: @handle` or ` by Name`, then the pull-request link. A name is only read
+#: where the link follows it, because without the link there is nothing to
+#: tell "by Name" from a summary that happens to say "by" in it. A handle is
+#: unambiguous either way.
+CHANGES_CREDIT_REGEX = re.compile(
+    r'^\* .* by (?:(?P<handle>@[A-Za-z\d][A-Za-z\d-]*(?:\[bot\])?)'
+    r'(?: \(\[#\d+\]\([^)]*\)\))?'
+    r'|(?P<name>[^()\n]+?) \(\[#\d+\]\([^)]*\)\))[ \t]*$',
+    re.MULTILINE,
+)
 
 #: Commit type to the heading it is rendered under. A type with no entry
 #: here is capitalised instead, which is what makes an unrecognised type

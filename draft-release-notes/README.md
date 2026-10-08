@@ -14,10 +14,19 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
     --repo "$GITHUB_REPOSITORY" --version "$VERSION" --previous "$PREVIOUS" --branch "$BRANCH" \
     --changelog changes-entry.md --exemplars exemplars.md \
     --compare-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$PREVIOUS...$VERSION" \
+    --commits commits.txt --docs-url https://canonical.com/juju/docs/ops/latest \
     --output release-notes.md --title-output release-title.md
 ```
 
 `--changelog` is this release's entry, as `changelog changes-entry` prints it. `--title-output` is optional: where to write a one-line summary for the release's title, the part after `X.Y.Z: `, which the model gives as a `Title:` line ahead of the notes. Like the notes, it is always written, as a placeholder when there is no model or the model did not suggest one. `--exemplars` is optional: the bodies of a few past releases whose notes are worth writing like, which is the only thing a repository chooses for itself. The key and the model come from the environment, as `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`.
+
+`--commits` is optional, and makes a large difference to the draft: the range's commit messages, which under squash merging are the pull-request descriptions. The changelog says what changed in a line; the descriptions say what it means, often with an example the notes can use. Write the file with:
+
+```shell
+git log --reverse --no-merges --name-only --format='%x1e%s%x1f%b%x1f' "$PREVIOUS..$BRANCH" > commits.txt
+```
+
+The commits the changelog leaves out (`chore`, and a security advisory's merge) are dropped, `ci` and `test` commits keep only their subject and files, and trailers go. With `--docs-url`, a page under `--docs-dir` (`docs` unless you say otherwise) that a commit changed is passed to the model with its published address, so that a new how-to is linked rather than left as a question for the reviewer. `docs/howto/brew.md` is taken to be published at `<docs-url>/howto/brew/`, which is how sites built with the Canonical Sphinx Stack serve pages.
 
 `canonical/operator`'s `.github/workflows/propose-release.yaml` is the calling side, including how it fetches the exemplars and wraps the notes and the summary in the `release-notes` and `release-title` markers that the `changelog` package's `release-body` and `release-title` read them back out of.
 

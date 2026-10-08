@@ -25,6 +25,11 @@ Neither half of the body is written here:
   generated a second time: one source of truth, so the file and the release
   cannot drift.
 
+The body ends by thanking whoever the changelog credits. That is built here
+rather than drafted with the notes, so that nobody is mentioned in the release
+pull request: a contributor should be notified about the release, not about
+the pull request that prepares it.
+
 The title's summary comes out of the same description, from between the
 `release-title` markers, and the version in front of it is added here.
 
@@ -41,8 +46,9 @@ from __future__ import annotations
 import re
 
 from ._constants import (
+    ALL_COMMITS_PREFIX,
+    CHANGES_CREDIT_REGEX,
     CHANGES_SECTION_HEADING_REGEX,
-    FULL_CHANGELOG_PREFIX,
     RELEASE_NOTES_END_REGEX,
     RELEASE_NOTES_PLACEHOLDER_REGEX,
     RELEASE_NOTES_START_REGEX,
@@ -191,12 +197,39 @@ def release_body(notes: str, section: str, compare_url: str | None = None) -> st
     title, and `## Category` headings that would outrank the `##` the notes
     are written in.
 
-    With a `compare_url`, the body ends on the same "Full Changelog" line a
-    release GitHub generates does. The caller supplies it because the
-    previous release is the caller's to know.
+    With a `compare_url`, the changelog is followed by an "All commits" line
+    linking to it. The caller supplies it because the previous release is the
+    caller's to know.
+
+    The very last line thanks the contributors the section credits, if it
+    credits anyone; see `thanks`.
     """
     entries = _HEADING.sub(r'#\1', '\n'.join(section.splitlines()[1:]).strip())
     body = f'{notes.strip()}\n\n---\n\n## Changelog\n\n{entries}\n'
     if compare_url:
-        body += f'\n{FULL_CHANGELOG_PREFIX}: {compare_url}\n'
+        body += f'\n{ALL_COMMITS_PREFIX}: {compare_url}\n'
+    if line := thanks(section):
+        body += f'\n{line}\n'
     return body
+
+
+def thanks(section: str) -> str | None:
+    """Return a sentence thanking the people a changelog section credits.
+
+    The credits are read back out of the section's entries rather than passed
+    in, because the section is what a human has reviewed: a credit removed
+    from `CHANGES.md` in the release pull request is not thanked, and one
+    added there is. Each person is thanked once, in the order they first
+    appear. A section that credits nobody gives `None`, and no sentence.
+    """
+    people: list[str] = []
+    for match in CHANGES_CREDIT_REGEX.finditer(section):
+        person = (match.group('handle') or match.group('name')).strip()
+        if person not in people:
+            people.append(person)
+    if not people:
+        return None
+    if len(people) == 1:
+        return f'Thanks {people[0]} for your contribution to this release!'
+    names = people[0] if len(people) == 2 else ', '.join(people[:-1]) + ','
+    return f'Thanks {names} and {people[-1]} for your contributions to this release!'

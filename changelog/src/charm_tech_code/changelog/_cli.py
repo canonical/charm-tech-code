@@ -273,7 +273,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             'Read a merged release pull request description on stdin, take the '
             'release notes from between its release-notes markers, and print them '
-            "followed by the version's section of the changelog."
+            "followed by the version's section of the changelog and a line "
+            'thanking the contributors it credits.'
         ),
     )
     release_body_parser.add_argument(
@@ -293,8 +294,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar='URL',
         help=(
-            'A link comparing the previous release with this one, to end the '
-            'body on as a "Full Changelog" line. Optional.'
+            'A link comparing the previous release with this one, to put after '
+            'the changelog as an "All commits" line. Optional.'
         ),
     )
 

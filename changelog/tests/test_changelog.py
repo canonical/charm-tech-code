@@ -57,7 +57,7 @@ from charm_tech_code.changelog._format import (
     format_release_notes,
 )
 from charm_tech_code.changelog._models import Change
-from charm_tech_code.changelog._parse import parse_git_log
+from charm_tech_code.changelog._parse import code_spans, parse_git_log
 from charm_tech_code.changelog._version import MINOR, PATCH, infer_bump_size, next_version
 
 # The team that maintains the repository the fixtures come from: emails,
@@ -750,6 +750,29 @@ class TestGitLogParse:
         ]
         assert sum(len(items) for items in categories.values()) == 3
 
+    def test_a_security_advisory_merge_is_left_out(self):
+        # GitHub's subject for merging an advisory's private fork. The fix in
+        # it went out in its own security release, so it is neither listed
+        # again nor credited, whoever's address it carries.
+        categories = self.parse(
+            (('Hazel Grouse', 'hazel@example.com'), 'Merge commit from fork', '* fix: a leak'),
+            (FOCAL, 'fix: a genuine bug (#1)', ''),
+        )
+        assert categories['unknown'] == []
+        assert categories['fix'] == [Change('A genuine bug', 1)]
+
+    def test_code_in_a_summary_gets_backticks(self):
+        categories = self.parse(
+            (FOCAL, "fix: treat an _Abort(0) from the charm's __init__ as success (#1)", ''),
+        )
+        assert categories['fix'] == [
+            Change("Treat an `_Abort(0)` from the charm's `__init__` as success", 1)
+        ]
+
+    def test_a_summary_that_starts_with_code_is_not_capitalised(self):
+        categories = self.parse((FOCAL, 'fix: _private_thing no longer leaks (#1)', ''))
+        assert categories['fix'] == [Change('`_private_thing` no longer leaks', 1)]
+
     def test_an_unrecognised_commit_type_is_uncategorised_with_its_type(self):
         # `style` is not a category and not in `IGNORED_TYPES`, so it is a
         # surprise: either a typo or a repository without the PR-title check.
@@ -792,6 +815,48 @@ class TestGitLogParse:
             git_log((FOCAL, 'fix: polish the runes (#1)', '')) + '\n', team=OPERATOR_TEAM
         )
         assert categories['fix'] == [Change('Polish the runes', 1)]
+
+
+class TestCodeSpans:
+    """Backticks round the words in a summary that are plainly code."""
+
+    @pytest.mark.parametrize(
+        ('summary', 'expected'),
+        [
+            ('make _CharmSpec covariant', 'make `_CharmSpec` covariant'),
+            ('dunder __init__ and __call__', 'dunder `__init__` and `__call__`'),
+            ('treat _Abort(0) as success', 'treat `_Abort(0)` as success'),
+            ('raise RelationNotFoundError', 'raise `RelationNotFoundError`'),
+            ('raise ops.ModelError here', 'raise `ops.ModelError` here'),
+            ('a DeprecationWarning for it', 'a `DeprecationWarning` for it'),
+            ('call load_config() first', 'call `load_config()` first'),
+            ('read ops._private.yaml', 'read `ops._private.yaml`'),
+        ],
+    )
+    def test_code_is_wrapped(self, summary: str, expected: str):
+        assert code_spans(summary) == expected
+
+    @pytest.mark.parametrize(
+        'summary',
+        [
+            'drop typing.cast where narrowing can do the work',
+            'raise an Error when the kettle boils',
+            'support Python 3.14 (the new one)',
+            'record trace data with opentelemetry-sdk 1.45',
+            'detect Pydantic dataclasses from before 2.11',
+            'let charms set `on` without a type: ignore',
+        ],
+    )
+    def test_words_are_left_alone(self, summary: str):
+        assert code_spans(summary) == summary
+
+    def test_existing_backticks_are_not_doubled(self):
+        summary = 'raise `RelationNotFoundError` from `_Abort(0)` and _Other'
+        assert code_spans(summary) == 'raise `RelationNotFoundError` from `_Abort(0)` and `_Other`'
+
+    def test_running_it_twice_changes_nothing(self):
+        once = code_spans("treat an _Abort(0) from the charm's __init__ as ModelError")
+        assert code_spans(once) == once
 
 
 class TestAuthorCredit:
