@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import email.utils
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -132,11 +133,25 @@ def call_openrouter(
     raise AssertionError('retry loop exited without a result')
 
 
+# Some providers wrap the JSON in a Markdown code fence even under the strict
+# `json_schema` response format. Only a fence around the whole reply is removed:
+# the envelope is still validated afterwards, like any other reply.
+_FENCED = re.compile(r'\A\s*```(?:json)?[ \t]*\n(?P<inner>.*)\n[ \t]*```\s*\Z', re.DOTALL)
+
+
 def _parse_reply(body: dict[str, Any], requested: str) -> tuple[dict[str, Any], str]:
     """The envelope from a chat completion, and the model OpenRouter says produced it."""
     content = body['choices'][0]['message']['content']
     answered_by = str(body.get('model') or requested)
     print(f'OpenRouter answered with model {answered_by}.', file=sys.stderr, flush=True)
+    fenced = _FENCED.match(content)
+    if fenced:
+        print(
+            'The reply was in a Markdown code fence; parsing inside it.',
+            file=sys.stderr,
+            flush=True,
+        )
+        content = fenced['inner']
     return json.loads(content), answered_by
 
 

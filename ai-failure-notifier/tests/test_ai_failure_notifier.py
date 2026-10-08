@@ -2085,6 +2085,40 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertIn('HTTP Error 400', message)
         self.assertIn("'required' is missing 'also'", message)
 
+    def test_a_reply_in_a_code_fence_is_unwrapped(self):
+        envelope = {'action': 'new', 'body': 'b'}
+        for content in (
+            f'```json\n{json.dumps(envelope)}\n```',
+            f'```\n{json.dumps(envelope, indent=2)}\n```',
+            f'\n  ```json  \n{json.dumps(envelope)}\n  ```\n',
+        ):
+            with self.subTest(content=content):
+                with (
+                    mock.patch.object(
+                        _openrouter.urllib.request,
+                        'urlopen',
+                        return_value=self._response(content, 'deepseek/deepseek-v3.2'),
+                    ),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    result, _ = _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+                self.assertEqual(result, envelope)
+
+    def test_only_a_fence_around_the_whole_reply_is_unwrapped(self):
+        envelope = json.dumps({'action': 'new', 'body': 'b'})
+        for content in (f'Here you go:\n```json\n{envelope}\n```', f'```json\n{envelope}'):
+            with (
+                self.subTest(content=content),
+                mock.patch.object(
+                    _openrouter.urllib.request,
+                    'urlopen',
+                    return_value=self._response(content, 'm'),
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(json.JSONDecodeError),
+            ):
+                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+
     def test_a_body_that_is_not_json_is_reported_as_it_came(self):
         error = b'<html>upstream is unwell</html>'
         message, _, _ = self._call_raises(
