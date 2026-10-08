@@ -368,6 +368,11 @@ class TestReleaseNotesFromDescription:
             DESCRIPTION.replace('<!-- release', '  <!-- release')
         )
 
+    def test_takes_a_description_with_crlf_line_endings(self):
+        """GitHub's web editor saves a description with CRLF line endings."""
+        notes = release_notes_from_description(DESCRIPTION.replace('\n', '\r\n'))
+        assert notes == release_notes_from_description(DESCRIPTION)
+
 
 class TestChangelogSection:
     """Slicing this release's entry out of a CHANGES.md."""
@@ -492,6 +497,11 @@ class TestReleaseTitle:
     def test_an_empty_summary_is_the_bare_version(self):
         assert release_title('3.8.3', '') == '3.8.3'
         assert release_title('3.8.3', '3.8.3:') == '3.8.3'
+
+    def test_takes_a_description_with_crlf_line_endings(self):
+        """GitHub's web editor saves a description with CRLF line endings."""
+        summary = release_summary_from_description(TITLE_DESCRIPTION.replace('\n', '\r\n'))
+        assert summary == 'fix how the kettle reports itself'
 
     def test_one_marker_without_the_other_is_an_error(self):
         """Half a pair is an edit gone wrong, not an absence."""
