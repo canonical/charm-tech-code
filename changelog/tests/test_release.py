@@ -45,6 +45,7 @@ from charm_tech_code.changelog._release_body import (
     release_notes_from_description,
     release_summary_from_description,
     release_title,
+    thanks,
 )
 
 # The shape a release pull request's description has, down to the blank lines
@@ -444,12 +445,70 @@ class TestReleaseBody:
         """The line GitHub's own generated bodies end on."""
         url = 'https://github.com/canonical/operator/compare/3.8.2...3.8.3'
         body = release_body('The notes.', changelog_section(CHANGES, '3.8.3'), url)
-        assert body.endswith(f'\n\n**Full Changelog**: {url}\n')
-        assert body.index('**Full Changelog**') > body.index('### Documentation')
+        assert body.endswith(f'\n\n**All commits**: {url}\n')
+        assert body.index('**All commits**') > body.index('### Documentation')
 
     def test_has_no_compare_link_without_one(self):
         body = release_body('The notes.', changelog_section(CHANGES, '3.8.3'))
-        assert 'Full Changelog' not in body
+        assert 'All commits' not in body
+
+
+CREDITED_CHANGES = """# 3.8.3 - 22 September 2026
+
+## Fixes
+
+* Stop the kettle reporting itself boiled while cold by @ducky-debugger ([#101](https://example.com/101))
+* Warm the pot by Hazel Grouse ([#103](https://example.com/103))
+* Pour from a height by @ducky-debugger ([#104](https://example.com/104))
+
+## Documentation
+
+* Explain which way up the teapot goes by @tea-cosy ([#102](https://example.com/102))
+* Say why the tea went by hand
+"""
+
+
+class TestThanks:
+    """The closing line, read back out of the changelog section's credits."""
+
+    def test_nobody_credited_is_no_line(self):
+        assert thanks(changelog_section(CHANGES, '3.8.3')) is None
+        assert 'Thanks' not in release_body('The notes.', changelog_section(CHANGES, '3.8.3'))
+
+    def test_one_contributor(self):
+        section = changelog_section(CHANGES, '3.8.3').replace(
+            'while cold (', 'while cold by @ducky-debugger ('
+        )
+        assert thanks(section) == 'Thanks @ducky-debugger for your contribution to this release!'
+
+    def test_several_are_each_thanked_once_in_order(self):
+        assert thanks(CREDITED_CHANGES) == (
+            'Thanks @ducky-debugger, Hazel Grouse, and @tea-cosy'
+            ' for your contributions to this release!'
+        )
+
+    def test_two_have_no_comma(self):
+        section = CREDITED_CHANGES.replace(' by Hazel Grouse', '').replace(' by @tea-cosy', '')
+        section += '* Steep it longer by @tea-cosy ([#105](https://example.com/105))\n'
+        assert thanks(section) == (
+            'Thanks @ducky-debugger and @tea-cosy for your contributions to this release!'
+        )
+
+    def test_by_in_a_summary_with_no_link_is_not_a_credit(self):
+        # "by hand" is a summary that happens to say "by", not a person.
+        assert 'hand' not in (thanks(CREDITED_CHANGES) or '')
+
+    def test_it_is_the_last_line_of_the_body(self):
+        url = 'https://github.com/canonical/operator/compare/3.8.2...3.8.3'
+        body = release_body('The notes.', CREDITED_CHANGES, url)
+        assert body.endswith(
+            f'**All commits**: {url}\n\nThanks @ducky-debugger, Hazel Grouse, and @tea-cosy'
+            ' for your contributions to this release!\n'
+        )
+
+    def test_the_notes_are_not_where_it_comes_from(self):
+        body = release_body('Thanks to everyone.', CREDITED_CHANGES)
+        assert body.count('Thanks @') == 1
 
 
 TITLE_DESCRIPTION = DESCRIPTION.replace(
@@ -676,7 +735,7 @@ class TestReleaseConsoleScript:
             stdin=DESCRIPTION,
         )
         assert returncode == 0
-        assert out.endswith(f'**Full Changelog**: {url}\n')
+        assert out.endswith(f'**All commits**: {url}\n')
 
     def test_release_title_prints_the_title(self):
         returncode, out, err = self.run_cli(

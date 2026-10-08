@@ -30,6 +30,9 @@ Three things that shapes:
   there. See `_authors`.
 * **There is no compare link.** A release body ends with one; a git log has
   no equivalent, so the caller supplies it (`--compare-url`) if it wants one.
+
+Summaries also get backticks round anything that is plainly code; see
+`code_spans`.
 """
 
 from __future__ import annotations
@@ -39,8 +42,11 @@ from typing import NamedTuple
 
 from ._authors import credit_for
 from ._constants import (
+    ADVISORY_MERGE_SUBJECT,
     BREAKING,
     CATEGORIES,
+    CODE_SPAN_REGEX,
+    CODE_WORD_REGEX,
     COMMIT_SUBJECT_REGEX,
     GIT_LOG_FIELD_SEPARATOR,
     GIT_LOG_RECORD_SEPARATOR,
@@ -71,6 +77,23 @@ def _capitalise(summary: str) -> str:
     backtick or a quotation mark must come through untouched.
     """
     return summary[0].upper() + summary[1:] if summary else summary
+
+
+def code_spans(summary: str) -> str:
+    """Put backticks round the words in a summary that are code.
+
+    What counts as code is `CODE_WORD_REGEX`. Anything already in backticks
+    is left exactly as it is, so a summary someone took care over comes
+    through unchanged, and running this twice changes nothing the second time.
+    """
+    parts: list[str] = []
+    last = 0
+    for span in CODE_SPAN_REGEX.finditer(summary):
+        parts.append(CODE_WORD_REGEX.sub(r'`\g<0>`', summary[last : span.start()]))
+        parts.append(span.group())
+        last = span.end()
+    parts.append(CODE_WORD_REGEX.sub(r'`\g<0>`', summary[last:]))
+    return ''.join(parts)
 
 
 class _Commit(NamedTuple):
@@ -108,7 +131,10 @@ def _parse_reverts(body: str, repo: str | None) -> int | None:
 
 
 def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Commit | None:
-    """One `GIT_LOG_FORMAT` record, or `None` if the record is empty.
+    """One `GIT_LOG_FORMAT` record, or `None` if there is nothing to list.
+
+    Nothing to list is an empty record, or a security advisory's merge
+    commit; see `ADVISORY_MERGE_SUBJECT`.
 
     A subject that is not a conventional-commit one -- a merge commit, or
     anything from before the convention was adopted -- is kept, under the
@@ -128,7 +154,7 @@ def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Comm
 
     match = COMMIT_SUBJECT_REGEX.match(subject)
     if not match:
-        if not subject:
+        if not subject or subject == ADVISORY_MERGE_SUBJECT:
             return None
         return _Commit(
             category=UNKNOWN,
@@ -157,7 +183,7 @@ def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Comm
     return _Commit(
         category=match.group('category').casefold(),
         breaking=match.group('breaking') == '!',
-        description=_capitalise(summary),
+        description=_capitalise(code_spans(summary)),
         pr_number=pr_number,
         credit=credit_for(name, email, team),
         reverts=_parse_reverts(body, repo),
