@@ -1814,7 +1814,7 @@ class OpenRouterCallTests(unittest.TestCase):
         response.__enter__.return_value = response
         return response
 
-    def _call(self, *outcomes: Any, model: str = 'm') -> tuple[Any, mock.Mock, mock.Mock]:
+    def _call(self, *outcomes: Any, model: str | None = 'm') -> tuple[Any, mock.Mock, mock.Mock]:
         """Call with urlopen giving `outcomes` in turn; return (result, urlopen, sleep)."""
         sleep = mock.Mock()
         with (
@@ -1875,24 +1875,23 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertTrue(sent['response_format']['json_schema']['strict'])
         self.assertEqual(sent['provider'], {'require_parameters': True})
 
-    def test_sends_the_configured_model_first_then_the_fallbacks(self):
+    def test_sends_the_configured_model_first_then_the_defaults(self):
         """OpenRouter's documented fallback shape: a `models` list, in priority order."""
         _, urlopen, _ = self._call(self._ok(), model='some/model')
         sent = json.loads(urlopen.call_args.args[0].data.decode())
-        self.assertEqual(sent['models'], ['some/model', *_constants.FALLBACK_MODELS])
+        self.assertEqual(sent['models'], ['some/model', *_constants.DEFAULT_MODELS])
         # `models` alone: the documented examples do not send `model` with it.
         self.assertNotIn('model', sent)
 
-    def test_the_default_model_leads_the_list(self):
-        _, urlopen, _ = self._call(self._ok(), model=_constants.DEFAULT_MODEL)
+    def test_without_a_configured_model_the_defaults_are_sent(self):
+        _, urlopen, _ = self._call(self._ok(), model=None)
         sent = json.loads(urlopen.call_args.args[0].data.decode())
-        self.assertEqual(sent['models'][0], 'deepseek/deepseek-chat')
-        self.assertIn('deepseek/deepseek-v3.2', sent['models'])
+        self.assertEqual(sent['models'], ['deepseek/deepseek-chat', 'deepseek/deepseek-v3.2'])
 
-    def test_a_configured_model_that_is_also_a_fallback_is_listed_once(self):
+    def test_a_configured_model_that_is_also_a_default_is_listed_once(self):
         _, urlopen, _ = self._call(self._ok(), model='deepseek/deepseek-v3.2')
         sent = json.loads(urlopen.call_args.args[0].data.decode())
-        self.assertEqual(sent['models'], ['deepseek/deepseek-v3.2'])
+        self.assertEqual(sent['models'], ['deepseek/deepseek-v3.2', 'deepseek/deepseek-chat'])
 
     def test_an_openrouter_model_override_reaches_the_request(self):
         env = {
@@ -1908,7 +1907,19 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertEqual(config.model, 'other/model')
         _, urlopen, _ = self._call(self._ok(), model=config.model)
         sent = json.loads(urlopen.call_args.args[0].data.decode())
-        self.assertEqual(sent['models'], ['other/model', 'deepseek/deepseek-v3.2'])
+        self.assertEqual(
+            sent['models'], ['other/model', 'deepseek/deepseek-chat', 'deepseek/deepseek-v3.2']
+        )
+
+    def test_no_openrouter_model_means_no_override(self):
+        env = {'REPO': 'o/r', 'RUN_ID': '1', 'WORKFLOW_NAME': 'w', 'RUN_URL': 'u'}
+        for value in (None, ''):
+            with self.subTest(value=value):
+                extra = {} if value is None else {'OPENROUTER_MODEL': value}
+                with mock.patch.dict(
+                    'os.environ', {**env, 'NOTIFY_ISSUE': '2', **extra}, clear=True
+                ):
+                    self.assertIsNone(_cli._read_config().model)
 
     def test_the_answering_model_is_returned_and_logged(self):
         sleep = mock.Mock()
@@ -1927,9 +1938,11 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertEqual(answered_by, 'deepseek/deepseek-v3.2')
         self.assertIn('answered with model deepseek/deepseek-v3.2', log.getvalue())
 
-    def test_a_reply_without_a_model_is_put_down_to_the_one_asked_for(self):
-        (_, answered_by), _, _ = self._call(self._ok(), model='some/model')
-        self.assertEqual(answered_by, 'some/model')
+    def test_a_reply_without_a_model_is_put_down_to_the_first_one_asked_for(self):
+        for model, expected in (('some/model', 'some/model'), (None, 'deepseek/deepseek-chat')):
+            with self.subTest(model=model):
+                (_, answered_by), _, _ = self._call(self._ok(), model=model)
+                self.assertEqual(answered_by, expected)
 
     def _http_error(
         self, status: int, body: bytes = b'', headers: dict[str, str] | None = None

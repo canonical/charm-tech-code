@@ -26,7 +26,7 @@ from typing import Any
 from . import _github, _openrouter, _prompt, _summary
 from ._apply import apply_entry, plain_fallback_body, render_body
 from ._candidates import build_candidates_block
-from ._constants import DEFAULT_MODEL, MARKER_PREFIX
+from ._constants import MARKER_PREFIX
 from ._envelope import normalise_envelope, validate_envelope
 from ._markers import render_enriched_marker, render_model_stamp, render_signature_stamp
 from ._models import RunSignature
@@ -42,7 +42,7 @@ class _RunConfig:
     workflow_name: str
     run_url: str
     api_key: str
-    model: str
+    model: str | None
     # What the notifier did. `NOTIFY_ISSUE` is required: this script upgrades
     # the artefact the notifier just made, and is not in the business of
     # going looking for it.
@@ -58,7 +58,7 @@ def _read_config() -> _RunConfig:
         workflow_name=os.environ['WORKFLOW_NAME'],
         run_url=os.environ['RUN_URL'],
         api_key=os.environ.get('OPENROUTER_API_KEY', ''),
-        model=os.environ.get('OPENROUTER_MODEL') or DEFAULT_MODEL,
+        model=os.environ.get('OPENROUTER_MODEL') or None,
         notify_issue=int(os.environ['NOTIFY_ISSUE']),
         notify_origin=os.environ.get('NOTIFY_ORIGIN') or None,
     )

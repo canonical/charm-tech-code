@@ -27,21 +27,21 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-from ._constants import FALLBACK_MODELS, MAX_RETRY_WAIT, MAX_TOTAL_RETRY_WAIT, RETRY_DELAYS
+from ._constants import DEFAULT_MODELS, MAX_RETRY_WAIT, MAX_TOTAL_RETRY_WAIT, RETRY_DELAYS
 from ._envelope import ENVELOPE_JSON_SCHEMA
 
 
-def model_list(model: str) -> list[str]:
-    """The `models` routing list: `model` first, then the fallbacks, without repeats."""
-    models = [model]
-    models.extend(fallback for fallback in FALLBACK_MODELS if fallback != model)
-    return models
+def model_list(model: str | None) -> list[str]:
+    """The `models` routing list: `model` first if given, then the defaults, without repeats."""
+    if model is None:
+        return list(DEFAULT_MODELS)
+    return [model, *(default for default in DEFAULT_MODELS if default != model)]
 
 
 def call_openrouter(
     system_prompt: str,
     user_prompt: str,
-    model: str,
+    model: str | None,
     api_key: str,
     *,
     sleep: Callable[[float], object] | None = None,
@@ -49,9 +49,9 @@ def call_openrouter(
     """POST the prompt to OpenRouter with the envelope schema.
 
     Returns the parsed JSON and the model that answered, which is not always
-    `model`: the request names `model` and then FALLBACK_MODELS, and
-    OpenRouter moves down that list when a model errors, a provider rate limit
-    included.
+    the first one asked for: the request names `model`, if given, and then
+    DEFAULT_MODELS, and OpenRouter moves down that list when a model errors, a
+    provider rate limit included.
 
     Uses urllib rather than requests so the script has no third-party
     dependencies at all. A rate limit, a 5xx, a timeout or a connection
@@ -65,11 +65,12 @@ def call_openrouter(
     suite blocking `time.sleep` catches a call that forgot to pass one.
     """
     sleep = sleep or time.sleep
+    models = model_list(model)
     payload = {
         # `models` rather than `model`: OpenRouter's model fallback list, in
         # priority order. The `provider` preferences below apply to each
         # model in it.
-        'models': model_list(model),
+        'models': models,
         'messages': [
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_prompt},
@@ -116,7 +117,7 @@ def call_openrouter(
             retry_after = None
             error = exc
         else:
-            return _parse_reply(body, model)
+            return _parse_reply(body, models[0])
         wait = _retry_wait(attempt, retry_after, waited) if transient else None
         if wait is None:
             tries = f'{attempt} attempt' + ('s' if attempt > 1 else '')
