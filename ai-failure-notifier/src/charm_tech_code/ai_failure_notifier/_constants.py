@@ -20,7 +20,18 @@ from __future__ import annotations
 import re
 
 MARKER_PREFIX = 'ai-failure-notifications'
-DEFAULT_MODEL = 'deepseek/deepseek-chat'  # DeepSeek V3 on OpenRouter.
+# Tried in order, after `OPENROUTER_MODEL` if it is set, by OpenRouter's own
+# routing, which moves on only when the model before it errors (a provider rate
+# limit included). deepseek-chat is DeepSeek V3.
+DEFAULT_MODELS = ('deepseek/deepseek-chat', 'deepseek/deepseek-v3.2')
+
+# Retrying a failed OpenRouter call. These are waits between attempts, so
+# there are at most len(RETRY_DELAYS) + 1 attempts. A `Retry-After` from
+# OpenRouter replaces the default delay but is still capped, and the total
+# cap keeps a bad day to about a minute of runner time spent waiting.
+RETRY_DELAYS = (5.0, 15.0)
+MAX_RETRY_WAIT = 30.0
+MAX_TOTAL_RETRY_WAIT = 60.0
 CLOSED_CANDIDATE_WINDOW_DAYS = 14
 MAX_CANDIDATES = 3
 

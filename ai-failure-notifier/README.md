@@ -14,6 +14,8 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
 
 It reads its inputs from the environment: `GH_TOKEN`, `REPO`, `RUN_ID`, `WORKFLOW_NAME`, `RUN_URL`, and optionally `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`. See `canonical/operator`'s `.github/workflows/ai-failure-enrich.yaml` for the calling side, including the environment mechanics the key depends on.
 
+The request lists `deepseek/deepseek-chat` and then `deepseek/deepseek-v3.2`, with `OPENROUTER_MODEL` ahead of both if it is set, so OpenRouter moves down the list when a model errors or is rate-limited, and an enriched issue or comment records the model that answered in a hidden `<!-- ai-failure-notifications:model ... -->` comment. A rate limit, a 5xx, a timeout or a dropped connection is retried twice, waiting at most a minute in total, before the tool falls back to the plain notification.
+
 ## Developing
 
 ```shell

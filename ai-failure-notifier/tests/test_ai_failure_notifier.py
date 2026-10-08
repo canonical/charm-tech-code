@@ -53,6 +53,10 @@ from charm_tech_code.ai_failure_notifier import (
     _summary,
 )
 
+# The model a faked OpenRouter call says answered: the fallback, so that a test
+# reading it back can tell it from the configured model.
+ANSWERED_BY = 'deepseek/deepseek-v3.2'
+
 # The signature, candidate issue and envelope from a real failing scheduled run
 # (28141163589, "Broad Charm Compatibility Tests", 2026-06-25). The tail_excerpt
 # lists are trimmed for size; pytest_failures and traceback_top_error are
@@ -400,6 +404,66 @@ class MarkerTests(unittest.TestCase):
         self.assertEqual(
             _markers.find_run_markers([(1, stamp)], '28141163589'), (None, None, None)
         )
+
+    # An enriched comment exactly as the current release (bcbd3cc) writes it:
+    # the marker and the signature stamp, and no model stamp.
+    OLD_ENRICHED_TRAILER = (
+        '<!-- ai-failure-notifications:run=123:sig=abcdef0123456789 -->\n'
+        '<!-- ai-failure-notifications:signature '
+        '{"run":"123","tests":["tests/t.py::test_x"],"errors":["KeyError"],'
+        '"steps":["s"],"jobs":["j"]} -->'
+    )
+
+    def _new_enriched_trailer(self, model: str = 'deepseek/deepseek-v3.2') -> str:
+        marker, stamp = self.OLD_ENRICHED_TRAILER.split('\n')
+        return f'{marker}\n{_markers.render_model_stamp(model)}\n{stamp}'
+
+    def test_old_and_new_enriched_trailers_both_parse(self):
+        for name, trailer in (
+            ('old', self.OLD_ENRICHED_TRAILER),
+            ('new', self._new_enriched_trailer()),
+        ):
+            with self.subTest(name):
+                body = f'## Summary\n\nprose\n\nWorkflow: w\nRun: u\n\n{trailer}'
+                self.assertEqual(_markers.find_run_markers([(7, body)], '123'), (7, None, None))
+                stamp = _markers.parse_signature_stamp(body)
+                assert stamp is not None
+                self.assertEqual(stamp['tests'], ['tests/t.py::test_x'])
+                # Rung zero on the issue the notifier hands over.
+                with mock.patch.object(_github, 'fetch_issue_texts', return_value=['', body]):
+                    self.assertEqual(
+                        _github.resolve_origin('o/r', '123', 7, 'comment'), (7, 'comment', 7)
+                    )
+                # And the candidate block still shows the signature, and not
+                # the model.
+                issue = _models.CandidateIssue(
+                    number=7, title='t', body='b', closed_at=None, comments=(body,)
+                )
+                line = _candidates.render_signature_line(issue)
+                assert line is not None
+                self.assertIn('tests/t.py::test_x', line)
+                self.assertNotIn('deepseek', ' '.join(issue.recent_comments()))
+        self.assertNotIn(':model', self.OLD_ENRICHED_TRAILER)
+        self.assertIn(
+            _markers.render_model_stamp('deepseek/deepseek-v3.2'), self._new_enriched_trailer()
+        )
+
+    def test_a_model_stamp_is_not_a_run_marker_or_a_signature_stamp(self):
+        stamp = _markers.render_model_stamp('deepseek/deepseek-v3.2')
+        self.assertEqual(stamp, '<!-- ai-failure-notifications:model deepseek/deepseek-v3.2 -->')
+        self.assertEqual(_markers.find_run_markers([(1, stamp)], '123'), (None, None, None))
+        self.assertIsNone(_markers.parse_signature_stamp(stamp))
+
+    def test_a_notifier_marker_beside_a_model_stamp_is_still_found(self):
+        marker = _markers.render_notifier_marker('123', 'comment')
+        body = f'{marker}\n{_markers.render_model_stamp("x/y")}'
+        self.assertEqual(_markers.find_run_markers([(5, body)], '123'), (None, 'comment', 5))
+
+    def test_a_model_name_cannot_close_the_comment_early(self):
+        stamp = _markers.render_model_stamp('evil --> <b>hi</b>')
+        self.assertEqual(stamp.count('-->'), 1)
+        self.assertTrue(stamp.endswith(' -->'))
+        self.assertEqual(stamp, '<!-- ai-failure-notifications:model evil_--___b_hi_/b_ -->')
 
     def test_no_marker_present_returns_all_none(self):
         enriched, origin_kind, origin_issue = _markers.find_run_markers(
@@ -847,7 +911,9 @@ class MainFlowTests(unittest.TestCase):
         }
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(_openrouter, 'call_openrouter', return_value=envelope),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=(envelope, ANSWERED_BY)
+            ),
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
@@ -864,6 +930,10 @@ class MainFlowTests(unittest.TestCase):
         self.assertIn(f'Run: {self.env["RUN_URL"]}', body)
         self.assertIn('<!-- ai-failure-notifications:run=28141163589:sig=', body)
         self.assertIn('<!-- ai-failure-notifications:signature {', body)
+        # The model that answered is recorded beside the marker, and the
+        # marker it sits beside still reads as this run's enrichment.
+        self.assertIn(_markers.render_model_stamp(ANSWERED_BY), body)
+        self.assertEqual(_markers.find_run_markers([(4242, body)], '28141163589')[0], 4242)
 
     def test_the_pointer_note_links_the_run_but_carries_no_signature_stamp(self):
         """A "this belongs elsewhere" note must not stamp this failure on that issue.
@@ -889,7 +959,9 @@ class MainFlowTests(unittest.TestCase):
         }
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(_openrouter, 'call_openrouter', return_value=envelope),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=(envelope, ANSWERED_BY)
+            ),
             mock.patch.object(_github, 'existing_issue_types', return_value=set()),
             contextlib.ExitStack() as stack,
         ):
@@ -908,14 +980,14 @@ class MainFlowTests(unittest.TestCase):
         self.assertIn('opened separately', body)
         self.assertIn(f'Run: {self.env["RUN_URL"]}', body)
         self.assertNotIn('ai-failure-notifications:signature', body)
-        # The new issue itself is about this failure, so it does get the stamp.
+        self.assertNotIn('ai-failure-notifications:model', body)
+        # The new issue itself is about this failure, so it does get the stamps.
         created = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'create')]
         self.assertEqual(len(created), 1)
         created_args = created[0].args
-        self.assertIn(
-            'ai-failure-notifications:signature',
-            created_args[created_args.index('--body') + 1],
-        )
+        created_body = created_args[created_args.index('--body') + 1]
+        self.assertIn('ai-failure-notifications:signature', created_body)
+        self.assertIn(_markers.render_model_stamp(ANSWERED_BY), created_body)
 
     def test_invalid_llm_response_falls_back_to_plain_comment(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
@@ -923,7 +995,9 @@ class MainFlowTests(unittest.TestCase):
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
             mock.patch.object(
-                _openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                _openrouter,
+                'call_openrouter',
+                return_value=({'action': 'not-a-real-action'}, ANSWERED_BY),
             ),
             contextlib.ExitStack() as stack,
         ):
@@ -934,6 +1008,9 @@ class MainFlowTests(unittest.TestCase):
         comment_calls = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'comment')]
         self.assertEqual(len(comment_calls), 1)
         self.assertEqual(comment_calls[0].args[2], '4242')
+        # The plain fallback had no model behind it, so it names none.
+        args = comment_calls[0].args
+        self.assertNotIn('ai-failure-notifications:model', args[args.index('--body') + 1])
 
     def test_no_api_key_uses_plain_fallback_without_calling_llm(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
@@ -1021,7 +1098,9 @@ class OneArtefactPerFailureTests(unittest.TestCase):
             mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(_github, 'existing_issue_types', return_value=set()),
             mock.patch.object(_github, 'gh', side_effect=gh_calls),
-            mock.patch.object(_openrouter, 'call_openrouter', return_value=envelope),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=(envelope, ANSWERED_BY)
+            ),
             mock.patch.object(_summary, 'write_step_summary') as summary,
         ):
             self.assertEqual(_cli.main(), 0)
@@ -1480,7 +1559,9 @@ class CandidatePoolTests(unittest.TestCase):
             mock.patch.object(_github, 'search_candidates', return_value=(candidates, [])),
             mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(_prompt, 'build_prompt', side_effect=fake_build_prompt),
-            mock.patch.object(_openrouter, 'call_openrouter', return_value={'action': 'bogus'}),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=({'action': 'bogus'}, ANSWERED_BY)
+            ),
             mock.patch.object(_github, 'gh'),
             mock.patch.object(_summary, 'write_step_summary'),
         ):
@@ -1702,7 +1783,9 @@ class MainDegradationTests(unittest.TestCase):
             mock.patch.object(_github, 'search_candidates', side_effect=RuntimeError('boom')),
             mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(
-                _openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                _openrouter,
+                'call_openrouter',
+                return_value=({'action': 'not-a-real-action'}, ANSWERED_BY),
             ),
             mock.patch.object(_github, 'gh', side_effect=gh_calls),
             mock.patch.object(_summary, 'write_step_summary') as summary,
@@ -1722,23 +1805,56 @@ class OpenRouterCallTests(unittest.TestCase):
     request it actually builds.
     """
 
-    def _response(self, content: str) -> mock.MagicMock:
-        payload = json.dumps({'choices': [{'message': {'content': content}}]}).encode()
+    def _response(self, content: str, model: str | None = None) -> mock.MagicMock:
+        reply: dict[str, Any] = {'choices': [{'message': {'content': content}}]}
+        if model is not None:
+            reply['model'] = model
         response = mock.MagicMock()
-        response.read.return_value = payload
+        response.read.return_value = json.dumps(reply).encode()
         response.__enter__.return_value = response
         return response
+
+    def _call(self, *outcomes: Any, model: str | None = 'm') -> tuple[Any, mock.Mock, mock.Mock]:
+        """Call with urlopen giving `outcomes` in turn; return (result, urlopen, sleep)."""
+        sleep = mock.Mock()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request, 'urlopen', side_effect=list(outcomes)
+            ) as urlopen,
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            result = _openrouter.call_openrouter('sys', 'user', model, 'k', sleep=sleep)
+        return result, urlopen, sleep
+
+    def _call_raises(self, *outcomes: Any) -> tuple[str, mock.Mock, mock.Mock]:
+        """As `_call`, for a call that is expected to give up; return (message, urlopen, sleep)."""
+        sleep = mock.Mock()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request, 'urlopen', side_effect=list(outcomes)
+            ) as urlopen,
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            _openrouter.call_openrouter('sys', 'user', 'm', 'k', sleep=sleep)
+        return str(raised.exception), urlopen, sleep
+
+    def _ok(self, model: str | None = None) -> mock.MagicMock:
+        return self._response(json.dumps({'action': 'new', 'body': 'b'}), model)
 
     def test_posts_json_with_auth_and_schema(self):
         envelope = {'action': 'new', 'body': 'b'}
         with mock.patch.object(
             _openrouter.urllib.request,
             'urlopen',
-            return_value=self._response(json.dumps(envelope)),
+            return_value=self._response(json.dumps(envelope), 'some/model'),
         ) as urlopen:
-            result = _openrouter.call_openrouter('sys', 'user', 'some/model', 'secret-key')
+            result, answered_by = _openrouter.call_openrouter(
+                'sys', 'user', 'some/model', 'secret-key'
+            )
 
         self.assertEqual(result, envelope)
+        self.assertEqual(answered_by, 'some/model')
         request = urlopen.call_args.args[0]
         self.assertEqual(request.method, 'POST')
         self.assertEqual(request.full_url, 'https://openrouter.ai/api/v1/chat/completions')
@@ -1749,7 +1865,6 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertEqual(urlopen.call_args.kwargs['timeout'], 60)
 
         sent = json.loads(request.data.decode())
-        self.assertEqual(sent['model'], 'some/model')
         self.assertEqual([m['role'] for m in sent['messages']], ['system', 'user'])
         self.assertEqual(sent['messages'][0]['content'], 'sys')
         self.assertEqual(sent['messages'][1]['content'], 'user')
@@ -1760,61 +1875,278 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertTrue(sent['response_format']['json_schema']['strict'])
         self.assertEqual(sent['provider'], {'require_parameters': True})
 
-    def _http_error(self, status: int, body: bytes) -> urllib.error.HTTPError:
+    def test_sends_the_configured_model_first_then_the_defaults(self):
+        """OpenRouter's documented fallback shape: a `models` list, in priority order."""
+        _, urlopen, _ = self._call(self._ok(), model='some/model')
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(sent['models'], ['some/model', *_constants.DEFAULT_MODELS])
+        # `models` alone: the documented examples do not send `model` with it.
+        self.assertNotIn('model', sent)
+
+    def test_without_a_configured_model_the_defaults_are_sent(self):
+        _, urlopen, _ = self._call(self._ok(), model=None)
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(sent['models'], ['deepseek/deepseek-chat', 'deepseek/deepseek-v3.2'])
+
+    def test_a_configured_model_that_is_also_a_default_is_listed_once(self):
+        _, urlopen, _ = self._call(self._ok(), model='deepseek/deepseek-v3.2')
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(sent['models'], ['deepseek/deepseek-v3.2', 'deepseek/deepseek-chat'])
+
+    def test_an_openrouter_model_override_reaches_the_request(self):
+        env = {
+            'REPO': 'o/r',
+            'RUN_ID': '1',
+            'WORKFLOW_NAME': 'w',
+            'RUN_URL': 'u',
+            'NOTIFY_ISSUE': '2',
+            'OPENROUTER_MODEL': 'other/model',
+        }
+        with mock.patch.dict('os.environ', env, clear=True):
+            config = _cli._read_config()
+        self.assertEqual(config.model, 'other/model')
+        _, urlopen, _ = self._call(self._ok(), model=config.model)
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(
+            sent['models'], ['other/model', 'deepseek/deepseek-chat', 'deepseek/deepseek-v3.2']
+        )
+
+    def test_no_openrouter_model_means_no_override(self):
+        env = {'REPO': 'o/r', 'RUN_ID': '1', 'WORKFLOW_NAME': 'w', 'RUN_URL': 'u'}
+        for value in (None, ''):
+            with self.subTest(value=value):
+                extra = {} if value is None else {'OPENROUTER_MODEL': value}
+                with mock.patch.dict(
+                    'os.environ', {**env, 'NOTIFY_ISSUE': '2', **extra}, clear=True
+                ):
+                    self.assertIsNone(_cli._read_config().model)
+
+    def test_the_answering_model_is_returned_and_logged(self):
+        sleep = mock.Mock()
+        log = io.StringIO()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request,
+                'urlopen',
+                return_value=self._ok('deepseek/deepseek-v3.2'),
+            ),
+            contextlib.redirect_stderr(log),
+        ):
+            _, answered_by = _openrouter.call_openrouter(
+                'sys', 'user', 'deepseek/deepseek-chat', 'k', sleep=sleep
+            )
+        self.assertEqual(answered_by, 'deepseek/deepseek-v3.2')
+        self.assertIn('answered with model deepseek/deepseek-v3.2', log.getvalue())
+
+    def test_a_reply_without_a_model_is_put_down_to_the_first_one_asked_for(self):
+        for model, expected in (('some/model', 'some/model'), (None, 'deepseek/deepseek-chat')):
+            with self.subTest(model=model):
+                (_, answered_by), _, _ = self._call(self._ok(), model=model)
+                self.assertEqual(answered_by, expected)
+
+    def _http_error(
+        self, status: int, body: bytes = b'', headers: dict[str, str] | None = None
+    ) -> urllib.error.HTTPError:
         # HTTPError holds a file object and warns on implicit cleanup, which
         # the unit env's -W error turns into a failure. Give it a real `fp`
         # (it fabricates a tempfile when passed None) and close it explicitly.
+        message = email.message.Message()
+        for key, value in (headers or {}).items():
+            message[key] = value
         error = urllib.error.HTTPError(
             'https://openrouter.ai/api/v1/chat/completions',
             status,
             'boom',
-            email.message.Message(),
+            message,
             io.BytesIO(body),
         )
         self.addCleanup(error.close)
         return error
 
     def test_http_error_raises_so_main_can_fall_back(self):
-        error = self._http_error(500, b'')
+        self._call_raises(self._http_error(500), self._http_error(500), self._http_error(500))
+
+    def test_a_429_then_success_returns_the_second_response(self):
+        (result, _), urlopen, sleep = self._call(self._http_error(429), self._ok())
+        self.assertEqual(result, {'action': 'new', 'body': 'b'})
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(_constants.RETRY_DELAYS[0])
+
+    def test_two_503s_then_success(self):
+        (result, _), urlopen, sleep = self._call(
+            self._http_error(503), self._http_error(503), self._ok()
+        )
+        self.assertEqual(result, {'action': 'new', 'body': 'b'})
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5.0, 15.0])
+
+    def test_other_4xx_are_not_retried(self):
+        """A 400 is the request and a 402 is the key's credit: neither is a wait-and-see."""
+        for status in (400, 401, 402, 403, 404):
+            with self.subTest(status=status):
+                message, urlopen, sleep = self._call_raises(self._http_error(status), self._ok())
+                self.assertEqual(urlopen.call_count, 1)
+                sleep.assert_not_called()
+                self.assertIn(f'HTTP Error {status}', message)
+                self.assertIn('after 1 attempt)', message)
+
+    def test_three_429s_give_up_with_the_count_and_the_last_detail(self):
+        message, urlopen, sleep = self._call_raises(
+            self._http_error(429, b'{"error": {"message": "first"}}'),
+            self._http_error(429, b'{"error": {"message": "second"}}'),
+            self._http_error(429, b'{"error": {"message": "Provider returned error"}}'),
+            self._ok(),
+        )
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn('HTTP Error 429', message)
+        self.assertIn('Provider returned error', message)
+        self.assertNotIn('first', message)
+        self.assertIn('after 3 attempts', message)
+
+    def test_retry_after_is_honoured(self):
+        _, _, sleep = self._call(self._http_error(429, headers={'Retry-After': '2'}), self._ok())
+        sleep.assert_called_once_with(2.0)
+
+    def test_retry_after_is_capped(self):
+        _, _, sleep = self._call(self._http_error(429, headers={'Retry-After': '600'}), self._ok())
+        sleep.assert_called_once_with(_constants.MAX_RETRY_WAIT)
+
+    def test_a_retry_after_date_is_honoured_and_capped(self):
+        _, _, sleep = self._call(
+            self._http_error(503, headers={'Retry-After': 'Fri, 31 Dec 2100 23:59:59 GMT'}),
+            self._ok(),
+        )
+        sleep.assert_called_once_with(_constants.MAX_RETRY_WAIT)
+
+    def test_an_unreadable_retry_after_falls_back_to_the_default_delay(self):
+        _, _, sleep = self._call(
+            self._http_error(429, headers={'Retry-After': 'soon'}), self._ok()
+        )
+        sleep.assert_called_once_with(_constants.RETRY_DELAYS[0])
+
+    def test_the_total_wait_is_capped(self):
         with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError),
+            mock.patch.object(_openrouter, 'RETRY_DELAYS', (5.0, 15.0)),
+            mock.patch.object(_openrouter, 'MAX_RETRY_WAIT', 30.0),
+            mock.patch.object(_openrouter, 'MAX_TOTAL_RETRY_WAIT', 40.0),
         ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+            _, _, sleep = self._call(
+                self._http_error(429, headers={'Retry-After': '30'}),
+                self._http_error(429, headers={'Retry-After': '30'}),
+                self._ok(),
+            )
+        # 30 and then only the 10 left of the 40, not another 30.
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [30.0, 10.0])
+
+    def test_the_real_caps_hold_against_a_long_retry_after(self):
+        """However long OpenRouter asks for, the waits add up to at most a minute."""
+        long_wait = {'Retry-After': '3600'}
+        message, urlopen, sleep = self._call_raises(
+            self._http_error(429, headers=long_wait),
+            self._http_error(429, headers=long_wait),
+            self._http_error(429, headers=long_wait),
+        )
+        self.assertEqual(urlopen.call_count, 3)
+        waits = [c.args[0] for c in sleep.call_args_list]
+        self.assertTrue(all(w <= _constants.MAX_RETRY_WAIT for w in waits), waits)
+        self.assertLessEqual(sum(waits), _constants.MAX_TOTAL_RETRY_WAIT)
+        self.assertIn('after 3 attempts', message)
+
+    def test_a_timeout_is_retried(self):
+        # `socket.timeout` is an alias of `TimeoutError` from Python 3.10, so
+        # the first entry covers it too.
+        for error in (
+            TimeoutError('timed out'),
+            urllib.error.URLError('connection refused'),
+            ConnectionResetError('reset by peer'),
+        ):
+            with self.subTest(error=type(error).__name__):
+                (result, _), urlopen, sleep = self._call(error, self._ok())
+                self.assertEqual(result, {'action': 'new', 'body': 'b'})
+                self.assertEqual(urlopen.call_count, 2)
+                sleep.assert_called_once()
+
+    def test_each_retry_is_one_log_line_without_the_key(self):
+        log = io.StringIO()
+        sleep = mock.Mock()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request,
+                'urlopen',
+                side_effect=[self._http_error(429), TimeoutError('timed out'), self._ok()],
+            ),
+            contextlib.redirect_stderr(log),
+        ):
+            _openrouter.call_openrouter('sys', 'user', 'm', 'secret-key', sleep=sleep)
+        lines = [line for line in log.getvalue().splitlines() if 'retrying' in line]
+        self.assertEqual(len(lines), 2)
+        self.assertIn('attempt 1 of 3', lines[0])
+        self.assertIn('HTTP Error 429', lines[0])
+        self.assertIn('retrying in 5s', lines[0])
+        self.assertIn('attempt 2 of 3', lines[1])
+        self.assertIn('timed out', lines[1])
+        self.assertIn('retrying in 15s', lines[1])
+        self.assertNotIn('secret-key', log.getvalue())
 
     def test_the_error_carries_openrouters_own_explanation(self):
         """A 400 says only "Bad Request"; which of the model, key or schema is in the body."""
         body = json.dumps({
             'error': {'code': 400, 'message': "Invalid schema: 'required' is missing 'also'"}
         }).encode()
-        error = self._http_error(400, body)
-        with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError) as raised,
-        ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
-        message = str(raised.exception)
+        message, _, _ = self._call_raises(self._http_error(400, body))
         self.assertIn('HTTP Error 400', message)
         self.assertIn("'required' is missing 'also'", message)
 
-    def test_a_body_that_is_not_json_is_reported_as_it_came(self):
-        error = self._http_error(502, b'<html>upstream is unwell</html>')
-        with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError) as raised,
+    def test_a_reply_in_a_code_fence_is_unwrapped(self):
+        envelope = {'action': 'new', 'body': 'b'}
+        for content in (
+            f'```json\n{json.dumps(envelope)}\n```',
+            f'```\n{json.dumps(envelope, indent=2)}\n```',
+            f'\n  ```json  \n{json.dumps(envelope)}\n  ```\n',
         ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
-        self.assertIn('upstream is unwell', str(raised.exception))
+            with self.subTest(content=content):
+                with (
+                    mock.patch.object(
+                        _openrouter.urllib.request,
+                        'urlopen',
+                        return_value=self._response(content, 'deepseek/deepseek-v3.2'),
+                    ),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    result, _ = _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+                self.assertEqual(result, envelope)
+
+    def test_only_a_fence_around_the_whole_reply_is_unwrapped(self):
+        envelope = json.dumps({'action': 'new', 'body': 'b'})
+        for content in (f'Here you go:\n```json\n{envelope}\n```', f'```json\n{envelope}'):
+            with (
+                self.subTest(content=content),
+                mock.patch.object(
+                    _openrouter.urllib.request,
+                    'urlopen',
+                    return_value=self._response(content, 'm'),
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(json.JSONDecodeError),
+            ):
+                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+
+    def test_a_body_that_is_not_json_is_reported_as_it_came(self):
+        error = b'<html>upstream is unwell</html>'
+        message, _, _ = self._call_raises(
+            self._http_error(502, error),
+            self._http_error(502, error),
+            self._http_error(502, error),
+        )
+        self.assertIn('upstream is unwell', message)
 
     def test_an_unreadable_body_still_leaves_the_status(self):
-        error = self._http_error(429, b'')
-        error.read = mock.Mock(side_effect=OSError('connection reset'))
-        with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError) as raised,
-        ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
-        self.assertIn('HTTP Error 429', str(raised.exception))
+        errors = [self._http_error(429) for _ in range(3)]
+        for error in errors:
+            error.read = mock.Mock(side_effect=OSError('connection reset'))
+        message, _, _ = self._call_raises(*errors)
+        self.assertIn('HTTP Error 429', message)
 
 
 class ResolveOriginTests(unittest.TestCase):

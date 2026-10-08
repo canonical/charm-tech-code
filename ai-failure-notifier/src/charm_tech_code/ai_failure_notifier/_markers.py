@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, Literal
 
 from ._constants import (
@@ -133,6 +134,22 @@ def parse_signature_stamp(text: str) -> dict[str, Any] | None:
         if isinstance(parsed, dict):
             found = parsed
     return found
+
+
+# Anything outside the characters OpenRouter model ids are made of. The model
+# name comes back in OpenRouter's response, so it is not trusted to keep out
+# of an HTML comment's way on its own.
+_NOT_MODEL_ID = re.compile(r'[^A-Za-z0-9._:/@~-]')
+
+
+def render_model_stamp(model: str) -> str:
+    """Render the hidden comment naming the model that produced an enriched artefact.
+
+    It is a separate comment from the run marker, like the signature stamp, so
+    that nothing matching on the marker's `:run=` sees it.
+    """
+    slug = _NOT_MODEL_ID.sub('_', model.strip())[:200] or 'unknown'
+    return f'<!-- {MARKER_PREFIX}:model {slug} -->'
 
 
 def render_enriched_marker(run_id: str, signature: RunSignature) -> str:
