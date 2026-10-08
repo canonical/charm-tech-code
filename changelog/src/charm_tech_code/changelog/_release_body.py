@@ -70,7 +70,10 @@ def release_notes_from_description(description: str) -> str:
             have nothing between them.
     """
     notes = _between_markers(
-        description, RELEASE_NOTES_START_REGEX, RELEASE_NOTES_END_REGEX, 'release-notes'
+        _unix_newlines(description),
+        RELEASE_NOTES_START_REGEX,
+        RELEASE_NOTES_END_REGEX,
+        'release-notes',
     )
     if not notes:
         raise ValueError('there is nothing between the release-notes markers')
@@ -89,6 +92,7 @@ def release_summary_from_description(description: str) -> str | None:
         ValueError: if only one kind of marker is there, either is repeated,
             or they are out of order.
     """
+    description = _unix_newlines(description)
     if not (
         RELEASE_TITLE_START_REGEX.search(description)
         or RELEASE_TITLE_END_REGEX.search(description)
@@ -97,6 +101,12 @@ def release_summary_from_description(description: str) -> str | None:
     return _between_markers(
         description, RELEASE_TITLE_START_REGEX, RELEASE_TITLE_END_REGEX, 'release-title'
     )
+
+
+def _unix_newlines(description: str) -> str:
+    # GitHub's web editor saves a description with CRLF line endings, and a
+    # marker regex's `$` does not match before the `\r`.
+    return description.replace('\r\n', '\n')
 
 
 def _between_markers(
