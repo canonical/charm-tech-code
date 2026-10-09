@@ -88,6 +88,23 @@ class TestUserPrompt:
         assert CHANGELOG.strip() in prompt
         assert 'Compare:' not in prompt
         assert 'Exemplar' not in prompt
+        assert 'Newest release' not in prompt
+
+    def test_names_the_newest_release_when_given(self):
+        # On a maintenance branch, this is how the model knows that "main"
+        # is the 3.x series, so the notes can say so in the reader's terms.
+        prompt = user_prompt(
+            repo='canonical/operator',
+            version='2.23.6',
+            previous='2.23.5',
+            branch='2.23-maintenance',
+            changelog=CHANGELOG,
+            newest='3.9.0',
+        )
+        assert (
+            'Commit range: 2.23.5..2.23-maintenance\nNewest release in the repository: 3.9.0\n'
+            in prompt
+        )
 
     def test_adds_the_compare_link_and_the_exemplars_when_given(self):
         prompt = user_prompt(

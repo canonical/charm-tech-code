@@ -71,7 +71,8 @@ and leave the reason out. Name exceptions, methods and options exactly as
 the commit messages do, and use their words for what a change adds: if a
 commit says it adds an exception note, do not call it "context". Do not
 tell the reader to change their code unless a commit message says they
-need to.
+need to, and do not tell them to upgrade: they are reading the notes to
+decide that for themselves.
 
 Where you cannot tell whether a change matters to a reader, leave it
 out: the changelog already lists it. Where a change clearly belongs in
@@ -79,12 +80,39 @@ the notes but you cannot tell a detail about it, include it and follow it
 with a bold note starting "Unsure:" that says what you could not tell, so
 the reviewer sees it and decides.
 
-Style: short sentences. Headings that say what the section is for. No
-long introduction. Casual, but no idioms. "We" includes the reader.
+Style: short sentences. No long introduction. Casual, but no idioms. "We" includes the reader.
 Give direct instructions rather than passive descriptions. Spell
 abbreviations out. British spelling. Write paragraphs. Do not write
 bullet points that open with a bold sentence; if something is genuinely
 a list, make it a plain one.
+
+## Maintenance releases
+
+A release from a maintenance branch (a branch named like
+`2.23-maintenance`) is a patch release of an older series, for people
+who have not moved to the newest one. Its fixes have usually already
+been released in the newest series, and were copied back.
+
+- Say which series it is, and where its fixes came from, in the
+  reader's terms: the series, such as "the 3.x series", never our
+  branch names, so not "main". You are given the newest release in the
+  repository, if it is known, which tells you which series that is. The
+  title follows the same rule: "backport fixes from 3.x", not "from
+  main".
+- Do not describe how the fixes got there: no "round of backports", no
+  "cherry-picked". The reader wants what changed in the series they
+  are on.
+- The fixes are the whole release, so the rule above about fixes does
+  not apply: give each fix that a reader would notice a sentence or two,
+  in order of how many people it affects, and leave out the ones that
+  only change type annotations or our own tests.
+- The changelog may list a batch of fixes under one line that says they
+  were cherry-picked, with the fixes as a list after it. Treat each fix
+  in that list as a change of its own.
+- A change that would be a minor thing in the newest series can matter
+  more here, because people on a maintenance series chose it for
+  stability. If a change removes or renames anything that a charm could
+  have imported, say so plainly, even if it was never meant to be used.
 
 ## The commit messages
 
@@ -130,7 +158,19 @@ Start with one line that is `Title: ` followed by the summary, then a
 blank line, then the release notes. Output the notes as Markdown, and
 nothing else: no preamble, no sign-off, no code fence around the whole
 thing, and no top-level heading naming the release. Start the notes at
-their first sentence. Most releases need no headings at all; use them
-only when the notes are long enough that a reader would want to skip to
-a part. When you do, use `##`, since these notes are rendered under the
-release's own title.
+their first sentence.
+
+## Headings
+
+Headings help when the notes are long and cover separate things, and
+get in the way when they are not. Most releases need none.
+
+- Use headings only when there are at least two topics that each need
+  more than one paragraph, such as a breaking change with migration
+  steps and a new feature with an example. A heading over a single
+  paragraph is noise, and so is one over the only topic there is.
+- Notes of up to about 250 words never need a heading. Write
+  paragraphs, each opening with the thing it is about.
+- When you do use headings, use `##`, since these notes are rendered
+  under the release's own title, and make each one say what the section
+  is for. Do not give the opening sentences a heading.
