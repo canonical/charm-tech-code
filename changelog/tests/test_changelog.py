@@ -39,6 +39,7 @@ from __future__ import annotations
 import contextlib
 import datetime
 import io
+import json
 import pathlib
 from unittest import mock
 
@@ -1232,3 +1233,101 @@ class TestCharmTechTeam:
             assert _cli.main(['release-notes']) == 0
         assert '* Mend the runes in #1\n' in out.getvalue()
         assert '* Polish the runes by @ducky-debugger in #2\n' in out.getvalue()
+
+
+# The 2.23.6 range: one squash-merged batch of cherry-picks, and one backport
+# of a single change. The batch's own commits are what the GitHub API lists
+# for its pull request, including the commit that adjusted it.
+OPERATOR_2_23_6_LOG = git_log(
+    (FOCAL, 'refactor: move the otlp-json package to a module (2.23) (#2788)', ''),
+    (FOCAL, 'fix: cherry-pick recent fixes from main into the 2.23 branch (#2789)', ''),
+)
+OPERATOR_2_23_6_BACKPORTS = {
+    2788: [(*FOCAL, 'refactor!: move the otlp-json package to a module')],
+    2789: [
+        (*FOCAL, 'fix: only decode fields used by the data class in Relation.load() (#2636)'),
+        (*FOCAL, 'fix: detect pydantic dataclasses from before 2.11 (#2768)'),
+        (*DUCKY, 'fix: say which tracing destination rejected the data (#2714)'),
+        (*FOCAL, 'fix: import warnings in scenario state for the unknown status backport'),
+        (*FOCAL, 'chore: bump the pin the fixes need (#2700)'),
+    ],
+}
+
+
+class TestBackports:
+    def categories(self, backports=OPERATOR_2_23_6_BACKPORTS):
+        return parse_git_log(
+            OPERATOR_2_23_6_LOG, team=OPERATOR_TEAM, repo=REPO, backports=backports
+        )
+
+    def test_a_batch_lists_the_changes_it_brought_in(self):
+        (batch,) = self.categories()['fix']
+        assert batch.description == 'Cherry-picked recent fixes from main into the 2.23 branch'
+        assert batch.pr_number == 2789
+        assert batch.includes == (
+            Change('Only decode fields used by the data class in `Relation.load()`', 2636),
+            Change('Detect pydantic dataclasses from before 2.11', 2768),
+            Change('Say which tracing destination rejected the data', 2714, '@ducky-debugger'),
+        )
+
+    def test_a_single_backport_is_listed_as_it_stands(self):
+        # #2788's one commit has no `(#N)`, and one would not be enough anyway.
+        (refactor,) = self.categories()['refactor']
+        assert refactor == Change('Move the otlp-json package to a module (2.23)', 2788)
+
+    def test_without_the_commits_a_batch_is_one_line(self):
+        (batch,) = self.categories(backports={})['fix']
+        assert batch.includes == ()
+        assert batch.description.startswith('Cherry-pick recent')
+
+    def test_the_changes_entry(self):
+        entry = format_changes(self.categories(), '2.23.6', datetime.date(2026, 10, 8), repo=REPO)
+        url = 'https://github.com/canonical/operator/pull'
+        assert entry.startswith(
+            '# 2.23.6 - 08 October 2026\n\n'
+            '## Fixes\n\n'
+            'Cherry-picked recent fixes from main into the 2.23 branch'
+            f' ([#2789]({url}/2789)), including:\n\n'
+            '* Only decode fields used by the data class in `Relation.load()`'
+            f' ([#2636]({url}/2636))\n'
+            f'* Detect pydantic dataclasses from before 2.11 ([#2768]({url}/2768))\n'
+            '* Say which tracing destination rejected the data by @ducky-debugger'
+            f' ([#2714]({url}/2714))\n'
+            '\n## Refactoring\n'
+        )
+
+    def test_a_batch_goes_after_the_ordinary_bullets(self):
+        categories = self.categories()
+        categories['fix'].append(Change('An ordinary fix', 2800))
+        notes = format_release_notes(categories, None)
+        assert '### Fixes\n* An ordinary fix in #2800\n\nCherry-picked recent' in notes
+        assert 'branch in #2789, including:\n\n* Only decode' in notes
+
+    def test_the_cli_reads_the_backports_file(self, tmp_path):
+        path = tmp_path / 'backports.json'
+        path.write_text(
+            json.dumps({
+                str(number): [
+                    {'name': name, 'email': email, 'subject': subject}
+                    for name, email, subject in commits
+                ]
+                for number, commits in OPERATOR_2_23_6_BACKPORTS.items()
+            })
+        )
+        out = io.StringIO()
+        with (
+            mock.patch('sys.stdin', io.StringIO(OPERATOR_2_23_6_LOG)),
+            contextlib.redirect_stdout(out),
+        ):
+            argv = ['changes-entry', '--repo', REPO, '--tag', '2.23.6', '--backports', str(path)]
+            assert _cli.main(argv) == 0
+        assert '), including:\n\n* Only decode' in out.getvalue()
+
+    def test_a_malformed_backports_file_is_an_error(self, tmp_path):
+        path = tmp_path / 'backports.json'
+        path.write_text('{"2789": [{"subject": "no author"}]}')
+        err = io.StringIO()
+        with mock.patch('sys.stdin', io.StringIO('')), contextlib.redirect_stderr(err):
+            argv = ['changes-entry', '--repo', REPO, '--tag', '2.23.6', '--backports', str(path)]
+            assert _cli.main(argv) == 2
+        assert '--backports' in err.getvalue()

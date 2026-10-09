@@ -49,6 +49,7 @@ And the rules it doesn't show:
 * **Anything unplaceable is surfaced rather than dropped.** An unrecognised commit type, or a subject that is not conventional at all, lands under `Uncategorised` with the type kept, for a human to fix while reading the draft.
 * **A commit with no `(#N)` in its subject** - one pushed straight to the branch - renders with no reference rather than a placeholder standing in for one.
 * **A security advisory's merge is left out.** GitHub titles the commit that merges an advisory's private fork "Merge commit from fork". The fix in it has already gone out in a security release with its own hand-written entry, so listing it again (and crediting whoever pressed the button) would only be something to delete by hand.
+* **A batch of cherry-picks is broken back out.** A maintenance branch usually takes its fixes from `main` as one squash-merged pull request, which leaves one subject in the git log. Given that pull request's own commits (`--backports`, a JSON file the caller fetches, since a squash keeps none of them), the entry becomes a sentence ("Cherry-picked recent fixes from main into the 2.23-maintenance branch (#2789), including:") followed by a list of the changes, each with the pull request it was first merged in. A cherry-pick is told apart by the `(#N)` its subject still carries; the commits that adjust the batch have none and are left out, and it takes two cherry-picks to make a batch.
 * **Code gets backticks.** A name with a leading underscore (`_CharmSpec`, `__init__`), an exception or warning class (`RelationNotFoundError`), and anything followed by a call's parentheses (`load_config()`) is put in backticks, since PR titles often leave them out and a bare `__init__` renders as bold. Text already in backticks is left alone.
 
 ## Using it
@@ -65,6 +66,8 @@ changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entr
 ```
 
 `next-version` prints `version=` and `size=` lines for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
+
+On a maintenance branch, add `--backports backports.json` to `changes-entry`, with each pull request's commits as `{"2789": [{"name": ..., "email": ..., "subject": ...}]}` (from `gh api repos/$REPO/pulls/2789/commits`).
 
 `--compare-url` is optional: a git log carries no compare link and the tags at either end are the workflow's to know. `--date` defaults to today in UTC, and the console script is the only part of the package that reads the clock. `changelog --help` has the rest.
 
