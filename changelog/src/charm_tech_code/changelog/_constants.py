@@ -300,15 +300,14 @@ RELEASE_TITLE_PLACEHOLDER_REGEX = re.compile(r'^_No title was drafted for \S+:')
 #: `# 3.8.3 - 22 September 2026`.
 CHANGES_SECTION_HEADING_REGEX = re.compile(r'^# (?P<version>\S+) - (?P<date>.*)$')
 
-#: The credit on a `CHANGES.md` entry, as `format_changes` writes it: ` by
-#: @handle` or ` by Name`, then the pull-request link. A name is only read
-#: where the link follows it, because without the link there is nothing to
-#: tell "by Name" from a summary that happens to say "by" in it. A handle is
-#: unambiguous either way.
+#: A handle credit on a `CHANGES.md` entry, as `format_changes` writes it:
+#: ` by @handle`, then the pull-request link if there is one. A credit by
+#: name (` by Name`) is not matched, because nothing tells it apart from a
+#: summary that ends in "by" something: "Deselect the checks by default"
+#: would thank "default".
 CHANGES_CREDIT_REGEX = re.compile(
-    r'^\* .* by (?:(?P<handle>@[A-Za-z\d][A-Za-z\d-]*(?:\[bot\])?)'
-    r'(?: \(\[#\d+\]\([^)]*\)\))?'
-    r'|(?P<name>[^()\n]+?) \(\[#\d+\]\([^)]*\)\))[ \t]*$',
+    r'^\* .* by (?P<handle>@[A-Za-z\d][A-Za-z\d-]*(?:\[bot\])?)'
+    r'(?: \(\[#\d+\]\([^)]*\)\))?[ \t]*$',
     re.MULTILINE,
 )
 
