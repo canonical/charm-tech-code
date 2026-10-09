@@ -143,12 +143,15 @@ def user_prompt(
     exemplars: str = '',
     compare_url: str | None = None,
     commits: str = '',
+    newest: str | None = None,
 ) -> str:
     """Return the user message: everything about this particular release.
 
     The generated changelog, the range it covers, and, if the caller has
-    them, the commit messages (as `commit_digest` gives them) and the
-    exemplar releases.
+    them, the commit messages (as `commit_digest` gives them), the exemplar
+    releases, and the newest release in the repository, which on a
+    maintenance branch is how the model knows which series the fixes came
+    from.
     """
     parts = [
         '# This release',
@@ -159,6 +162,8 @@ def user_prompt(
         f'Branch: {branch}',
         f'Commit range: {previous}..{branch}',
     ]
+    if newest:
+        parts.append(f'Newest release in the repository: {newest}')
     if compare_url:
         parts.append(f'Compare: {compare_url}')
     parts += ['', '# The generated changelog for this release', '', changelog.strip()]

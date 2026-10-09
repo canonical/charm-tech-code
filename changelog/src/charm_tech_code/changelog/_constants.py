@@ -99,6 +99,24 @@ COMMIT_SUBJECT_REGEX = re.compile(
 #: no number rather than with a placeholder that hides it.
 PR_SUFFIX_REGEX = re.compile(r'\s*\(#(\d+)\)$')
 
+#: How many cherry-picked commits make a pull request a batch of backports.
+#:
+#: A maintenance branch usually takes its fixes from `main` as one pull
+#: request: a branch of cherry-picks, conflicts fixed, squash-merged back. The
+#: squash leaves one subject on the branch ("fix: cherry-pick recent fixes
+#: from main into the 2.23-maintenance branch (#2789)"), but somebody stuck on
+#: that series wants to see the fixes themselves, so the pull request's own
+#: commits are read and listed under it. A cherry-pick keeps its original
+#: subject, `(#N)` and all, and that suffix is how one is told apart from the
+#: commits that adjust the batch. One cherry-pick on its own is a backport of
+#: a single change, which its own subject already describes.
+BACKPORT_MINIMUM = 2
+
+#: The verbs a batch's subject starts with, and what they become in front of
+#: its list: the entry is a sentence introducing the changes, so it says what
+#: was done rather than what to do.
+BACKPORT_VERBS_REGEX = re.compile(r'^(Cherry-pick|Backport)(?= )')
+
 #: The subject GitHub gives the commit that merges a security advisory's
 #: temporary private fork. It is not conventional, so it would land under
 #: `UNKNOWN`, credited to whoever merged it. It is left out instead: an

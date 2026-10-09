@@ -70,6 +70,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument('--compare-url', default=None, metavar='URL')
     parser.add_argument(
+        '--newest-release',
+        default=None,
+        metavar='X.Y.Z',
+        help=(
+            'The newest release in the repository, from any branch. On a maintenance '
+            'branch it says which series the fixes came from. Optional.'
+        ),
+    )
+    parser.add_argument(
         '--commits',
         default=None,
         metavar='PATH',
@@ -161,6 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         exemplars=exemplars,
         compare_url=args.compare_url,
         commits=commits,
+        newest=args.newest_release,
     )
     try:
         answer = tidy(call_openrouter(system, user, model, api_key))

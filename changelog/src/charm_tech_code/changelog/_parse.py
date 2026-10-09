@@ -37,12 +37,14 @@ Summaries also get backticks round anything that is plainly code; see
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping, Sequence
 from typing import NamedTuple
 
 from ._authors import credit_for
 from ._constants import (
     ADVISORY_MERGE_SUBJECT,
+    BACKPORT_MINIMUM,
+    BACKPORT_VERBS_REGEX,
     BREAKING,
     CATEGORIES,
     CODE_SPAN_REGEX,
@@ -217,7 +219,11 @@ def _cancelled(commits: list[_Commit]) -> set[int]:
 
 
 def parse_git_log(
-    log_text: str, *, team: Collection[str] = (), repo: str | None = None
+    log_text: str,
+    *,
+    team: Collection[str] = (),
+    repo: str | None = None,
+    backports: Mapping[int, Sequence[tuple[str, str, str]]] | None = None,
 ) -> dict[str, list[Change]]:
     """Parse a range of commits into categories.
 
@@ -251,6 +257,11 @@ def parse_git_log(
             credits everyone; see `_authors`.
         repo: The `owner/name` this log came from, used only to ignore a
             `Reverts` line that names a different repository.
+        backports: The commits of pull requests that may be batches of
+            cherry-picks, by pull-request number, each as (author name,
+            author email, subject). A squash merge keeps none of that in the
+            git log, so it is the caller's to fetch. A batch is listed with
+            the changes it brought in under it; see `_backported`.
 
     Returns:
         A dict of category to `Change` list, in the order they are rendered
@@ -273,29 +284,69 @@ def parse_git_log(
     for index, commit in enumerate(commits):
         if index in cancelled or commit.category in IGNORED_TYPES:
             continue
-        change = Change(commit.description, commit.pr_number, commit.credit)
-        breaking = commit.breaking or (
-            commit.category == REVERT
-            and (
-                commit.reverted_type in REVERT_OF_BREAKING_TYPES
-                or commit.reverted_type_is_breaking
+        category, change = _routed(commit)
+        pr_commits = (backports or {}).get(commit.pr_number or 0, ())
+        includes = _backported(commit, pr_commits, team, repo)
+        if includes:
+            change = change._replace(
+                description=BACKPORT_VERBS_REGEX.sub(r'\1ed', change.description),
+                includes=includes,
             )
-        )
-        if breaking:
-            categories[BREAKING].append(
-                change._replace(
-                    description=f'{commit.category.capitalize()}: {change.description}'
-                )
-            )
-        elif commit.category not in categories:
-            # A real conventional-commit type that is not a category: keep
-            # the type, since it is the thing the human has to act on.
-            categories[UNKNOWN].append(
-                change._replace(
-                    description=f'{commit.category.capitalize()}: {change.description}'
-                )
-            )
-        else:
-            categories[commit.category].append(change)
+        categories[category].append(change)
 
     return categories
+
+
+def _routed(commit: _Commit) -> tuple[str, Change]:
+    """The category a commit is listed under, and the change it is listed as.
+
+    A breaking change, and a real type that is not a category, keep their
+    type as a prefix, since it is the thing a reader (or the human fixing
+    the draft) has to act on.
+    """
+    change = Change(commit.description, commit.pr_number, commit.credit)
+    breaking = commit.breaking or (
+        commit.category == REVERT
+        and (commit.reverted_type in REVERT_OF_BREAKING_TYPES or commit.reverted_type_is_breaking)
+    )
+    if breaking:
+        prefixed = f'{commit.category.capitalize()}: {change.description}'
+        return BREAKING, change._replace(description=prefixed)
+    if commit.category not in CATEGORIES:
+        prefixed = f'{commit.category.capitalize()}: {change.description}'
+        return UNKNOWN, change._replace(description=prefixed)
+    return commit.category, change
+
+
+def _backported(
+    batch: _Commit,
+    pr_commits: Sequence[tuple[str, str, str]],
+    team: Collection[str],
+    repo: str | None,
+) -> tuple[Change, ...]:
+    """The changes a batch of cherry-picks brought in, or nothing if it is not one.
+
+    `pr_commits` are the batch's own pull-request commits, as (author name,
+    author email, subject). A cherry-pick is one that still carries the
+    `(#N)` of the pull request it was first merged in; the rest adjust the
+    batch (an import the older branch lacked, a conflict) and are not changes
+    anyone reading the changelog needs. Fewer than `BACKPORT_MINIMUM`
+    cherry-picks is not a batch, and the commit is listed as it stands.
+
+    Each is listed with its own type stripped, under the batch, whatever
+    category it would have had: the batch's heading is where a reader will
+    look for it. A `chore` is dropped here as it is everywhere else.
+    """
+    includes: list[Change] = []
+    for name, email, subject in pr_commits:
+        record = GIT_LOG_FIELD_SEPARATOR.join((name, email, subject, ''))
+        commit = _parse_commit(record, team, repo)
+        if (
+            commit is None
+            or commit.pr_number is None
+            or commit.pr_number == batch.pr_number
+            or commit.category in IGNORED_TYPES
+        ):
+            continue
+        includes.append(_routed(commit)[1])
+    return tuple(includes) if len(includes) >= BACKPORT_MINIMUM else ()

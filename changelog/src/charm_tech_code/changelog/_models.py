@@ -42,8 +42,13 @@ class Change(NamedTuple):
         credit: How to credit the author, already rendered: `@handle` where
             one is known, the person's name where it is not, and `None` for
             an author the caller named as one of its own. See `_authors`.
+        includes: The changes a batch of cherry-picks brought in, each
+            with the pull request it was originally merged in, for a pull
+            request that squash-merged several of them into a maintenance
+            branch at once. Empty for every other change. See `BACKPORT_MINIMUM`.
     """
 
     description: str
     pr_number: int | None = None
     credit: str | None = None
+    includes: tuple[Change, ...] = ()

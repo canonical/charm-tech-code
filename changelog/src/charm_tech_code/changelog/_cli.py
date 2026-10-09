@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import pathlib
 import sys
 import textwrap
@@ -91,6 +92,34 @@ def _repo_option(parser: argparse.ArgumentParser, *, required: bool) -> None:
             'from one naming this one.'
         ),
     )
+
+
+def _backports_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        '--backports',
+        default=None,
+        metavar='PATH',
+        help=(
+            'A JSON file of pull requests that may each be a batch of '
+            'cherry-picks: {"2789": [{"name": ..., "email": ..., "subject": '
+            "...}, ...]}, with each pull request's own commits as the GitHub "
+            'API lists them. A squash merge keeps none of them in the git log. '
+            'A pull request with two or more commits that carry another pull '
+            "request's (#N) is listed with those changes under it. Leave it "
+            'out to list every commit as it stands.'
+        ),
+    )
+
+
+def _read_backports(path: str | None) -> dict[int, list[tuple[str, str, str]]]:
+    """The `--backports` file, as `parse_git_log` takes it."""
+    if path is None:
+        return {}
+    data = json.loads(pathlib.Path(path).read_text())
+    return {
+        int(number): [(c['name'], c['email'], c['subject']) for c in commits]
+        for number, commits in data.items()
+    }
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -155,6 +184,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     _repo_option(release_notes_parser, required=False)
+    _backports_option(release_notes_parser)
     release_notes_parser.add_argument(
         '--compare-url',
         default=None,
@@ -175,6 +205,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     _repo_option(changes_entry_parser, required=True)
+    _backports_option(changes_entry_parser)
     changes_entry_parser.add_argument(
         '--tag',
         required=True,
@@ -406,6 +437,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == 'release-title':
         return _release_title(args)
 
+    try:
+        backports = _read_backports(getattr(args, 'backports', None))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        print(f'changelog: --backports: {exc!r}', file=sys.stderr)
+        return 2
     categories = parse_git_log(
         sys.stdin.read(),
         # Always the Charm Tech team: every repository that runs this is one
@@ -413,6 +449,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         team=CHARM_TECH_TEAM,
         # Only `release-notes` and `changes-entry` take `--repo`.
         repo=getattr(args, 'repo', None),
+        # Only `release-notes` and `changes-entry` take `--backports`.
+        backports=backports,
     )
 
     if args.command == 'bump-size':
