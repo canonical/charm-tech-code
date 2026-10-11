@@ -22,6 +22,7 @@ import subprocess
 from typing import Any
 
 from . import _summary
+from ._constants import MARKER_PREFIX
 from ._markers import find_run_markers
 from ._models import CandidateIssue, FailedJob
 
@@ -75,14 +76,9 @@ def fetch_job_log(repo: str, run_id: str, job_id: int) -> str:
     above exists to strip them. Runners carry a gh new enough to refuse (2.97.0
     when this was measured, in fork run 32673538357), so without the flag every
     fetch comes back empty and the signature degrades to the job name.
-
-    Older builds have no such check and no such flag, and reject it as unknown
-    rather than ignoring it, so those retry without.
     """
     endpoint = f'repos/{repo}/actions/jobs/{job_id}/logs'
     result = gh('api', endpoint, '--allow-escape-sequences', check=False)
-    if 'unknown flag' in (result.stderr or ''):
-        result = gh('api', endpoint, check=False)
     if not result.stdout.strip():
         # `gh` puts the status on stderr ("gh: Not Found (HTTP 404)"), and the
         # exit code alone is 1 for all of them. Without the status there is no
@@ -121,6 +117,39 @@ def fetch_issue_texts(repo: str, number: int) -> list[str]:
     return texts
 
 
+def find_notifier_comment(repo: str, number: int, run_id: str) -> int | None:
+    """Return the REST id of the comment the notifier left on issue `number` for `run_id`.
+
+    `gh issue view --json comments` only has GraphQL node ids, and editing a
+    comment through the REST API needs the numeric one, so this reads the
+    comments endpoint instead. If there's more than one match, the most recent
+    wins. `None` means there's no such comment, which is also what an earlier
+    edit leaves behind, since the edit replaces the notifier's marker.
+    """
+    needle = f'{MARKER_PREFIX}:run={run_id}:origin=comment'
+    result = gh(
+        'api',
+        '--paginate',
+        f'repos/{repo}/issues/{number}/comments',
+        '--jq',
+        f'.[] | select(.body | contains("{needle}")) | .id',
+    )
+    ids = result.stdout.split()
+    return int(ids[-1]) if ids else None
+
+
+def edit_comment(repo: str, comment_id: int, body: str) -> None:
+    """Replace the body of an issue comment."""
+    gh(
+        'api',
+        '--method',
+        'PATCH',
+        f'repos/{repo}/issues/comments/{comment_id}',
+        '-f',
+        f'body={body}',
+    )
+
+
 def resolve_origin(
     repo: str, run_id: str, notify_issue: int, notify_origin: str | None
 ) -> tuple[int | None, str | None, int]:
@@ -149,48 +178,40 @@ def resolve_origin(
     return enriched_issue, notify_origin or origin_kind, notify_issue
 
 
+# `comments` is what makes a candidate legible: an automatically-opened issue's
+# body is one line reading "Scheduled workflow 'X' failed: <url>", and any
+# diagnosis anybody has written about it is in the thread.
+CANDIDATE_FIELDS = 'number,title,body,createdAt,closedAt,comments'
+
+
+def _list_issues(repo: str, workflow_name: str, state: str) -> list[dict[str, Any]]:
+    """One side of the coarse search: issues in `state` matching the workflow name."""
+    return (
+        gh_json(
+            'issue',
+            'list',
+            '--repo',
+            repo,
+            '--state',
+            state,
+            '--search',
+            f'"{workflow_name}"',
+            '--json',
+            CANDIDATE_FIELDS,
+            '--limit',
+            '20',
+        )
+        or []
+    )
+
+
 def search_candidates(
     repo: str, workflow_name: str
 ) -> tuple[list[CandidateIssue], list[CandidateIssue]]:
     """Coarse candidate search: open and closed issues matching the workflow name."""
-    fields = 'number,title,body,createdAt,closedAt'
-    open_issues = (
-        gh_json(
-            'issue',
-            'list',
-            '--repo',
-            repo,
-            '--state',
-            'open',
-            '--search',
-            f'"{workflow_name}"',
-            '--json',
-            fields,
-            '--limit',
-            '20',
-        )
-        or []
-    )
-    closed_issues = (
-        gh_json(
-            'issue',
-            'list',
-            '--repo',
-            repo,
-            '--state',
-            'closed',
-            '--search',
-            f'"{workflow_name}"',
-            '--json',
-            fields,
-            '--limit',
-            '20',
-        )
-        or []
-    )
     return (
-        [CandidateIssue.from_gh(i) for i in open_issues],
-        [CandidateIssue.from_gh(i) for i in closed_issues],
+        [CandidateIssue.from_gh(i) for i in _list_issues(repo, workflow_name, 'open')],
+        [CandidateIssue.from_gh(i) for i in _list_issues(repo, workflow_name, 'closed')],
     )
 
 

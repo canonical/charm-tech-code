@@ -39,6 +39,7 @@ from __future__ import annotations
 import contextlib
 import datetime
 import io
+import json
 import pathlib
 from unittest import mock
 
@@ -57,7 +58,7 @@ from charm_tech_code.changelog._format import (
     format_release_notes,
 )
 from charm_tech_code.changelog._models import Change
-from charm_tech_code.changelog._parse import parse_git_log
+from charm_tech_code.changelog._parse import code_spans, parse_git_log
 from charm_tech_code.changelog._version import MINOR, PATCH, infer_bump_size, next_version
 
 # The team that maintains the repository the fixtures come from: emails,
@@ -219,9 +220,6 @@ OPERATOR_REVERT_RANGE_COMMITS = (
 OPERATOR_3_8_2_LOG = git_log(*OPERATOR_3_8_2_COMMITS)
 OPERATOR_BREAKING_LOG = git_log(*OPERATOR_BREAKING_COMMITS)
 OPERATOR_REVERT_RANGE_LOG = git_log(*OPERATOR_REVERT_RANGE_COMMITS)
-
-#: `OPERATOR_TEAM` as a workflow would pass it: one repository variable.
-TEAM_ARGUMENT = ','.join(OPERATOR_TEAM)
 
 
 class TestWholeRelease:
@@ -753,6 +751,29 @@ class TestGitLogParse:
         ]
         assert sum(len(items) for items in categories.values()) == 3
 
+    def test_a_security_advisory_merge_is_left_out(self):
+        # GitHub's subject for merging an advisory's private fork. The fix in
+        # it went out in its own security release, so it is neither listed
+        # again nor credited, whoever's address it carries.
+        categories = self.parse(
+            (('Hazel Grouse', 'hazel@example.com'), 'Merge commit from fork', '* fix: a leak'),
+            (FOCAL, 'fix: a genuine bug (#1)', ''),
+        )
+        assert categories['unknown'] == []
+        assert categories['fix'] == [Change('A genuine bug', 1)]
+
+    def test_code_in_a_summary_gets_backticks(self):
+        categories = self.parse(
+            (FOCAL, "fix: treat an _Abort(0) from the charm's __init__ as success (#1)", ''),
+        )
+        assert categories['fix'] == [
+            Change("Treat an `_Abort(0)` from the charm's `__init__` as success", 1)
+        ]
+
+    def test_a_summary_that_starts_with_code_is_not_capitalised(self):
+        categories = self.parse((FOCAL, 'fix: _private_thing no longer leaks (#1)', ''))
+        assert categories['fix'] == [Change('`_private_thing` no longer leaks', 1)]
+
     def test_an_unrecognised_commit_type_is_uncategorised_with_its_type(self):
         # `style` is not a category and not in `IGNORED_TYPES`, so it is a
         # surprise: either a typo or a repository without the PR-title check.
@@ -795,6 +816,48 @@ class TestGitLogParse:
             git_log((FOCAL, 'fix: polish the runes (#1)', '')) + '\n', team=OPERATOR_TEAM
         )
         assert categories['fix'] == [Change('Polish the runes', 1)]
+
+
+class TestCodeSpans:
+    """Backticks round the words in a summary that are plainly code."""
+
+    @pytest.mark.parametrize(
+        ('summary', 'expected'),
+        [
+            ('make _CharmSpec covariant', 'make `_CharmSpec` covariant'),
+            ('dunder __init__ and __call__', 'dunder `__init__` and `__call__`'),
+            ('treat _Abort(0) as success', 'treat `_Abort(0)` as success'),
+            ('raise RelationNotFoundError', 'raise `RelationNotFoundError`'),
+            ('raise ops.ModelError here', 'raise `ops.ModelError` here'),
+            ('a DeprecationWarning for it', 'a `DeprecationWarning` for it'),
+            ('call load_config() first', 'call `load_config()` first'),
+            ('read ops._private.yaml', 'read `ops._private.yaml`'),
+        ],
+    )
+    def test_code_is_wrapped(self, summary: str, expected: str):
+        assert code_spans(summary) == expected
+
+    @pytest.mark.parametrize(
+        'summary',
+        [
+            'drop typing.cast where narrowing can do the work',
+            'raise an Error when the kettle boils',
+            'support Python 3.14 (the new one)',
+            'record trace data with opentelemetry-sdk 1.45',
+            'detect Pydantic dataclasses from before 2.11',
+            'let charms set `on` without a type: ignore',
+        ],
+    )
+    def test_words_are_left_alone(self, summary: str):
+        assert code_spans(summary) == summary
+
+    def test_existing_backticks_are_not_doubled(self):
+        summary = 'raise `RelationNotFoundError` from `_Abort(0)` and _Other'
+        assert code_spans(summary) == 'raise `RelationNotFoundError` from `_Abort(0)` and `_Other`'
+
+    def test_running_it_twice_changes_nothing(self):
+        once = code_spans("treat an _Abort(0) from the charm's __init__ as ModelError")
+        assert code_spans(once) == once
 
 
 class TestAuthorCredit:
@@ -1011,6 +1074,14 @@ class TestRevert:
 class TestConsoleScript:
     """The `changelog` console script: a range on stdin, one answer on stdout."""
 
+    @pytest.fixture(autouse=True)
+    def fixture_team(self):
+        # The fixtures' invented maintainers stand in for the built-in team,
+        # so that the expected output can come from the library with the
+        # same team; `TestCharmTechTeam` checks the real one.
+        with mock.patch.object(_cli, 'CHARM_TECH_TEAM', OPERATOR_TEAM):
+            yield
+
     def run_cli(self, *argv: str, stdin: str = OPERATOR_3_8_2_LOG) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with (
@@ -1028,10 +1099,14 @@ class TestConsoleScript:
         assert self.run_cli('bump-size') == (0, 'patch\n', '')
         assert self.run_cli('bump-size', stdin=OPERATOR_BREAKING_LOG) == (0, 'minor\n', '')
 
-    def test_next_version_prints_one_bare_word(self):
-        assert self.run_cli('next-version', '--previous', '3.8.1') == (0, '3.8.2\n', '')
+    def test_next_version_prints_the_version_and_the_size(self):
+        # `key=value` lines, the same as `detect-release` and `post-release`,
+        # so the step appends them to `$GITHUB_OUTPUT` as they stand and a
+        # maintenance-branch check reads the size from the same call.
+        patch = self.run_cli('next-version', '--previous', '3.8.1')
+        assert patch == (0, 'version=3.8.2\nsize=patch\n', '')
         minor = self.run_cli('next-version', '--previous', '3.7.1', stdin=OPERATOR_BREAKING_LOG)
-        assert minor == (0, '3.8.0\n', '')
+        assert minor == (0, 'version=3.8.0\nsize=minor\n', '')
 
     def test_next_version_fails_rather_than_guessing(self):
         returncode, out, err = self.run_cli('next-version', '--previous', '3.9.0.dev0')
@@ -1043,7 +1118,7 @@ class TestConsoleScript:
 
     def test_release_notes_is_the_library_output(self):
         categories = parse_git_log(OPERATOR_3_8_2_LOG, team=OPERATOR_TEAM, repo=REPO)
-        _, out, _ = self.run_cli('release-notes', '--repo', REPO, '--team', TEAM_ARGUMENT)
+        _, out, _ = self.run_cli('release-notes', '--repo', REPO)
         # No newline is added here, because the library's last line is the
         # blank one after the final category. With a compare link at the end
         # there is no trailing blank line, and `_emit` adds one; the
@@ -1055,7 +1130,7 @@ class TestConsoleScript:
         # The bullets end in `#N`, which GitHub links for itself, so unlike
         # `changes-entry` there is nothing here to build out of a repository
         # name.
-        returncode, out, _ = self.run_cli('release-notes', '--team', TEAM_ARGUMENT)
+        returncode, out, _ = self.run_cli('release-notes')
         assert returncode == 0
         assert 'in #2684' in out
 
@@ -1081,8 +1156,6 @@ class TestConsoleScript:
             '3.8.2',
             '--date',
             '2026-08-31',
-            '--team',
-            TEAM_ARGUMENT,
         )
         # Including the blank line it ends with: this text is prepended to
         # CHANGES.md verbatim, so the trailing layout is part of the answer.
@@ -1096,48 +1169,21 @@ class TestConsoleScript:
         with pytest.raises(SystemExit):
             self.run_cli('changes-entry', '--tag', '3.8.2')
 
-    def test_the_team_is_comma_separated(self):
-        # A workflow passes the team as one repository variable with commas
-        # in it, which is the only spelling the flag takes.
-        # A handle rather than an email, because it has to suppress the
-        # credit on both input paths and only the git log has an email to
-        # match: see `test_an_email_cannot_match_an_author_the_notes_name`.
-        ali = '@ducky-debugger'
-        _, out, _ = self.run_cli(
-            'changes-entry',
-            '--repo',
-            REPO,
-            '--tag',
-            '3.8.2',
-            '--date',
-            '2026-08-31',
-            '--team',
-            f'{TEAM_ARGUMENT},{ali}',
-        )
-        # Everyone in this range is now accounted for, so the one bullet
-        # that was credited no longer is.
-        assert (
-            '* Stop the framework mistaking two notices for twins '
-            '([#2684](https://github.com/canonical/operator/pull/2684))' in out
-        )
-        assert '@ducky-debugger' not in out
-
-    def test_without_a_team_everyone_is_credited(self):
-        # The safe way round: over-crediting shows up in the draft release
-        # and takes one edit, while crediting nobody is invisible. Note that
-        # Focal Fossa is credited by *name* here: they commit from an
-        # @canonical.com address, so the git log has no handle for them.
-        _, out, _ = self.run_cli(
-            'changes-entry', '--repo', REPO, '--tag', '3.8.2', '--date', '2026-08-31'
-        )
-        assert (
-            '* Stop the framework mistaking two notices for twins by @ducky-debugger '
-            '([#2684](https://github.com/canonical/operator/pull/2684))' in out
-        )
-        assert (
-            '* Stop dressing cross-references up as quotations by Focal Fossa '
-            '([#2666](https://github.com/canonical/operator/pull/2666))' in out
-        )
+    @pytest.mark.parametrize(
+        'command',
+        [
+            ['bump-size'],
+            ['next-version', '--previous', '3.8.1'],
+            ['release-notes'],
+            ['changes-entry', '--repo', REPO, '--tag', '3.8.2'],
+        ],
+    )
+    def test_there_is_no_team_to_pass(self, command: list[str]):
+        # The team is built in, so a `--team` would be a second list to keep
+        # in step with it. Refusing one says so, rather than ignoring it.
+        with pytest.raises(SystemExit) as exc_info, contextlib.redirect_stderr(io.StringIO()):
+            self.run_cli(*command, '--team', '@ducky-debugger')
+        assert exc_info.value.code == 2
 
     def test_changes_entry_defaults_to_today(self):
         with mock.patch.object(_cli, '_today', return_value=datetime.date(2026, 9, 11)):
@@ -1172,3 +1218,116 @@ class TestConsoleScript:
         pyproject = (pathlib.Path(__file__).parent.parent / 'pyproject.toml').read_text()
         assert 'changelog = "charm_tech_code.changelog._cli:main"' in pyproject
         assert callable(_cli.main)
+
+
+class TestCharmTechTeam:
+    """The console script with the real, built-in team rather than the fixtures'."""
+
+    def test_a_maintainer_is_not_credited_and_a_contributor_is(self):
+        log = git_log(
+            (('Tony Meyer', 'tony.meyer@canonical.com'), 'fix: mend the runes (#1)', ''),
+            (DUCKY, 'fix: polish the runes (#2)', ''),
+        )
+        out = io.StringIO()
+        with mock.patch('sys.stdin', io.StringIO(log)), contextlib.redirect_stdout(out):
+            assert _cli.main(['release-notes']) == 0
+        assert '* Mend the runes in #1\n' in out.getvalue()
+        assert '* Polish the runes by @ducky-debugger in #2\n' in out.getvalue()
+
+
+# The 2.23.6 range: one squash-merged batch of cherry-picks, and one backport
+# of a single change. The batch's own commits are what the GitHub API lists
+# for its pull request, including the commit that adjusted it.
+OPERATOR_2_23_6_LOG = git_log(
+    (FOCAL, 'refactor: move the otlp-json package to a module (2.23) (#2788)', ''),
+    (FOCAL, 'fix: cherry-pick recent fixes from main into the 2.23 branch (#2789)', ''),
+)
+OPERATOR_2_23_6_BACKPORTS = {
+    2788: [(*FOCAL, 'refactor!: move the otlp-json package to a module')],
+    2789: [
+        (*FOCAL, 'fix: only decode fields used by the data class in Relation.load() (#2636)'),
+        (*FOCAL, 'fix: detect pydantic dataclasses from before 2.11 (#2768)'),
+        (*DUCKY, 'fix: say which tracing destination rejected the data (#2714)'),
+        (*FOCAL, 'fix: import warnings in scenario state for the unknown status backport'),
+        (*FOCAL, 'chore: bump the pin the fixes need (#2700)'),
+    ],
+}
+
+
+class TestBackports:
+    def categories(self, backports=OPERATOR_2_23_6_BACKPORTS):
+        return parse_git_log(
+            OPERATOR_2_23_6_LOG, team=OPERATOR_TEAM, repo=REPO, backports=backports
+        )
+
+    def test_a_batch_lists_the_changes_it_brought_in(self):
+        (batch,) = self.categories()['fix']
+        assert batch.description == 'Cherry-picked recent fixes from main into the 2.23 branch'
+        assert batch.pr_number == 2789
+        assert batch.includes == (
+            Change('Only decode fields used by the data class in `Relation.load()`', 2636),
+            Change('Detect pydantic dataclasses from before 2.11', 2768),
+            Change('Say which tracing destination rejected the data', 2714, '@ducky-debugger'),
+        )
+
+    def test_a_single_backport_is_listed_as_it_stands(self):
+        # #2788's one commit has no `(#N)`, and one would not be enough anyway.
+        (refactor,) = self.categories()['refactor']
+        assert refactor == Change('Move the otlp-json package to a module (2.23)', 2788)
+
+    def test_without_the_commits_a_batch_is_one_line(self):
+        (batch,) = self.categories(backports={})['fix']
+        assert batch.includes == ()
+        assert batch.description.startswith('Cherry-pick recent')
+
+    def test_the_changes_entry(self):
+        entry = format_changes(self.categories(), '2.23.6', datetime.date(2026, 10, 8), repo=REPO)
+        url = 'https://github.com/canonical/operator/pull'
+        assert entry.startswith(
+            '# 2.23.6 - 08 October 2026\n\n'
+            '## Fixes\n\n'
+            'Cherry-picked recent fixes from main into the 2.23 branch'
+            f' ([#2789]({url}/2789)), including:\n\n'
+            '* Only decode fields used by the data class in `Relation.load()`'
+            f' ([#2636]({url}/2636))\n'
+            f'* Detect pydantic dataclasses from before 2.11 ([#2768]({url}/2768))\n'
+            '* Say which tracing destination rejected the data by @ducky-debugger'
+            f' ([#2714]({url}/2714))\n'
+            '\n## Refactoring\n'
+        )
+
+    def test_a_batch_goes_after_the_ordinary_bullets(self):
+        categories = self.categories()
+        categories['fix'].append(Change('An ordinary fix', 2800))
+        notes = format_release_notes(categories, None)
+        assert '### Fixes\n* An ordinary fix in #2800\n\nCherry-picked recent' in notes
+        assert 'branch in #2789, including:\n\n* Only decode' in notes
+
+    def test_the_cli_reads_the_backports_file(self, tmp_path):
+        path = tmp_path / 'backports.json'
+        path.write_text(
+            json.dumps({
+                str(number): [
+                    {'name': name, 'email': email, 'subject': subject}
+                    for name, email, subject in commits
+                ]
+                for number, commits in OPERATOR_2_23_6_BACKPORTS.items()
+            })
+        )
+        out = io.StringIO()
+        with (
+            mock.patch('sys.stdin', io.StringIO(OPERATOR_2_23_6_LOG)),
+            contextlib.redirect_stdout(out),
+        ):
+            argv = ['changes-entry', '--repo', REPO, '--tag', '2.23.6', '--backports', str(path)]
+            assert _cli.main(argv) == 0
+        assert '), including:\n\n* Only decode' in out.getvalue()
+
+    def test_a_malformed_backports_file_is_an_error(self, tmp_path):
+        path = tmp_path / 'backports.json'
+        path.write_text('{"2789": [{"subject": "no author"}]}')
+        err = io.StringIO()
+        with mock.patch('sys.stdin', io.StringIO('')), contextlib.redirect_stderr(err):
+            argv = ['changes-entry', '--repo', REPO, '--tag', '2.23.6', '--backports', str(path)]
+            assert _cli.main(argv) == 2
+        assert '--backports' in err.getvalue()

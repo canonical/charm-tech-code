@@ -7,8 +7,9 @@ Each tool is its own package in its own top-level directory, with its own `pypro
 | directory | what it does |
 |---|---|
 | [`ai-failure-notifier`](ai-failure-notifier) | Triages and enriches the issue opened when a scheduled workflow fails. |
-| [`changelog`](changelog) | Turns a range of commits into our changelog format. |
+| [`changelog`](changelog) | Turns a range of commits into our changelog format, and makes the version decisions around a release. |
 | [`charm-tech-baseline`](charm-tech-baseline) | Audits a repository against the Charm Tech baseline, and applies the mechanical fixes. |
+| [`draft-release-notes`](draft-release-notes) | Drafts a release's notes with a model, for a human to edit before publishing. |
 
 Code here is consumed by workflow YAML in the repository that runs it, pinned by commit SHA:
 

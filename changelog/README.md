@@ -37,7 +37,7 @@ Release notes are the same content with `###` headings and `in #2684` in place o
 
 Most of the rules are visible there:
 
-* **A contributor from outside the maintaining team is credited; a maintainer is not.** Pass the team to `--team`, comma-separated, as emails and/or handles; an empty team credits everyone, which is the safe way round, since over-crediting is visible in the draft release and crediting nobody is not.
+* **A contributor from outside the maintaining team is credited; a maintainer is not.** The team is built in (`CHARM_TECH_TEAM` in `_constants.py`), because it is the same for every repository we maintain, so a workflow has nothing to pass. When in doubt, leave someone off the list: over-crediting is visible in the draft release, and crediting nobody is not.
 * **A handle is only sometimes recoverable.** `46688206+ducky-debugger@users.noreply.github.com` gives `@ducky-debugger`, GitHub's default for an account with a private email; where the log has no handle, the person is credited by name.
 * **`chore` is dropped on purpose.** Dependency bumps, charm pins and the release's own version bump are not what a reader came for, and `git log` still has them.
 * **The headings, their order and the commit-type map are fixed.** The format is common across our repositories, so there is nothing for an adopting repository to supply.
@@ -48,6 +48,9 @@ And the rules it doesn't show:
 * **A revert of something in the same range cancels with it**, and neither appears; a revert of something already released goes under `Reverted`, or under `Breaking Changes` where it undoes a released `feat` or anything carrying a `!`.
 * **Anything unplaceable is surfaced rather than dropped.** An unrecognised commit type, or a subject that is not conventional at all, lands under `Uncategorised` with the type kept, for a human to fix while reading the draft.
 * **A commit with no `(#N)` in its subject** - one pushed straight to the branch - renders with no reference rather than a placeholder standing in for one.
+* **A security advisory's merge is left out.** GitHub titles the commit that merges an advisory's private fork "Merge commit from fork". The fix in it has already gone out in a security release with its own hand-written entry, so listing it again (and crediting whoever pressed the button) would only be something to delete by hand.
+* **A batch of cherry-picks is broken back out.** A maintenance branch usually takes its fixes from `main` as one squash-merged pull request, which leaves one subject in the git log. Given that pull request's own commits (`--backports`, a JSON file the caller fetches, since a squash keeps none of them), the entry becomes a sentence ("Cherry-picked recent fixes from main into the 2.23-maintenance branch (#2789), including:") followed by a list of the changes, each with the pull request it was first merged in. A cherry-pick is told apart by the `(#N)` its subject still carries; the commits that adjust the batch have none and are left out, and it takes two cherry-picks to make a batch.
+* **Code gets backticks.** A name with a leading underscore (`_CharmSpec`, `__init__`), an exception or warning class (`RelationNotFoundError`), and anything followed by a call's parentheses (`load_config()`) is put in backticks, since PR titles often leave them out and a bare `__init__` renders as bold. Text already in backticks is left alone.
 
 ## Using it
 
@@ -55,14 +58,16 @@ Everything goes through the `changelog` console script. It reads a git log on st
 
 ```shell
 git log --reverse --no-merges --format="$(changelog git-log-format)" "$LAST_TAG..$BRANCH" > log.txt
-SIZE=$(changelog bump-size --team "$TEAM" < log.txt)
-VERSION=$(changelog next-version --previous "$LAST_TAG" --team "$TEAM" < log.txt)
-changelog release-notes --repo "$REPO" --team "$TEAM" \
+changelog next-version --previous "$LAST_TAG" < log.txt >> "$GITHUB_OUTPUT"
+# ...then, in a later step, with $VERSION set from that output:
+changelog release-notes --repo "$REPO" \
     --compare-url "https://github.com/$REPO/compare/$LAST_TAG...$VERSION" < log.txt > release-notes.md
-changelog changes-entry --repo "$REPO" --tag "$VERSION" --team "$TEAM" < log.txt > changes-entry.md
+changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entry.md
 ```
 
-The two commands that print one word are for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
+`next-version` prints `version=` and `size=` lines for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
+
+On a maintenance branch, add `--backports backports.json` to `changes-entry`, with each pull request's commits as `{"2789": [{"name": ..., "email": ..., "subject": ...}]}` (from `gh api repos/$REPO/pulls/2789/commits`).
 
 `--compare-url` is optional: a git log carries no compare link and the tags at either end are the workflow's to know. `--date` defaults to today in UTC, and the console script is the only part of the package that reads the clock. `changelog --help` has the rest.
 
@@ -74,9 +79,29 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
 
 ## Versions
 
-`bump-size` says whether a range is a minor or a patch - a `feat` or a breaking change means minor, anything else means patch - and `next-version` applies that to a plain `X.Y.Z`. A major bump is never inferred, nor is a pre-release: `next-version` raises rather than guess at anything that isn't `X.Y.Z`, `3.9.0.dev0` included, since that is the guess the last post-release bump left in the version file rather than a version anyone shipped.
+`bump-size` says whether a range is a minor or a patch - a `feat` or a breaking change means minor, anything else means patch - and `next-version` applies that to a plain `X.Y.Z`, printing both the version and the size, so a caller that checks the size gets it from the same call. `bump-size` on its own prints the bare word, for a repository that bumps its version some other way, such as `hatch version minor`. A major bump is never inferred, nor is a pre-release: `next-version` raises rather than guess at anything that isn't `X.Y.Z`, `3.9.0.dev0` included, since that is the guess the last post-release bump left in the version file rather than a version anyone shipped.
 
-The repository decides what to count from, whether a `.dev0` goes on afterwards, and what any of it means for the other packages it ships. A `minor` on a branch where a feature has no business appearing, such as operator's `2.23-maintenance`, is an error rather than a patch - but which branches those are is the repository's to know, so that check belongs there.
+The repository decides what to count from, and what any of it means for the other packages it ships. A `minor` on a branch where a feature has no business appearing, such as operator's `2.23-maintenance`, is an error rather than a patch - but which branches those are is the repository's to know, so that check belongs there.
+
+## Around a release
+
+Four more subcommands make the decisions a release pipeline needs once the changelog is written. None of them reads a git log, and they take and print version strings: reading the version out of a file, and writing a new one back, stays in the repository.
+
+```shell
+changelog detect-release --before "$BEFORE" --after "$AFTER"
+changelog post-release --tag "$TAG" --target "$TARGET_COMMITISH" \
+    --candidates main,2.23-maintenance --containing main
+changelog release-body --version "$VERSION" --changes CHANGES.md \
+    --compare-url "$SERVER/$REPO/compare/$PREVIOUS...$VERSION" < pr-description.md > release-body.md
+changelog release-title --version "$VERSION" < pr-description.md
+```
+
+* **`detect-release`** decides, from the before and after versions alone, whether a push to a release branch is a release: the version changed, and the new one has no `.devN` suffix. It prints `version=` and `prerelease=` lines when it is, and nothing when it is not, so a later step can test for the output. A post-release bump writes a `.devN` version, so it is never mistaken for a release.
+* **`post-release`** works out which branch a published release was cut from, and the development version that branch goes to now: a pre-release drops its suffix (3.4.0b3 leaves `3.4.0.dev0`), a `-maintenance` branch bumps the patch (2.23.5 leaves `2.23.6.dev0`), and anything else bumps the minor (3.8.2 leaves `3.9.0.dev0`). The branch comes from which release branches contain the tag, with the default branch (`--default-branch`, `main` unless you say otherwise) winning a tie. It prints `branch=` and `version=` lines. The version is a placeholder that stops the tree claiming to be the release just published; nothing counts from it.
+* **`release-body`** takes the release notes from between the `<!-- release-notes:start -->` and `<!-- release-notes:end -->` markers in a merged release pull request's description, and prints them followed by this version's section of the changelog, with its headings moved down a level. The changelog half is copied from the file rather than generated again, so the two cannot drift. Notes that are still `draft-release-notes`' placeholder go in as they stand, with a line on stderr saying so. With `--compare-url`, the changelog is followed by an `**All commits**: <url>` line. The body ends with a sentence thanking anyone the changelog section credits ("Thanks @someone for your contribution to this release!"), read back out of the section so that edits made to `CHANGES.md` in the release pull request carry through. Nobody is mentioned anywhere earlier in the process, so a contributor is notified about the release, not about the pull request that prepares it.
+* **`release-title`** prints the release's title, `X.Y.Z: <summary>`, taking the summary from between the `<!-- release-title:start -->` and `<!-- release-title:end -->` markers in the same description. The version is always added here (and taken off the front of the summary if someone typed it there too), so the title can't name a different version from the release. No markers, broken markers, or `draft-release-notes`' title placeholder give the bare version, with a line on stderr saying why; it never fails, because a release can go out titled with just its version and the title can still be edited on the draft.
+
+The two that print `key=value` lines are for appending to `$GITHUB_OUTPUT`. On failure they print nothing on stdout and exit non-zero, so a failed step cannot half-write it.
 
 ## Developing
 

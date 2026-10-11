@@ -38,6 +38,12 @@ PULL_REQUEST_URL_TEMPLATE = 'https://github.com/{repo}/pull/{number}'
 #: notes rendered here read the same as notes rendered there.
 FULL_CHANGELOG_PREFIX = '**Full Changelog**'
 
+#: The prefix of the compare line a release *body* ends with, which is not
+#: GitHub's. The body already has a `## Changelog` heading, and a "Full
+#: Changelog" under it reads as a second, longer version of the same list,
+#: when the link is to the commits.
+ALL_COMMITS_PREFIX = '**All commits**'
+
 #: The ``git log --format=`` string `parse_git_log` expects, and the two
 #: control characters it is built out of.
 #:
@@ -92,6 +98,55 @@ COMMIT_SUBJECT_REGEX = re.compile(
 #: Such a change is real and belongs in the changelog, so it is carried with
 #: no number rather than with a placeholder that hides it.
 PR_SUFFIX_REGEX = re.compile(r'\s*\(#(\d+)\)$')
+
+#: How many cherry-picked commits make a pull request a batch of backports.
+#:
+#: A maintenance branch usually takes its fixes from `main` as one pull
+#: request: a branch of cherry-picks, conflicts fixed, squash-merged back. The
+#: squash leaves one subject on the branch ("fix: cherry-pick recent fixes
+#: from main into the 2.23-maintenance branch (#2789)"), but somebody stuck on
+#: that series wants to see the fixes themselves, so the pull request's own
+#: commits are read and listed under it. A cherry-pick keeps its original
+#: subject, `(#N)` and all, and that suffix is how one is told apart from the
+#: commits that adjust the batch. One cherry-pick on its own is a backport of
+#: a single change, which its own subject already describes.
+BACKPORT_MINIMUM = 2
+
+#: The verbs a batch's subject starts with, and what they become in front of
+#: its list: the entry is a sentence introducing the changes, so it says what
+#: was done rather than what to do.
+BACKPORT_VERBS_REGEX = re.compile(r'^(Cherry-pick|Backport)(?= )')
+
+#: The subject GitHub gives the commit that merges a security advisory's
+#: temporary private fork. It is not conventional, so it would land under
+#: `UNKNOWN`, credited to whoever merged it. It is left out instead: an
+#: advisory's fix goes out in a security release of its own, with an entry
+#: written by hand (3.8.3, from a branch, then this commit on `main` and in
+#: 3.9.0's range), so by the time it is in a range here it has been released.
+ADVISORY_MERGE_SUBJECT = 'Merge commit from fork'
+
+#: Words in a commit summary that are code, and so belong in backticks. PR
+#: titles often leave them out, and a bare `__init__` or `_a_b` is Markdown
+#: emphasis rather than a name. Only shapes
+#: that are not English are matched, so that this never wraps a word that was
+#: meant as a word:
+#: * A name with a leading underscore, dotted or not, such as `_CharmSpec`,
+#:   `__init__` or `ops._private.yaml`.
+#: * A PascalCase exception or warning name, such as `RelationNotFoundError`.
+#: * Anything immediately followed by a call's parentheses: `load_config()`,
+#:   `_Abort(0)`. The parentheses are part of the match.
+#: Text already in backticks is never looked at; see `_parse.code_spans`.
+CODE_WORD_REGEX = re.compile(
+    r'(?<![\w`.])(?:'
+    r'(?:[A-Za-z]\w*\.)*_\w+(?:\.\w+)*(?:\([^()\s]*\))?'
+    r'|(?:[A-Za-z]\w*\.)*[A-Z][a-z\d]+(?:[A-Z][a-z\d]*)*(?:Error|Exception|Warning)\b'
+    r'(?:\([^()\s]*\))?'
+    r'|(?:[A-Za-z]\w*\.)*[A-Za-z]\w*\([^()\s]*\)'
+    r')'
+)
+
+#: A span already in backticks, which `code_spans` steps over.
+CODE_SPAN_REGEX = re.compile(r'`[^`]*`')
 
 #: What GitHub's "Revert" button writes into the body of the revert pull
 #: request: ``Reverts canonical/operator#2538``. It names the *pull request*
@@ -204,6 +259,59 @@ MINOR_BUMP_CATEGORIES: tuple[str, ...] = (BREAKING, FEATURE)
 #: the caller's own policy: see `next_version`.
 RELEASE_VERSION_REGEX = re.compile(r'(\d+)\.(\d+)\.(\d+)')
 
+#: Every version shape a release pipeline handles, taken apart: `X.Y.Z`,
+#: optionally with an `aN`, `bN` or `rcN` pre-release, and optionally with a
+#: `.devN` development suffix. The groups are major, minor, patch, pre-release
+#: and dev. Anything else -- a `v` prefix, a post-release, a local version --
+#: is refused by the functions that use this rather than guessed at.
+PIPELINE_VERSION_REGEX = re.compile(r'^(\d+)\.(\d+)\.(\d+)((?:a|b|rc)\d+)?(\.dev\d+)?$')
+
+#: What makes a branch a maintenance branch, such as `2.23-maintenance`. A
+#: release from one bumps the patch afterwards rather than the minor.
+MAINTENANCE_BRANCH_SUFFIX = '-maintenance'
+
+#: The markers a release pull request's description wraps its release notes
+#: in. Each is on a line of its own and appears once; anything outside them is
+#: for the reviewers of that pull request and goes no further.
+RELEASE_NOTES_START_REGEX = re.compile(
+    r'^[ \t]*<!--\s*release-notes:start\s*-->[ \t]*$', re.MULTILINE
+)
+RELEASE_NOTES_END_REGEX = re.compile(r'^[ \t]*<!--\s*release-notes:end\s*-->[ \t]*$', re.MULTILINE)
+
+#: How `draft-release-notes` starts the body it writes when no model drafted
+#: any notes. Only a message hangs off recognising it, so the two drifting
+#: apart costs nothing worse than a missing line in a log.
+RELEASE_NOTES_PLACEHOLDER_REGEX = re.compile(r'^_No release notes were drafted for \S+:')
+
+#: The markers the same description wraps the release title's summary in:
+#: the part after `X.Y.Z: `, which is added when the title is built so that
+#: nobody types the version by hand.
+RELEASE_TITLE_START_REGEX = re.compile(
+    r'^[ \t]*<!--\s*release-title:start\s*-->[ \t]*$', re.MULTILINE
+)
+RELEASE_TITLE_END_REGEX = re.compile(r'^[ \t]*<!--\s*release-title:end\s*-->[ \t]*$', re.MULTILINE)
+
+#: How `draft-release-notes` starts the summary it writes when no model
+#: suggested one. A summary left like that is no summary, so the release is
+#: titled with the bare version instead.
+RELEASE_TITLE_PLACEHOLDER_REGEX = re.compile(r'^_No title was drafted for \S+:')
+
+#: A `CHANGES.md` section heading, as `format_changes` writes it:
+#: `# 3.8.3 - 22 September 2026`.
+CHANGES_SECTION_HEADING_REGEX = re.compile(r'^# (?P<version>\S+) - (?P<date>.*)$')
+
+#: The credit on a `CHANGES.md` entry, as `format_changes` writes it: ` by
+#: @handle` or ` by Name`, then the pull-request link. A name is only read
+#: where the link follows it, because without the link there is nothing to
+#: tell "by Name" from a summary that happens to say "by" in it. A handle is
+#: unambiguous either way.
+CHANGES_CREDIT_REGEX = re.compile(
+    r'^\* .* by (?:(?P<handle>@[A-Za-z\d][A-Za-z\d-]*(?:\[bot\])?)'
+    r'(?: \(\[#\d+\]\([^)]*\)\))?'
+    r'|(?P<name>[^()\n]+?) \(\[#\d+\]\([^)]*\)\))[ \t]*$',
+    re.MULTILINE,
+)
+
 #: Commit type to the heading it is rendered under. A type with no entry
 #: here is capitalised instead, which is what makes an unrecognised type
 #: degrade to something readable rather than to a KeyError.
@@ -232,4 +340,42 @@ BREAKING_PREAMBLE = 'There are breaking changes in this release. Please review t
 UNKNOWN_PREAMBLE = (
     'These changes have a commit type this changelog does not recognise, or '
     'no conventional-commit type at all, and need categorising by hand:'
+)
+
+#: The authors the `changelog` console script does not credit: the Charm Tech
+#: team, as emails and GitHub handles. A contributor from outside it is
+#: credited; someone on it is not, because a maintainer being thanked for
+#: maintaining the project is noise. "Outside the team" is not "outside
+#: Canonical": a Canonical colleague from another team is a contributor.
+#:
+#: It lives here rather than in each repository because it is the same for
+#: every repository the team maintains. The git log carries the address, so
+#: an address is what usually matches, and a handle catches anyone
+#: committing from a no-reply address.
+#:
+#: Leaving someone off over-credits them, which is visible in the draft
+#: release and takes one edit to fix. Adding someone who should be credited
+#: is invisible until they notice. So when in doubt, leave them off.
+CHARM_TECH_TEAM: tuple[str, ...] = (
+    'ben.hoyt@canonical.com',
+    'benhoyt',
+    'david.wilding@canonical.com',
+    'dwilding',
+    'harry.pidcock@canonical.com',
+    'hpidcock',
+    'james.garner@canonical.com',
+    'james-garner-canonical',
+    'matt.patchava@canonical.com',
+    'MattPatchava',
+    'tony.meyer@canonical.com',
+    'tonyandrewmeyer',
+    'trongnhan.mai@canonical.com',
+    'tromai',
+    # Previously on the team, and in ranges that are still being released from.
+    'dima.tisnek@canonical.com',
+    'tiexin.guo@canonical.com',
+    # Ours, and not people.
+    'ben.hoyt+prints-charming-bot@canonical.com',
+    'dependabot[bot]',
+    'Copilot',
 )

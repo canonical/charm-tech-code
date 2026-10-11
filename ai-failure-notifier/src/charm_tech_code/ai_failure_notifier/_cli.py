@@ -26,9 +26,9 @@ from typing import Any
 from . import _github, _openrouter, _prompt, _summary
 from ._apply import apply_entry, plain_fallback_body, render_body
 from ._candidates import build_candidates_block
-from ._constants import DEFAULT_MODEL, MARKER_PREFIX
+from ._constants import MARKER_PREFIX
 from ._envelope import normalise_envelope, validate_envelope
-from ._markers import render_enriched_marker
+from ._markers import render_enriched_marker, render_model_stamp, render_signature_stamp
 from ._models import RunSignature
 from ._signatures import build_job_signature, build_run_signature
 
@@ -42,7 +42,7 @@ class _RunConfig:
     workflow_name: str
     run_url: str
     api_key: str
-    model: str
+    model: str | None
     # What the notifier did. `NOTIFY_ISSUE` is required: this script upgrades
     # the artefact the notifier just made, and is not in the business of
     # going looking for it.
@@ -58,7 +58,7 @@ def _read_config() -> _RunConfig:
         workflow_name=os.environ['WORKFLOW_NAME'],
         run_url=os.environ['RUN_URL'],
         api_key=os.environ.get('OPENROUTER_API_KEY', ''),
-        model=os.environ.get('OPENROUTER_MODEL') or DEFAULT_MODEL,
+        model=os.environ.get('OPENROUTER_MODEL') or None,
         notify_issue=int(os.environ['NOTIFY_ISSUE']),
         notify_origin=os.environ.get('NOTIFY_ORIGIN') or None,
     )
@@ -81,26 +81,51 @@ def _resolve_origin(config: _RunConfig) -> tuple[int | None, str | None, int]:
         return None, config.notify_origin, config.notify_issue
 
 
-def _comment_on_rerun(config: _RunConfig, enriched_issue: int) -> None:
+def _write_on_origin(
+    config: _RunConfig, origin_kind: str | None, origin_issue: int, body: str
+) -> None:
+    """Put `body` on `origin_issue`, in place of the notifier's comment if it left one.
+
+    When the notifier commented on an issue that already existed, what the
+    enricher has to say about the same failure belongs in that comment, not in
+    a second one under it. Finding the comment is best effort: if it can't be
+    found or edited, this adds a comment instead, so nothing is lost.
+    """
+    if origin_kind == 'comment':
+        try:
+            comment_id = _github.find_notifier_comment(config.repo, origin_issue, config.run_id)
+            if comment_id is not None:
+                _github.edit_comment(config.repo, comment_id, body)
+                return
+            reason = 'not found'
+        except Exception as exc:  # API rejection, rate limit, transient 5xx.
+            reason = str(exc)
+        _summary.write_step_summary(
+            f"Couldn't edit the notifier's comment on #{origin_issue} ({reason}); "
+            'adding a new one.'
+        )
+    _github.gh('issue', 'comment', str(origin_issue), '--repo', config.repo, '--body', body)
+
+
+def _comment_on_rerun(
+    config: _RunConfig, enriched_issue: int, origin_kind: str | None, origin_issue: int
+) -> None:
     """Rung zero: a re-run of the same failing jobs re-triggered us.
 
     Comment, don't skip and don't redo the full LLM pass. On a corpus of past
     scheduled failures this rung accounted for half the real duplicate pairs,
-    making it the highest-value one.
+    making it the highest-value one. The notifier has usually just commented on
+    the same issue, and the note replaces that comment rather than following it.
     """
-    _github.gh(
-        'issue',
-        'comment',
-        str(enriched_issue),
-        '--repo',
-        config.repo,
-        '--body',
+    body = (
         f'Re-run attempt still failing: {config.run_url}\n\n'
-        f'<!-- {MARKER_PREFIX}:run={config.run_id} -->',
+        f'<!-- {MARKER_PREFIX}:run={config.run_id} -->'
     )
+    same_issue = origin_issue == enriched_issue
+    _write_on_origin(config, origin_kind if same_issue else None, enriched_issue, body)
     _summary.write_step_summary(
         f'Rung zero: run {config.run_id} already enriched on #{enriched_issue}; '
-        'commented re-run note.'
+        'left a re-run note.'
     )
 
 
@@ -122,34 +147,30 @@ def _build_run_signature(config: _RunConfig) -> RunSignature:
     )
 
 
-def _plain_fallback_entry(config: _RunConfig, origin_kind: str | None, origin_issue: int) -> Any:
-    """Build the envelope-shaped entry `apply_entry` uses when there is no LLM output."""
-    if origin_kind == 'comment':
-        return {
-            'action': 'comment',
-            'body': plain_fallback_body(config.workflow_name, config.run_url),
-            'target_issue': origin_issue,
-        }
-    return {
-        'action': 'new',
-        'body': plain_fallback_body(config.workflow_name, config.run_url),
-        'title': f"Scheduled workflow '{config.workflow_name}' failed",
-        'labels': [],
-        'issue_type': None,
-    }
-
-
 def _apply_plain_fallback(
-    config: _RunConfig, origin_kind: str | None, origin_issue: int, enriched_marker: str
+    config: _RunConfig, origin_kind: str | None, origin_issue: int, trailer: str
 ) -> None:
-    """Apply the plain fallback entry against `origin_issue`."""
-    apply_entry(
-        config.repo,
-        _plain_fallback_entry(config, origin_kind, origin_issue),
-        enriched_marker,
-        config.workflow_name,
-        default_target=origin_issue,
+    """Stamp the plain fallback body on whatever the notifier made for this failure."""
+    body = render_body(
+        plain_fallback_body(config.workflow_name), config.workflow_name, config.run_url, trailer
     )
+    if origin_kind == 'comment':
+        _write_on_origin(config, origin_kind, origin_issue, body)
+    elif origin_kind == 'new':
+        # The notifier has just opened a placeholder for this failure, so this
+        # goes over it, as an enriched body would, rather than beside it in a
+        # second issue.
+        _github.gh('issue', 'edit', str(origin_issue), '--repo', config.repo, '--body', body)
+    else:
+        # We don't know what the notifier did, so there's nothing to upgrade.
+        entry = {
+            'action': 'new',
+            'body': plain_fallback_body(config.workflow_name),
+            'title': f"Scheduled workflow '{config.workflow_name}' failed",
+            'labels': [],
+            'issue_type': None,
+        }
+        apply_entry(config.repo, entry, trailer, config.workflow_name, config.run_url)
 
 
 def _search_candidates(config: _RunConfig, origin_kind: str | None, origin_issue: int) -> str:
@@ -178,39 +199,42 @@ def _search_candidates(config: _RunConfig, origin_kind: str | None, origin_issue
 
 def _fetch_envelope(
     config: _RunConfig, origin_kind: str | None, origin_issue: int, signature: RunSignature
-) -> Any:
-    """Ask the LLM to triage the failure, returning `None` on any failure along the way."""
+) -> tuple[Any, str | None]:
+    """Ask the LLM to triage the failure.
+
+    Returns the envelope and the model that answered, or `(None, None)` on any
+    failure along the way.
+    """
     candidates_block = _search_candidates(config, origin_kind, origin_issue)
     system_prompt, user_prompt = _prompt.build_prompt(
         config.workflow_name, config.run_url, signature, candidates_block
     )
 
     try:
-        envelope = _openrouter.call_openrouter(
+        envelope, answered_by = _openrouter.call_openrouter(
             system_prompt, user_prompt, config.model, config.api_key
         )
     except Exception as exc:  # network error, non-2xx, bad JSON, and so on.
         _summary.write_step_summary(
             f'OpenRouter call failed ({exc}); using the plain fallback body.'
         )
-        return None
+        return None, None
 
     envelope, dropped_fields = normalise_envelope(envelope)
     if dropped_fields:
         _summary.write_step_summary(
-            'Ignored fields that do not apply to the chosen action: '
-            + ', '.join(dropped_fields)
-            + '.'
+            'Ignored fields the applier does not act on: ' + ', '.join(dropped_fields) + '.'
         )
 
     errors = validate_envelope(envelope)
     if errors:
         _summary.write_step_summary(
-            'LLM output failed schema validation:\n' + '\n'.join(f'- {e}' for e in errors)
+            f'LLM output from {answered_by} failed schema validation:\n'
+            + '\n'.join(f'- {e}' for e in errors)
         )
-        return None
+        return None, None
 
-    return envelope
+    return envelope, answered_by
 
 
 def _apply_envelope(
@@ -219,8 +243,16 @@ def _apply_envelope(
     origin_kind: str | None,
     origin_issue: int,
     enriched_marker: str,
+    trailer: str,
 ) -> None:
-    """Act on a validated LLM envelope: upgrade, comment, or open a new issue."""
+    """Act on a validated LLM envelope: upgrade, comment, or open a new issue.
+
+    `trailer` is the enriched marker plus the model and signature stamps, and
+    goes on every artefact that is *about* this failure. The two pointer notes
+    below get the bare `enriched_marker` instead: they are posted on an issue
+    this failure was decided not to belong to, and stamping that issue with
+    this signature would tell the next run's candidate block the opposite.
+    """
     if envelope['action'] == 'new' and origin_kind == 'new':
         # Upgrade the placeholder in place rather than creating a duplicate.
         available = _github.existing_labels(config.repo)
@@ -234,50 +266,39 @@ def _apply_envelope(
             '--title',
             envelope['title'],
             '--body',
-            render_body(envelope['body'], config.workflow_name, enriched_marker),
+            render_body(envelope['body'], config.workflow_name, config.run_url, trailer),
         ]
         for label in labels:
             edit_args += ['--add-label', label]
         _github.gh(*edit_args)
     elif envelope['action'] == 'comment' and envelope.get('target_issue') == origin_issue:
-        apply_entry(
-            config.repo,
-            envelope,
-            enriched_marker,
-            config.workflow_name,
-            default_target=origin_issue,
-        )
+        body = render_body(envelope['body'], config.workflow_name, config.run_url, trailer)
+        _write_on_origin(config, origin_kind, origin_issue, body)
     elif envelope['action'] == 'comment':
         # LLM picked a different candidate than the notifier's coarse match.
-        apply_entry(config.repo, envelope, enriched_marker, config.workflow_name)
+        apply_entry(config.repo, envelope, trailer, config.workflow_name, config.run_url)
         if origin_kind == 'comment':
-            _github.gh(
-                'issue',
-                'comment',
-                str(origin_issue),
-                '--repo',
-                config.repo,
-                '--body',
+            _write_on_origin(
+                config,
+                origin_kind,
+                origin_issue,
                 f'This looks like a distinct issue -- see #{envelope["target_issue"]}.\n\n'
-                f'{enriched_marker}',
+                f'Run: {config.run_url}\n\n{enriched_marker}',
             )
     else:
         # action == "new" but origin_kind == "comment": the coarse title
         # match landed on an unrelated older issue; this is genuinely new.
-        apply_entry(config.repo, envelope, enriched_marker, config.workflow_name)
-        _github.gh(
-            'issue',
-            'comment',
-            str(origin_issue),
-            '--repo',
-            config.repo,
-            '--body',
+        apply_entry(config.repo, envelope, trailer, config.workflow_name, config.run_url)
+        _write_on_origin(
+            config,
+            origin_kind,
+            origin_issue,
             f'This looks like a distinct issue from this one -- opened separately.\n\n'
-            f'{enriched_marker}',
+            f'Run: {config.run_url}\n\n{enriched_marker}',
         )
 
     for also_entry in envelope.get('also') or []:
-        apply_entry(config.repo, also_entry, enriched_marker, config.workflow_name)
+        apply_entry(config.repo, also_entry, trailer, config.workflow_name, config.run_url)
 
 
 def main() -> int:
@@ -287,25 +308,36 @@ def main() -> int:
     enriched_issue, origin_kind, origin_issue = _resolve_origin(config)
 
     if enriched_issue is not None:
-        _comment_on_rerun(config, enriched_issue)
+        _comment_on_rerun(config, enriched_issue, origin_kind, origin_issue)
         return 0
 
     signature = _build_run_signature(config)
     enriched_marker = render_enriched_marker(config.run_id, signature)
+    # The marker says "this run was enriched here"; the stamp says what the
+    # failure was. Both are hidden, and both go on every artefact about this
+    # failure -- the stamp so that when this artefact turns up in a later run's
+    # candidate pool, the block can show its test ids and error classes instead
+    # of the one line of placeholder body it would otherwise be reduced to.
+    signature_stamp = render_signature_stamp(config.run_id, signature)
+    trailer = f'{enriched_marker}\n{signature_stamp}'
 
     if not config.api_key:
         _summary.write_step_summary(
             'No OPENROUTER_API_KEY configured -- using the plain fallback body.'
         )
-        _apply_plain_fallback(config, origin_kind, origin_issue, enriched_marker)
+        _apply_plain_fallback(config, origin_kind, origin_issue, trailer)
         return 0
 
-    envelope = _fetch_envelope(config, origin_kind, origin_issue, signature)
-    if envelope is None:
-        _apply_plain_fallback(config, origin_kind, origin_issue, enriched_marker)
+    envelope, answered_by = _fetch_envelope(config, origin_kind, origin_issue, signature)
+    if envelope is None or answered_by is None:
+        _apply_plain_fallback(config, origin_kind, origin_issue, trailer)
         return 0
 
-    _apply_envelope(config, envelope, origin_kind, origin_issue, enriched_marker)
+    # Which model wrote this, which with a fallback list is not always the
+    # configured one. Only on the artefacts the answer produced: the plain
+    # fallback above had no model behind it.
+    trailer = f'{enriched_marker}\n{render_model_stamp(answered_by)}\n{signature_stamp}'
+    _apply_envelope(config, envelope, origin_kind, origin_issue, enriched_marker, trailer)
     return 0
 
 

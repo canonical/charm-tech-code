@@ -25,11 +25,13 @@ what the dedup and schema logic actually exercise.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import datetime
 import email.message
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -50,6 +52,10 @@ from charm_tech_code.ai_failure_notifier import (
     _signatures,
     _summary,
 )
+
+# The model a faked OpenRouter call says answered: the fallback, so that a test
+# reading it back can tell it from the configured model.
+ANSWERED_BY = 'deepseek/deepseek-v3.2'
 
 # The signature, candidate issue and envelope from a real failing scheduled run
 # (28141163589, "Broad Charm Compatibility Tests", 2026-06-25). The tail_excerpt
@@ -352,6 +358,113 @@ class MarkerTests(unittest.TestCase):
         self.assertEqual(h1, h2)
         self.assertEqual(len(h1), 16)
 
+    def test_signature_fields_are_the_four_things_the_rungs_match_on(self):
+        fields = _markers.signature_fields(FIXTURE_SIGNATURE)
+        self.assertIn('tests/unit/test_charm.py::TestCharm::test_charm_ready', fields['tests'])
+        self.assertIn('AttributeError', fields['errors'])
+        self.assertIn('ImportError', fields['errors'])
+        self.assertIn("Run the charm's unit tests", fields['steps'])
+        self.assertIn('charm-tests (canonical/traefik-k8s-operator, .)', fields['jobs'])
+        # `tail_excerpt` is dozens of log lines and has no business in another
+        # issue's candidate entry.
+        self.assertEqual(set(fields), {'tests', 'errors', 'steps', 'jobs'})
+
+    def test_signature_fields_are_deduplicated_and_capped(self):
+        job = _models.JobSignature(
+            job_id=1,
+            job_name='j',
+            failed_step='s',
+            pytest_failures=[
+                _models.PytestFailure(
+                    kind='FAILED', test=f'tests/t.py::test_{i}', error='KeyError: x'
+                )
+                for i in range(20)
+            ],
+            go_failures=[],
+            traceback_top_error='KeyError: x',
+            tail_excerpt=[],
+        )
+        fields = _markers.signature_fields(dataclasses.replace(FIXTURE_SIGNATURE, jobs=[job]))
+        self.assertEqual(len(fields['tests']), _constants.MAX_STAMPED_ITEMS)
+        self.assertEqual(fields['errors'], ['KeyError'])
+        self.assertEqual(fields['jobs'], ['j'])
+
+    def test_signature_stamp_round_trips(self):
+        stamp = _markers.render_signature_stamp('28141163589', FIXTURE_SIGNATURE)
+        self.assertTrue(stamp.startswith('<!-- ai-failure-notifications:signature {'))
+        parsed = _markers.parse_signature_stamp(f'prose\n\n{stamp}\n\nmore prose')
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed['run'], '28141163589')
+        self.assertEqual(parsed['tests'], _markers.signature_fields(FIXTURE_SIGNATURE)['tests'])
+
+    def test_a_signature_stamp_is_not_a_run_marker(self):
+        """Rung zero must not see the stamp. MARKER_RE is unchanged and this pins it."""
+        stamp = _markers.render_signature_stamp('28141163589', FIXTURE_SIGNATURE)
+        self.assertEqual(
+            _markers.find_run_markers([(1, stamp)], '28141163589'), (None, None, None)
+        )
+
+    # An enriched comment exactly as the current release (bcbd3cc) writes it:
+    # the marker and the signature stamp, and no model stamp.
+    OLD_ENRICHED_TRAILER = (
+        '<!-- ai-failure-notifications:run=123:sig=abcdef0123456789 -->\n'
+        '<!-- ai-failure-notifications:signature '
+        '{"run":"123","tests":["tests/t.py::test_x"],"errors":["KeyError"],'
+        '"steps":["s"],"jobs":["j"]} -->'
+    )
+
+    def _new_enriched_trailer(self, model: str = 'deepseek/deepseek-v3.2') -> str:
+        marker, stamp = self.OLD_ENRICHED_TRAILER.split('\n')
+        return f'{marker}\n{_markers.render_model_stamp(model)}\n{stamp}'
+
+    def test_old_and_new_enriched_trailers_both_parse(self):
+        for name, trailer in (
+            ('old', self.OLD_ENRICHED_TRAILER),
+            ('new', self._new_enriched_trailer()),
+        ):
+            with self.subTest(name):
+                body = f'## Summary\n\nprose\n\nWorkflow: w\nRun: u\n\n{trailer}'
+                self.assertEqual(_markers.find_run_markers([(7, body)], '123'), (7, None, None))
+                stamp = _markers.parse_signature_stamp(body)
+                assert stamp is not None
+                self.assertEqual(stamp['tests'], ['tests/t.py::test_x'])
+                # Rung zero on the issue the notifier hands over.
+                with mock.patch.object(_github, 'fetch_issue_texts', return_value=['', body]):
+                    self.assertEqual(
+                        _github.resolve_origin('o/r', '123', 7, 'comment'), (7, 'comment', 7)
+                    )
+                # And the candidate block still shows the signature, and not
+                # the model.
+                issue = _models.CandidateIssue(
+                    number=7, title='t', body='b', closed_at=None, comments=(body,)
+                )
+                line = _candidates.render_signature_line(issue)
+                assert line is not None
+                self.assertIn('tests/t.py::test_x', line)
+                self.assertNotIn('deepseek', ' '.join(issue.recent_comments()))
+        self.assertNotIn(':model', self.OLD_ENRICHED_TRAILER)
+        self.assertIn(
+            _markers.render_model_stamp('deepseek/deepseek-v3.2'), self._new_enriched_trailer()
+        )
+
+    def test_a_model_stamp_is_not_a_run_marker_or_a_signature_stamp(self):
+        stamp = _markers.render_model_stamp('deepseek/deepseek-v3.2')
+        self.assertEqual(stamp, '<!-- ai-failure-notifications:model deepseek/deepseek-v3.2 -->')
+        self.assertEqual(_markers.find_run_markers([(1, stamp)], '123'), (None, None, None))
+        self.assertIsNone(_markers.parse_signature_stamp(stamp))
+
+    def test_a_notifier_marker_beside_a_model_stamp_is_still_found(self):
+        marker = _markers.render_notifier_marker('123', 'comment')
+        body = f'{marker}\n{_markers.render_model_stamp("x/y")}'
+        self.assertEqual(_markers.find_run_markers([(5, body)], '123'), (None, 'comment', 5))
+
+    def test_a_model_name_cannot_close_the_comment_early(self):
+        stamp = _markers.render_model_stamp('evil --> <b>hi</b>')
+        self.assertEqual(stamp.count('-->'), 1)
+        self.assertTrue(stamp.endswith(' -->'))
+        self.assertEqual(stamp, '<!-- ai-failure-notifications:model evil_--___b_hi_/b_ -->')
+
     def test_no_marker_present_returns_all_none(self):
         enriched, origin_kind, origin_issue = _markers.find_run_markers(
             [(1, 'just a normal comment, no marker')], '123'
@@ -362,13 +475,153 @@ class MarkerTests(unittest.TestCase):
 
 
 class CandidateBlockTests(unittest.TestCase):
+    """What the model is shown about each candidate, pinned exactly.
+
+    Pinned rather than spot-checked with assertIn, because a block that reduces
+    every candidate to a run URL, a heading or `(no body)` leaves the prompt's
+    strong rung nothing to match on, and an assertIn suite stays green through
+    that. If this test doesn't change when the rendering changes, the rendering
+    isn't being reviewed.
+    """
+
     def test_open_candidate_rendered(self):
         block = _candidates.build_candidates_block(
             FIXTURE_CANDIDATES, [], datetime.datetime.now(datetime.timezone.utc)
         )
-        self.assertIn('#9010', block)
-        self.assertIn('Broad Charm Compatibility Tests', block)
-        self.assertNotIn('closed', block)
+        self.assertEqual(
+            block,
+            '- **#9010 — Broad Charm Compatibility Tests: 4 downstream charms failing, '
+            'independent causes** (open)\n'
+            '  > canonical/k8s-operator: bandit exit 1 (Medium: 24, High: 591). '
+            "canonical/seldon-core-operator: AttributeError: module 'ops.testing' has no "
+            "attribute '_TestingModelBackend'. "
+            'canonical/self-signed-certificates-operator: 5 collection errors. '
+            # Cut at MAX_EXCERPT_CHARS, mid-word: the bound is on characters,
+            # and a candidate excerpt is not prose anyone reads to the end.
+            'canonical/traefik-k8s-operator: ImportError: cannot import na',
+        )
+
+    def test_a_notifier_placeholder_candidate_shows_its_comment(self):
+        """One placeholder line of body, and the whole diagnosis in the thread."""
+        issue = _models.CandidateIssue.from_gh({
+            'number': 2633,
+            'title': "Scheduled workflow 'Example Charm Integration Tests' failed",
+            'body': (
+                "Scheduled workflow 'Example Charm Integration Tests' failed: "
+                'https://github.com/canonical/operator/actions/runs/28882829315'
+            ),
+            'closedAt': None,
+            'comments': [
+                {'body': 'Timeouts and a store failure. Trying a re-run.'},
+                {'body': '`test_deploy_cos` times out after 10 minutes.'},
+            ],
+        })
+        block = _candidates.build_candidates_block(
+            [issue], [], datetime.datetime.now(datetime.timezone.utc)
+        )
+        self.assertEqual(
+            block,
+            "- **#2633 — Scheduled workflow 'Example Charm Integration Tests' failed** (open)\n"
+            "  > Scheduled workflow 'Example Charm Integration Tests' failed: "
+            'https://github.com/canonical/operator/actions/runs/28882829315\n'
+            '  > earlier comment: Timeouts and a store failure. Trying a re-run.\n'
+            '  > most recent comment: `test_deploy_cos` times out after 10 minutes.',
+        )
+
+    def test_an_issue_this_tool_enriched_shows_its_failure_signature(self):
+        stamp = _markers.render_signature_stamp('28882829315', FIXTURE_SIGNATURE)
+        issue = _models.CandidateIssue.from_gh({
+            'number': 31,
+            'title': 'Broad Charm Compatibility Tests: downstream charms failing',
+            'body': f'## Summary\n\nFour downstream charms failed.\n\n{stamp}',
+            'closedAt': None,
+        })
+        block = _candidates.build_candidates_block(
+            [issue], [], datetime.datetime.now(datetime.timezone.utc)
+        )
+        # The body excerpt skips the heading the shipped prompt always emits,
+        # so it is the summary sentence rather than the word "Summary".
+        self.assertIn('  > Four downstream charms failed.', block)
+        self.assertIn('  > failure signature (run 28882829315): tests ', block)
+        self.assertIn('tests/unit/test_charm.py::TestCharm::test_charm_ready', block)
+        self.assertIn('AttributeError', block)
+        self.assertIn("steps Run the charm's unit tests", block)
+        self.assertNotIn('<!--', block)
+
+    def test_an_issue_nobody_has_enriched_gets_no_signature_line(self):
+        """The common case on a tracker this tool has not run against yet.
+
+        Stated as its own test because a fix that only works on issues this
+        tool has already touched would be no fix at all for a fresh repo, and
+        this is the assertion that says which half of the change is carrying
+        the weight there.
+        """
+        issue = _models.CandidateIssue.from_gh({
+            'number': 2641,
+            'title': 'Integration tests fail against Juju 4.1/edge',
+            'body': "Scheduled workflow 'ops Integration Tests' failed: https://x/runs/1",
+            'closedAt': None,
+        })
+        block = _candidates.build_candidates_block(
+            [issue], [], datetime.datetime.now(datetime.timezone.utc)
+        )
+        self.assertNotIn('failure signature', block)
+        self.assertNotIn('most recent comment', block)
+        self.assertEqual(
+            block,
+            '- **#2641 — Integration tests fail against Juju 4.1/edge** (open)\n'
+            "  > Scheduled workflow 'ops Integration Tests' failed: https://x/runs/1",
+        )
+
+    def test_a_stamp_in_a_comment_is_read_and_the_latest_one_wins(self):
+        """An issue the enricher has commented on carries its stamp there, not in the body."""
+        first = _markers.render_signature_stamp('111', FIXTURE_SIGNATURE)
+        later = _markers.render_signature_stamp(
+            '222',
+            dataclasses.replace(
+                FIXTURE_SIGNATURE,
+                jobs=[
+                    _models.JobSignature(
+                        job_id=1,
+                        job_name='k8s-5-observe',
+                        failed_step='Run integration tests',
+                        pytest_failures=[
+                            _models.PytestFailure(
+                                kind='FAILED',
+                                test='tests/integration/test_charm.py::test_deploy_cos',
+                                error='TimeoutError: timed out',
+                            )
+                        ],
+                        go_failures=[],
+                        traceback_top_error='TimeoutError: timed out',
+                        tail_excerpt=[],
+                    )
+                ],
+            ),
+        )
+        issue = _models.CandidateIssue.from_gh({
+            'number': 31,
+            'title': 'COS deploy times out',
+            'body': f'Some prose.\n\n{first}',
+            'closedAt': None,
+            'comments': [{'body': f'Another occurrence.\n\n{later}'}],
+        })
+        line = _candidates.render_signature_line(issue)
+        self.assertIsNotNone(line)
+        assert line is not None
+        self.assertTrue(line.startswith('failure signature (run 222): '))
+        self.assertIn('test_deploy_cos', line)
+        self.assertIn('errors TimeoutError', line)
+        self.assertNotIn('test_charm_ready', line)
+
+    def test_an_unparseable_stamp_is_treated_as_absent(self):
+        issue = _models.CandidateIssue(
+            number=5,
+            title='t',
+            body='<!-- ai-failure-notifications:signature {not json} -->',
+            closed_at=None,
+        )
+        self.assertIsNone(_candidates.render_signature_line(issue))
 
     def test_empty_candidates_block(self):
         block = _candidates.build_candidates_block(
@@ -658,7 +911,9 @@ class MainFlowTests(unittest.TestCase):
         }
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
-            mock.patch.object(_openrouter, 'call_openrouter', return_value=envelope),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=(envelope, ANSWERED_BY)
+            ),
             contextlib.ExitStack() as stack,
         ):
             for p in patches:
@@ -668,6 +923,71 @@ class MainFlowTests(unittest.TestCase):
         edit_calls = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'edit')]
         self.assertEqual(len(edit_calls), 1)
         self.assertEqual(edit_calls[0].args[2], '4242')
+        # The placeholder this edits over contained only the run link, so the
+        # enriched body has to carry it.
+        args = edit_calls[0].args
+        body = args[args.index('--body') + 1]
+        self.assertIn(f'Run: {self.env["RUN_URL"]}', body)
+        self.assertIn('<!-- ai-failure-notifications:run=28141163589:sig=', body)
+        self.assertIn('<!-- ai-failure-notifications:signature {', body)
+        # The model that answered is recorded beside the marker, and the
+        # marker it sits beside still reads as this run's enrichment.
+        self.assertIn(_markers.render_model_stamp(ANSWERED_BY), body)
+        self.assertEqual(_markers.find_run_markers([(4242, body)], '28141163589')[0], 4242)
+
+    def test_the_pointer_note_links_the_run_but_carries_no_signature_stamp(self):
+        """A "this belongs elsewhere" note must not stamp this failure on that issue.
+
+        The stamp is what a later run's candidate block reads to decide what an
+        issue is about, so stamping the issue this failure was decided NOT to
+        belong to would teach the next run the opposite of the decision this
+        one made. The run link still belongs there, so a reader of that issue
+        has something to follow.
+        """
+        gh_calls = mock.Mock(
+            return_value=mock.Mock(returncode=0, stdout='https://x/issues/9', stderr='')
+        )
+        patches = self._patch_common(locate_return=(None, 'comment', 4242), gh_calls=gh_calls)
+        envelope = {
+            'action': 'new',
+            'title': 'x',
+            'body': 'y',
+            'labels': [],
+            'issue_type': None,
+            'dedup_reason': 'd',
+            'confidence': 'medium',
+        }
+        with (
+            mock.patch.dict('os.environ', self.env, clear=True),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=(envelope, ANSWERED_BY)
+            ),
+            mock.patch.object(_github, 'existing_issue_types', return_value=set()),
+            contextlib.ExitStack() as stack,
+        ):
+            for p in patches:
+                stack.enter_context(p)
+            rc = _cli.main()
+        self.assertEqual(rc, 0)
+        pointer = [
+            c
+            for c in gh_calls.call_args_list
+            if c.args[:2] == ('issue', 'comment') and c.args[2] == '4242'
+        ]
+        self.assertEqual(len(pointer), 1)
+        args = pointer[0].args
+        body = args[args.index('--body') + 1]
+        self.assertIn('opened separately', body)
+        self.assertIn(f'Run: {self.env["RUN_URL"]}', body)
+        self.assertNotIn('ai-failure-notifications:signature', body)
+        self.assertNotIn('ai-failure-notifications:model', body)
+        # The new issue itself is about this failure, so it does get the stamps.
+        created = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'create')]
+        self.assertEqual(len(created), 1)
+        created_args = created[0].args
+        created_body = created_args[created_args.index('--body') + 1]
+        self.assertIn('ai-failure-notifications:signature', created_body)
+        self.assertIn(_markers.render_model_stamp(ANSWERED_BY), created_body)
 
     def test_invalid_llm_response_falls_back_to_plain_comment(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
@@ -675,7 +995,9 @@ class MainFlowTests(unittest.TestCase):
         with (
             mock.patch.dict('os.environ', self.env, clear=True),
             mock.patch.object(
-                _openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                _openrouter,
+                'call_openrouter',
+                return_value=({'action': 'not-a-real-action'}, ANSWERED_BY),
             ),
             contextlib.ExitStack() as stack,
         ):
@@ -686,6 +1008,9 @@ class MainFlowTests(unittest.TestCase):
         comment_calls = [c for c in gh_calls.call_args_list if c.args[:2] == ('issue', 'comment')]
         self.assertEqual(len(comment_calls), 1)
         self.assertEqual(comment_calls[0].args[2], '4242')
+        # The plain fallback had no model behind it, so it names none.
+        args = comment_calls[0].args
+        self.assertNotIn('ai-failure-notifications:model', args[args.index('--body') + 1])
 
     def test_no_api_key_uses_plain_fallback_without_calling_llm(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
@@ -702,6 +1027,177 @@ class MainFlowTests(unittest.TestCase):
             rc = _cli.main()
         self.assertEqual(rc, 0)
         call_openrouter.assert_not_called()
+
+
+def _gh_router(notifier_comment_ids: str = '') -> mock.Mock:
+    """A `gh` mock that answers the comment lookup and the issue create by argv.
+
+    `notifier_comment_ids` is what the comments endpoint query prints: one REST
+    id per line for each comment carrying this run's `origin=comment` marker.
+    """
+
+    def respond(*args: str, **kwargs: Any) -> mock.Mock:
+        if args[:2] == ('api', '--paginate'):
+            stdout = notifier_comment_ids
+        elif args[:2] == ('issue', 'create'):
+            stdout = 'https://github.com/example/repo/issues/9'
+        else:
+            stdout = ''
+        return mock.Mock(returncode=0, stdout=stdout, stderr='')
+
+    return mock.Mock(side_effect=respond)
+
+
+def _calls(gh_calls: mock.Mock, *prefix: str) -> list[Any]:
+    return [c for c in gh_calls.call_args_list if c.args[: len(prefix)] == prefix]
+
+
+def _patch_body(call: Any) -> str:
+    args = call.args
+    field = args[args.index('-f') + 1]
+    assert field.startswith('body=')
+    return field.removeprefix('body=')
+
+
+class OneArtefactPerFailureTests(unittest.TestCase):
+    """The enricher upgrades what the notifier made instead of adding to it.
+
+    When the notifier comments on an issue that already existed, the enricher
+    used to post a second comment under it, so every such failure left two
+    comments; and when the model gave nothing back for a fresh placeholder, the
+    fallback opened a second issue beside it.
+    """
+
+    def setUp(self):
+        self.env = {
+            'REPO': 'example/repo',
+            'RUN_ID': '28141163589',
+            'WORKFLOW_NAME': 'Broad Charm Compatibility Tests',
+            'RUN_URL': 'https://github.com/example/repo/actions/runs/28141163589',
+            'OPENROUTER_API_KEY': 'test-key',
+            'NOTIFY_ISSUE': '4242',
+        }
+
+    def _run(
+        self,
+        gh_calls: mock.Mock,
+        locate_return: tuple[int | None, str | None, int],
+        *,
+        envelope: Any = None,
+        api_key: bool = True,
+    ) -> mock.Mock:
+        env = dict(self.env)
+        if not api_key:
+            env.pop('OPENROUTER_API_KEY')
+        with (
+            mock.patch.dict('os.environ', env, clear=True),
+            mock.patch.object(_github, 'resolve_origin', return_value=locate_return),
+            mock.patch.object(_github, 'fetch_failed_jobs', return_value=[]),
+            mock.patch.object(_github, 'fetch_run_meta', return_value={'createdAt': ''}),
+            mock.patch.object(_github, 'search_candidates', return_value=(FIXTURE_CANDIDATES, [])),
+            mock.patch.object(_github, 'existing_labels', return_value=set()),
+            mock.patch.object(_github, 'existing_issue_types', return_value=set()),
+            mock.patch.object(_github, 'gh', side_effect=gh_calls),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=(envelope, ANSWERED_BY)
+            ),
+            mock.patch.object(_summary, 'write_step_summary') as summary,
+        ):
+            self.assertEqual(_cli.main(), 0)
+        return summary
+
+    def test_a_comment_on_the_same_issue_replaces_the_notifiers_comment(self):
+        gh_calls = _gh_router('555\n')
+        envelope = {
+            'action': 'comment',
+            'target_issue': 4242,
+            'body': 'Same failure as before.',
+            'dedup_reason': 'd',
+            'confidence': 'high',
+        }
+        self._run(gh_calls, (None, 'comment', 4242), envelope=envelope)
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertEqual(patches[0].args[3], 'repos/example/repo/issues/comments/555')
+        body = _patch_body(patches[0])
+        self.assertIn('Same failure as before.', body)
+        self.assertIn(f'Run: {self.env["RUN_URL"]}', body)
+        self.assertIn('<!-- ai-failure-notifications:run=28141163589:sig=', body)
+
+    def test_the_fallback_on_a_commented_issue_replaces_the_notifiers_comment(self):
+        gh_calls = _gh_router('555\n')
+        self._run(gh_calls, (None, 'comment', 4242), api_key=False)
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertIn('<!-- ai-failure-notifications:signature {', _patch_body(patches[0]))
+
+    def test_the_fallback_on_a_new_placeholder_edits_it_rather_than_opening_another(self):
+        gh_calls = _gh_router()
+        self._run(gh_calls, (None, 'new', 4242), api_key=False)
+        self.assertEqual(_calls(gh_calls, 'issue', 'create'), [])
+        edits = _calls(gh_calls, 'issue', 'edit', '4242')
+        self.assertEqual(len(edits), 1)
+        args = edits[0].args
+        body = args[args.index('--body') + 1]
+        self.assertIn('Workflow: Broad Charm Compatibility Tests', body)
+        self.assertIn('<!-- ai-failure-notifications:run=28141163589:sig=', body)
+
+    def test_the_pointer_note_replaces_the_notifiers_comment(self):
+        gh_calls = _gh_router('555\n')
+        envelope = {
+            'action': 'new',
+            'title': 'x',
+            'body': 'y',
+            'labels': [],
+            'issue_type': None,
+            'dedup_reason': 'd',
+            'confidence': 'medium',
+        }
+        self._run(gh_calls, (None, 'comment', 4242), envelope=envelope)
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'create')), 1)
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertIn('opened separately', _patch_body(patches[0]))
+
+    def test_a_rerun_note_replaces_the_notifiers_comment_on_the_same_issue(self):
+        gh_calls = _gh_router('555\n')
+        self._run(gh_calls, (4242, 'comment', 4242))
+        self.assertEqual(_calls(gh_calls, 'issue', 'comment'), [])
+        patches = _calls(gh_calls, 'api', '--method', 'PATCH')
+        self.assertEqual(len(patches), 1)
+        self.assertIn('Re-run attempt still failing', _patch_body(patches[0]))
+
+    def test_a_rerun_note_on_another_issue_is_a_new_comment(self):
+        gh_calls = _gh_router('555\n')
+        self._run(gh_calls, (9010, 'comment', 4242))
+        self.assertEqual(_calls(gh_calls, 'api', '--method', 'PATCH'), [])
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'comment', '9010')), 1)
+
+    def test_no_notifier_comment_to_edit_adds_a_comment_and_says_so(self):
+        gh_calls = _gh_router('')
+        summary = self._run(gh_calls, (None, 'comment', 4242), api_key=False)
+        self.assertEqual(_calls(gh_calls, 'api', '--method', 'PATCH'), [])
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'comment', '4242')), 1)
+        self.assertTrue(
+            any(
+                "Couldn't edit the notifier's comment" in c.args[0] for c in summary.call_args_list
+            )
+        )
+
+    def test_a_failed_edit_adds_a_comment_instead(self):
+        def respond(*args: str, **kwargs: Any) -> mock.Mock:
+            if args[:2] == ('api', '--paginate'):
+                return mock.Mock(returncode=0, stdout='555\n', stderr='')
+            if args[:3] == ('api', '--method', 'PATCH'):
+                raise subprocess.CalledProcessError(1, ['gh', *args])
+            return mock.Mock(returncode=0, stdout='', stderr='')
+
+        gh_calls = mock.Mock(side_effect=respond)
+        self._run(gh_calls, (None, 'comment', 4242), api_key=False)
+        self.assertEqual(len(_calls(gh_calls, 'issue', 'comment', '4242')), 1)
 
 
 class GhCallShapeTests(unittest.TestCase):
@@ -730,6 +1226,23 @@ class GhCallShapeTests(unittest.TestCase):
             states.append(args[args.index('--state') + 1])
         self.assertEqual(states, ['open', 'closed'])
 
+    def test_search_candidates_asks_for_the_comments_field(self):
+        """Without `comments` the candidate block has nothing in it to match on.
+
+        An automatically-opened issue's body is one line reading "Scheduled
+        workflow 'X' failed: <url>"; everything anybody knows about it is in the
+        thread. The field list is pinned here rather than left to an assertIn
+        somewhere downstream.
+        """
+        gh_calls = self._capture('[]')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            _github.search_candidates('example/repo', 'Example Charm Tests')
+        for call in gh_calls.call_args_list:
+            args = call.args
+            self.assertEqual(
+                args[args.index('--json') + 1], 'number,title,body,createdAt,closedAt,comments'
+            )
+
     def test_fetch_job_log_uses_the_rest_logs_endpoint(self):
         gh_calls = self._capture('2026-07-21T16:17:04Z some log line\n')
         with mock.patch.object(_github, 'gh', side_effect=gh_calls):
@@ -745,38 +1258,6 @@ class GhCallShapeTests(unittest.TestCase):
                 '--allow-escape-sequences',
             ),
         )
-
-    def test_fetch_job_log_retries_without_the_flag_on_an_older_gh(self):
-        results = [
-            mock.Mock(returncode=1, stdout='', stderr='unknown flag: --allow-escape-sequences'),
-            mock.Mock(returncode=0, stdout='2026-07-21T16:17:04Z some log line\n', stderr=''),
-        ]
-        gh_calls = mock.Mock(side_effect=results)
-        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
-            log = _github.fetch_job_log('example/repo', '29847889218', 88693036489)
-        self.assertIn('some log line', log)
-        self.assertEqual(
-            [call.args for call in gh_calls.call_args_list],
-            [
-                (
-                    'api',
-                    'repos/example/repo/actions/jobs/88693036489/logs',
-                    '--allow-escape-sequences',
-                ),
-                ('api', 'repos/example/repo/actions/jobs/88693036489/logs'),
-            ],
-        )
-
-    def test_fetch_job_log_does_not_retry_when_the_flag_was_accepted(self):
-        gh_calls = mock.Mock(
-            return_value=mock.Mock(returncode=1, stdout='', stderr='gh: Not Found (HTTP 404)')
-        )
-        with (
-            mock.patch.object(_github, 'gh', side_effect=gh_calls),
-            mock.patch.object(_summary, 'write_step_summary'),
-        ):
-            _github.fetch_job_log('example/repo', '29847889218', 88693036489)
-        self.assertEqual(gh_calls.call_count, 1)
 
     def test_fetch_job_log_reports_an_empty_log_instead_of_swallowing_it(self):
         gh_calls = self._capture('')
@@ -857,6 +1338,42 @@ class GhCallShapeTests(unittest.TestCase):
         self.assertIsNone(_github.match_issue_type('chore', {'Bug', 'Task'}))
         self.assertIsNone(_github.match_issue_type(None, {'Bug'}))
 
+    def test_find_notifier_comment_reads_the_rest_comments_endpoint(self):
+        gh_calls = self._capture('111\n222\n')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            comment_id = _github.find_notifier_comment('example/repo', 4242, '123')
+        args = gh_calls.call_args.args
+        self.assertEqual(
+            args[:3], ('api', '--paginate', 'repos/example/repo/issues/4242/comments')
+        )
+        self.assertIn(
+            'contains("ai-failure-notifications:run=123:origin=comment")',
+            args[args.index('--jq') + 1],
+        )
+        # A re-run's notifier comment comes after the first attempt's.
+        self.assertEqual(comment_id, 222)
+
+    def test_find_notifier_comment_returns_none_when_there_is_none(self):
+        gh_calls = self._capture('')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            self.assertIsNone(_github.find_notifier_comment('example/repo', 4242, '123'))
+
+    def test_edit_comment_patches_the_rest_comment(self):
+        gh_calls = self._capture('')
+        with mock.patch.object(_github, 'gh', side_effect=gh_calls):
+            _github.edit_comment('example/repo', 555, 'New @body')
+        self.assertEqual(
+            gh_calls.call_args.args,
+            (
+                'api',
+                '--method',
+                'PATCH',
+                'repos/example/repo/issues/comments/555',
+                '-f',
+                'body=New @body',
+            ),
+        )
+
 
 class NormalisationTests(unittest.TestCase):
     """Fields that do not apply to the chosen action are dropped, not fatal.
@@ -924,64 +1441,81 @@ class NormalisationTests(unittest.TestCase):
         self.assertEqual(dropped, ['envelope.also[0]: title'])
         self.assertEqual(_envelope.validate_envelope(cleaned), [])
 
-    def test_a_hash_prefixed_target_issue_is_coerced(self):
-        """The model writes issues the way people do, and the schema wants an int."""
-        envelope: dict[str, Any] = {
+    def test_an_unknown_property_is_stripped_rather_than_discarding_the_envelope(self):
+        """An extra property must not cost a usable body and dedup decision.
+
+        An unknown property is one `apply_entry` never reads, so removing it
+        can't change what gets posted, and rejecting the envelope would.
+        """
+        envelope = {
             'action': 'comment',
-            'target_issue': '#44',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
+            'target_issue': 9010,
+            'body': 'Another occurrence.',
+            'dedup_reason': 'same tests',
+            'confidence': 'high',
+            'html_url': 'https://github.com/example/repo/issues/9010',
         }
-        cleaned, dropped = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['target_issue'], 44)
-        self.assertEqual(dropped, [])
+        cleaned, notes = _envelope.normalise_envelope(envelope)
+        self.assertNotIn('html_url', cleaned)
+        self.assertIn('envelope: html_url (not in the schema)', notes)
         self.assertEqual(_envelope.validate_envelope(cleaned), [])
+        self.assertEqual(cleaned['body'], 'Another occurrence.')
 
-    def test_a_bare_digit_string_target_issue_is_coerced(self):
-        envelope: dict[str, Any] = {
-            'action': 'comment',
-            'target_issue': ' 44 ',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
-        }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['target_issue'], 44)
-
-    def test_a_target_issue_that_is_not_a_reference_is_left_for_the_schema(self):
-        envelope: dict[str, Any] = {
-            'action': 'comment',
-            'target_issue': 'the loki one',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
-        }
-        cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['target_issue'], 'the loki one')
-        self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
-
-    def test_also_entries_get_the_same_coercion(self):
-        inner: dict[str, Any] = {
-            'action': 'comment',
-            'target_issue': '#1',
-            'body': 'b',
-            'dedup_reason': 'd',
-            'confidence': 'low',
-        }
-        envelope: dict[str, Any] = {
+    def test_an_unknown_property_in_an_also_entry_is_stripped_too(self):
+        envelope = {
             'action': 'new',
             'title': 't',
-            'body': 'b',
             'labels': [],
             'issue_type': None,
-            'dedup_reason': 'd',
+            'body': 'b',
+            'dedup_reason': 'r',
             'confidence': 'low',
-            'also': [inner],
+            'also': [
+                {
+                    'action': 'comment',
+                    'target_issue': 7,
+                    'body': 'b',
+                    'dedup_reason': 'r',
+                    'confidence': 'medium',
+                    'url': 'https://example.invalid/7',
+                }
+            ],
+        }
+        cleaned, notes = _envelope.normalise_envelope(envelope)
+        self.assertNotIn('url', cleaned['also'][0])
+        self.assertIn('envelope.also[0]: url (not in the schema)', notes)
+        self.assertEqual(_envelope.validate_envelope(cleaned), [])
+
+    def test_stripping_an_unknown_property_does_not_invent_a_target(self):
+        """The repair is a strip, not a guess.
+
+        A model that put its target in `issue` rather than `target_issue` has
+        not told us what to comment on in a way we are entitled to act on, so
+        the envelope must still be rejected rather than quietly retargeted.
+        """
+        envelope = {
+            'action': 'comment',
+            'issue': 9010,
+            'body': 'b',
+            'dedup_reason': 'r',
+            'confidence': 'high',
+        }
+        cleaned, notes = _envelope.normalise_envelope(envelope)
+        self.assertNotIn('issue', cleaned)
+        self.assertNotIn('target_issue', cleaned)
+        self.assertIn('envelope: issue (not in the schema)', notes)
+        self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
+
+    def test_a_comment_with_no_body_is_rejected(self):
+        envelope = {
+            'action': 'comment',
+            'target_issue': 7,
+            'dedup_reason': 'r',
+            'confidence': 'high',
         }
         cleaned, _ = _envelope.normalise_envelope(envelope)
-        self.assertEqual(cleaned['also'][0]['target_issue'], 1)
-        self.assertEqual(_envelope.validate_envelope(cleaned), [])
+        self.assertNotIn('body', cleaned)
+        self.assertNotEqual(_envelope.validate_envelope(cleaned), [])
 
     def test_nothing_dropped_leaves_the_envelope_alone(self):
         cleaned, dropped = _envelope.normalise_envelope(FIXTURE_ENVELOPE)
@@ -1025,7 +1559,9 @@ class CandidatePoolTests(unittest.TestCase):
             mock.patch.object(_github, 'search_candidates', return_value=(candidates, [])),
             mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(_prompt, 'build_prompt', side_effect=fake_build_prompt),
-            mock.patch.object(_openrouter, 'call_openrouter', return_value={'action': 'bogus'}),
+            mock.patch.object(
+                _openrouter, 'call_openrouter', return_value=({'action': 'bogus'}, ANSWERED_BY)
+            ),
             mock.patch.object(_github, 'gh'),
             mock.patch.object(_summary, 'write_step_summary'),
         ):
@@ -1056,20 +1592,33 @@ class BodyFooterTests(unittest.TestCase):
     the model happening to leave the workflow name in the title.
     """
 
-    def test_render_body_has_footer_and_marker(self):
-        body = _apply.render_body('Some detail.', 'Example Charm Tests', '<!-- m -->')
-        self.assertEqual(body, 'Some detail.\n\nWorkflow: Example Charm Tests\n\n<!-- m -->')
+    def test_render_body_has_footer_run_link_and_marker(self):
+        body = _apply.render_body(
+            'Some detail.', 'Example Charm Tests', 'https://x/actions/runs/7', '<!-- m -->'
+        )
+        self.assertEqual(
+            body,
+            'Some detail.\n\nWorkflow: Example Charm Tests\n'
+            'Run: https://x/actions/runs/7\n\n<!-- m -->',
+        )
 
-    def test_applied_comment_body_has_the_footer(self):
+    def test_applied_comment_body_has_the_footer_and_the_run_link(self):
         gh_calls = mock.Mock(return_value=mock.Mock(returncode=0, stdout='', stderr=''))
         entry: dict[str, Any] = {'action': 'comment', 'body': 'Another occurrence.'}
         with mock.patch.object(_github, 'gh', side_effect=gh_calls):
             _apply.apply_entry(
-                'example/repo', entry, '<!-- m -->', 'ops Smoke Tests', default_target=7
+                'example/repo',
+                entry,
+                '<!-- m -->',
+                'ops Smoke Tests',
+                'https://x/actions/runs/7',
+                default_target=7,
             )
         args = gh_calls.call_args.args
         self.assertEqual(args[:3], ('issue', 'comment', '7'))
-        self.assertIn('Workflow: ops Smoke Tests', args[args.index('--body') + 1])
+        body = args[args.index('--body') + 1]
+        self.assertIn('Workflow: ops Smoke Tests', body)
+        self.assertIn('Run: https://x/actions/runs/7', body)
 
     def test_a_missing_issue_type_creates_one_issue_and_not_two(self):
         """The type is resolved before the create, so there is nothing to retry.
@@ -1093,7 +1642,9 @@ class BodyFooterTests(unittest.TestCase):
             mock.patch.object(_github, 'existing_issue_types', return_value=set()),
             mock.patch.object(_summary, 'write_step_summary') as summary,
         ):
-            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+            _apply.apply_entry(
+                'example/repo', entry, '<!-- m -->', 'ops Smoke Tests', 'https://x/runs/7'
+            )
         gh_calls.assert_called_once()
         self.assertNotIn('--type', gh_calls.call_args.args)
         self.assertIn('bug', summary.call_args.args[0])
@@ -1114,7 +1665,9 @@ class BodyFooterTests(unittest.TestCase):
             mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(_github, 'existing_issue_types', return_value={'Bug', 'Task'}),
         ):
-            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+            _apply.apply_entry(
+                'example/repo', entry, '<!-- m -->', 'ops Smoke Tests', 'https://x/runs/7'
+            )
         gh_calls.assert_called_once()
         args = gh_calls.call_args.args
         self.assertEqual(args[args.index('--type') + 1], 'Bug')
@@ -1135,7 +1688,9 @@ class BodyFooterTests(unittest.TestCase):
             mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(_github, 'existing_issue_types') as types,
         ):
-            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+            _apply.apply_entry(
+                'example/repo', entry, '<!-- m -->', 'ops Smoke Tests', 'https://x/runs/7'
+            )
         types.assert_not_called()
 
     def test_applied_new_issue_body_has_the_footer(self):
@@ -1153,7 +1708,9 @@ class BodyFooterTests(unittest.TestCase):
             mock.patch.object(_github, 'gh', side_effect=gh_calls),
             mock.patch.object(_github, 'existing_labels', return_value=set()),
         ):
-            _apply.apply_entry('example/repo', entry, '<!-- m -->', 'ops Smoke Tests')
+            _apply.apply_entry(
+                'example/repo', entry, '<!-- m -->', 'ops Smoke Tests', 'https://x/runs/7'
+            )
         args = gh_calls.call_args.args
         self.assertIn('Workflow: ops Smoke Tests', args[args.index('--body') + 1])
 
@@ -1226,7 +1783,9 @@ class MainDegradationTests(unittest.TestCase):
             mock.patch.object(_github, 'search_candidates', side_effect=RuntimeError('boom')),
             mock.patch.object(_github, 'existing_labels', return_value=set()),
             mock.patch.object(
-                _openrouter, 'call_openrouter', return_value={'action': 'not-a-real-action'}
+                _openrouter,
+                'call_openrouter',
+                return_value=({'action': 'not-a-real-action'}, ANSWERED_BY),
             ),
             mock.patch.object(_github, 'gh', side_effect=gh_calls),
             mock.patch.object(_summary, 'write_step_summary') as summary,
@@ -1246,23 +1805,56 @@ class OpenRouterCallTests(unittest.TestCase):
     request it actually builds.
     """
 
-    def _response(self, content: str) -> mock.MagicMock:
-        payload = json.dumps({'choices': [{'message': {'content': content}}]}).encode()
+    def _response(self, content: str, model: str | None = None) -> mock.MagicMock:
+        reply: dict[str, Any] = {'choices': [{'message': {'content': content}}]}
+        if model is not None:
+            reply['model'] = model
         response = mock.MagicMock()
-        response.read.return_value = payload
+        response.read.return_value = json.dumps(reply).encode()
         response.__enter__.return_value = response
         return response
+
+    def _call(self, *outcomes: Any, model: str | None = 'm') -> tuple[Any, mock.Mock, mock.Mock]:
+        """Call with urlopen giving `outcomes` in turn; return (result, urlopen, sleep)."""
+        sleep = mock.Mock()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request, 'urlopen', side_effect=list(outcomes)
+            ) as urlopen,
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            result = _openrouter.call_openrouter('sys', 'user', model, 'k', sleep=sleep)
+        return result, urlopen, sleep
+
+    def _call_raises(self, *outcomes: Any) -> tuple[str, mock.Mock, mock.Mock]:
+        """As `_call`, for a call that is expected to give up; return (message, urlopen, sleep)."""
+        sleep = mock.Mock()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request, 'urlopen', side_effect=list(outcomes)
+            ) as urlopen,
+            contextlib.redirect_stderr(io.StringIO()),
+            self.assertRaises(RuntimeError) as raised,
+        ):
+            _openrouter.call_openrouter('sys', 'user', 'm', 'k', sleep=sleep)
+        return str(raised.exception), urlopen, sleep
+
+    def _ok(self, model: str | None = None) -> mock.MagicMock:
+        return self._response(json.dumps({'action': 'new', 'body': 'b'}), model)
 
     def test_posts_json_with_auth_and_schema(self):
         envelope = {'action': 'new', 'body': 'b'}
         with mock.patch.object(
             _openrouter.urllib.request,
             'urlopen',
-            return_value=self._response(json.dumps(envelope)),
+            return_value=self._response(json.dumps(envelope), 'some/model'),
         ) as urlopen:
-            result = _openrouter.call_openrouter('sys', 'user', 'some/model', 'secret-key')
+            result, answered_by = _openrouter.call_openrouter(
+                'sys', 'user', 'some/model', 'secret-key'
+            )
 
         self.assertEqual(result, envelope)
+        self.assertEqual(answered_by, 'some/model')
         request = urlopen.call_args.args[0]
         self.assertEqual(request.method, 'POST')
         self.assertEqual(request.full_url, 'https://openrouter.ai/api/v1/chat/completions')
@@ -1273,7 +1865,6 @@ class OpenRouterCallTests(unittest.TestCase):
         self.assertEqual(urlopen.call_args.kwargs['timeout'], 60)
 
         sent = json.loads(request.data.decode())
-        self.assertEqual(sent['model'], 'some/model')
         self.assertEqual([m['role'] for m in sent['messages']], ['system', 'user'])
         self.assertEqual(sent['messages'][0]['content'], 'sys')
         self.assertEqual(sent['messages'][1]['content'], 'user')
@@ -1282,62 +1873,280 @@ class OpenRouterCallTests(unittest.TestCase):
             sent['response_format']['json_schema']['schema'], _envelope.ENVELOPE_JSON_SCHEMA
         )
         self.assertTrue(sent['response_format']['json_schema']['strict'])
+        self.assertEqual(sent['provider'], {'require_parameters': True})
 
-    def _http_error(self, status: int, body: bytes) -> urllib.error.HTTPError:
+    def test_sends_the_configured_model_first_then_the_defaults(self):
+        """OpenRouter's documented fallback shape: a `models` list, in priority order."""
+        _, urlopen, _ = self._call(self._ok(), model='some/model')
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(sent['models'], ['some/model', *_constants.DEFAULT_MODELS])
+        # `models` alone: the documented examples do not send `model` with it.
+        self.assertNotIn('model', sent)
+
+    def test_without_a_configured_model_the_defaults_are_sent(self):
+        _, urlopen, _ = self._call(self._ok(), model=None)
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(sent['models'], ['deepseek/deepseek-chat', 'deepseek/deepseek-v3.2'])
+
+    def test_a_configured_model_that_is_also_a_default_is_listed_once(self):
+        _, urlopen, _ = self._call(self._ok(), model='deepseek/deepseek-v3.2')
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(sent['models'], ['deepseek/deepseek-v3.2', 'deepseek/deepseek-chat'])
+
+    def test_an_openrouter_model_override_reaches_the_request(self):
+        env = {
+            'REPO': 'o/r',
+            'RUN_ID': '1',
+            'WORKFLOW_NAME': 'w',
+            'RUN_URL': 'u',
+            'NOTIFY_ISSUE': '2',
+            'OPENROUTER_MODEL': 'other/model',
+        }
+        with mock.patch.dict('os.environ', env, clear=True):
+            config = _cli._read_config()
+        self.assertEqual(config.model, 'other/model')
+        _, urlopen, _ = self._call(self._ok(), model=config.model)
+        sent = json.loads(urlopen.call_args.args[0].data.decode())
+        self.assertEqual(
+            sent['models'], ['other/model', 'deepseek/deepseek-chat', 'deepseek/deepseek-v3.2']
+        )
+
+    def test_no_openrouter_model_means_no_override(self):
+        env = {'REPO': 'o/r', 'RUN_ID': '1', 'WORKFLOW_NAME': 'w', 'RUN_URL': 'u'}
+        for value in (None, ''):
+            with self.subTest(value=value):
+                extra = {} if value is None else {'OPENROUTER_MODEL': value}
+                with mock.patch.dict(
+                    'os.environ', {**env, 'NOTIFY_ISSUE': '2', **extra}, clear=True
+                ):
+                    self.assertIsNone(_cli._read_config().model)
+
+    def test_the_answering_model_is_returned_and_logged(self):
+        sleep = mock.Mock()
+        log = io.StringIO()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request,
+                'urlopen',
+                return_value=self._ok('deepseek/deepseek-v3.2'),
+            ),
+            contextlib.redirect_stderr(log),
+        ):
+            _, answered_by = _openrouter.call_openrouter(
+                'sys', 'user', 'deepseek/deepseek-chat', 'k', sleep=sleep
+            )
+        self.assertEqual(answered_by, 'deepseek/deepseek-v3.2')
+        self.assertIn('answered with model deepseek/deepseek-v3.2', log.getvalue())
+
+    def test_a_reply_without_a_model_is_put_down_to_the_first_one_asked_for(self):
+        for model, expected in (('some/model', 'some/model'), (None, 'deepseek/deepseek-chat')):
+            with self.subTest(model=model):
+                (_, answered_by), _, _ = self._call(self._ok(), model=model)
+                self.assertEqual(answered_by, expected)
+
+    def _http_error(
+        self, status: int, body: bytes = b'', headers: dict[str, str] | None = None
+    ) -> urllib.error.HTTPError:
         # HTTPError holds a file object and warns on implicit cleanup, which
         # the unit env's -W error turns into a failure. Give it a real `fp`
         # (it fabricates a tempfile when passed None) and close it explicitly.
+        message = email.message.Message()
+        for key, value in (headers or {}).items():
+            message[key] = value
         error = urllib.error.HTTPError(
             'https://openrouter.ai/api/v1/chat/completions',
             status,
             'boom',
-            email.message.Message(),
+            message,
             io.BytesIO(body),
         )
         self.addCleanup(error.close)
         return error
 
     def test_http_error_raises_so_main_can_fall_back(self):
-        error = self._http_error(500, b'')
+        self._call_raises(self._http_error(500), self._http_error(500), self._http_error(500))
+
+    def test_a_429_then_success_returns_the_second_response(self):
+        (result, _), urlopen, sleep = self._call(self._http_error(429), self._ok())
+        self.assertEqual(result, {'action': 'new', 'body': 'b'})
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(_constants.RETRY_DELAYS[0])
+
+    def test_two_503s_then_success(self):
+        (result, _), urlopen, sleep = self._call(
+            self._http_error(503), self._http_error(503), self._ok()
+        )
+        self.assertEqual(result, {'action': 'new', 'body': 'b'})
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5.0, 15.0])
+
+    def test_other_4xx_are_not_retried(self):
+        """A 400 is the request and a 402 is the key's credit: neither is a wait-and-see."""
+        for status in (400, 401, 402, 403, 404):
+            with self.subTest(status=status):
+                message, urlopen, sleep = self._call_raises(self._http_error(status), self._ok())
+                self.assertEqual(urlopen.call_count, 1)
+                sleep.assert_not_called()
+                self.assertIn(f'HTTP Error {status}', message)
+                self.assertIn('after 1 attempt)', message)
+
+    def test_three_429s_give_up_with_the_count_and_the_last_detail(self):
+        message, urlopen, sleep = self._call_raises(
+            self._http_error(429, b'{"error": {"message": "first"}}'),
+            self._http_error(429, b'{"error": {"message": "second"}}'),
+            self._http_error(429, b'{"error": {"message": "Provider returned error"}}'),
+            self._ok(),
+        )
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn('HTTP Error 429', message)
+        self.assertIn('Provider returned error', message)
+        self.assertNotIn('first', message)
+        self.assertIn('after 3 attempts', message)
+
+    def test_retry_after_is_honoured(self):
+        _, _, sleep = self._call(self._http_error(429, headers={'Retry-After': '2'}), self._ok())
+        sleep.assert_called_once_with(2.0)
+
+    def test_retry_after_is_capped(self):
+        _, _, sleep = self._call(self._http_error(429, headers={'Retry-After': '600'}), self._ok())
+        sleep.assert_called_once_with(_constants.MAX_RETRY_WAIT)
+
+    def test_a_retry_after_date_is_honoured_and_capped(self):
+        _, _, sleep = self._call(
+            self._http_error(503, headers={'Retry-After': 'Fri, 31 Dec 2100 23:59:59 GMT'}),
+            self._ok(),
+        )
+        sleep.assert_called_once_with(_constants.MAX_RETRY_WAIT)
+
+    def test_an_unreadable_retry_after_falls_back_to_the_default_delay(self):
+        _, _, sleep = self._call(
+            self._http_error(429, headers={'Retry-After': 'soon'}), self._ok()
+        )
+        sleep.assert_called_once_with(_constants.RETRY_DELAYS[0])
+
+    def test_the_total_wait_is_capped(self):
         with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError),
+            mock.patch.object(_openrouter, 'RETRY_DELAYS', (5.0, 15.0)),
+            mock.patch.object(_openrouter, 'MAX_RETRY_WAIT', 30.0),
+            mock.patch.object(_openrouter, 'MAX_TOTAL_RETRY_WAIT', 40.0),
         ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+            _, _, sleep = self._call(
+                self._http_error(429, headers={'Retry-After': '30'}),
+                self._http_error(429, headers={'Retry-After': '30'}),
+                self._ok(),
+            )
+        # 30 and then only the 10 left of the 40, not another 30.
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [30.0, 10.0])
+
+    def test_the_real_caps_hold_against_a_long_retry_after(self):
+        """However long OpenRouter asks for, the waits add up to at most a minute."""
+        long_wait = {'Retry-After': '3600'}
+        message, urlopen, sleep = self._call_raises(
+            self._http_error(429, headers=long_wait),
+            self._http_error(429, headers=long_wait),
+            self._http_error(429, headers=long_wait),
+        )
+        self.assertEqual(urlopen.call_count, 3)
+        waits = [c.args[0] for c in sleep.call_args_list]
+        self.assertTrue(all(w <= _constants.MAX_RETRY_WAIT for w in waits), waits)
+        self.assertLessEqual(sum(waits), _constants.MAX_TOTAL_RETRY_WAIT)
+        self.assertIn('after 3 attempts', message)
+
+    def test_a_timeout_is_retried(self):
+        # `socket.timeout` is an alias of `TimeoutError` from Python 3.10, so
+        # the first entry covers it too.
+        for error in (
+            TimeoutError('timed out'),
+            urllib.error.URLError('connection refused'),
+            ConnectionResetError('reset by peer'),
+        ):
+            with self.subTest(error=type(error).__name__):
+                (result, _), urlopen, sleep = self._call(error, self._ok())
+                self.assertEqual(result, {'action': 'new', 'body': 'b'})
+                self.assertEqual(urlopen.call_count, 2)
+                sleep.assert_called_once()
+
+    def test_each_retry_is_one_log_line_without_the_key(self):
+        log = io.StringIO()
+        sleep = mock.Mock()
+        with (
+            mock.patch.object(
+                _openrouter.urllib.request,
+                'urlopen',
+                side_effect=[self._http_error(429), TimeoutError('timed out'), self._ok()],
+            ),
+            contextlib.redirect_stderr(log),
+        ):
+            _openrouter.call_openrouter('sys', 'user', 'm', 'secret-key', sleep=sleep)
+        lines = [line for line in log.getvalue().splitlines() if 'retrying' in line]
+        self.assertEqual(len(lines), 2)
+        self.assertIn('attempt 1 of 3', lines[0])
+        self.assertIn('HTTP Error 429', lines[0])
+        self.assertIn('retrying in 5s', lines[0])
+        self.assertIn('attempt 2 of 3', lines[1])
+        self.assertIn('timed out', lines[1])
+        self.assertIn('retrying in 15s', lines[1])
+        self.assertNotIn('secret-key', log.getvalue())
 
     def test_the_error_carries_openrouters_own_explanation(self):
         """A 400 says only "Bad Request"; which of the model, key or schema is in the body."""
         body = json.dumps({
             'error': {'code': 400, 'message': "Invalid schema: 'required' is missing 'also'"}
         }).encode()
-        error = self._http_error(400, body)
-        with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError) as raised,
-        ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
-        message = str(raised.exception)
+        message, _, _ = self._call_raises(self._http_error(400, body))
         self.assertIn('HTTP Error 400', message)
         self.assertIn("'required' is missing 'also'", message)
 
-    def test_a_body_that_is_not_json_is_reported_as_it_came(self):
-        error = self._http_error(502, b'<html>upstream is unwell</html>')
-        with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError) as raised,
+    def test_a_reply_in_a_code_fence_is_unwrapped(self):
+        envelope = {'action': 'new', 'body': 'b'}
+        for content in (
+            f'```json\n{json.dumps(envelope)}\n```',
+            f'```\n{json.dumps(envelope, indent=2)}\n```',
+            f'\n  ```json  \n{json.dumps(envelope)}\n  ```\n',
         ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
-        self.assertIn('upstream is unwell', str(raised.exception))
+            with self.subTest(content=content):
+                with (
+                    mock.patch.object(
+                        _openrouter.urllib.request,
+                        'urlopen',
+                        return_value=self._response(content, 'deepseek/deepseek-v3.2'),
+                    ),
+                    contextlib.redirect_stderr(io.StringIO()),
+                ):
+                    result, _ = _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+                self.assertEqual(result, envelope)
+
+    def test_only_a_fence_around_the_whole_reply_is_unwrapped(self):
+        envelope = json.dumps({'action': 'new', 'body': 'b'})
+        for content in (f'Here you go:\n```json\n{envelope}\n```', f'```json\n{envelope}'):
+            with (
+                self.subTest(content=content),
+                mock.patch.object(
+                    _openrouter.urllib.request,
+                    'urlopen',
+                    return_value=self._response(content, 'm'),
+                ),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(json.JSONDecodeError),
+            ):
+                _openrouter.call_openrouter('sys', 'user', 'm', 'k')
+
+    def test_a_body_that_is_not_json_is_reported_as_it_came(self):
+        error = b'<html>upstream is unwell</html>'
+        message, _, _ = self._call_raises(
+            self._http_error(502, error),
+            self._http_error(502, error),
+            self._http_error(502, error),
+        )
+        self.assertIn('upstream is unwell', message)
 
     def test_an_unreadable_body_still_leaves_the_status(self):
-        error = self._http_error(429, b'')
-        error.read = mock.Mock(side_effect=OSError('connection reset'))
-        with (
-            mock.patch.object(_openrouter.urllib.request, 'urlopen', side_effect=error),
-            self.assertRaises(RuntimeError) as raised,
-        ):
-            _openrouter.call_openrouter('sys', 'user', 'm', 'k')
-        self.assertIn('HTTP Error 429', str(raised.exception))
+        errors = [self._http_error(429) for _ in range(3)]
+        for error in errors:
+            error.read = mock.Mock(side_effect=OSError('connection reset'))
+        message, _, _ = self._call_raises(*errors)
+        self.assertIn('HTTP Error 429', message)
 
 
 class ResolveOriginTests(unittest.TestCase):

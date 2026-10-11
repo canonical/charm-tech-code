@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from ._constants import (
     BREAKING,
@@ -60,6 +60,30 @@ def _bullet(change: Change, reference: str | None) -> str:
     return ' '.join(parts)
 
 
+def _items(changes: list[Change], reference: Callable[[Change], str | None]) -> list[str]:
+    """The lines for one category's changes, without its heading.
+
+    A batch of cherry-picks is a sentence introducing the changes it brought
+    in, followed by a list of them, which is how it reads when the fixes
+    have to be told apart from the branch they came in on:
+
+        Cherry-picked recent fixes from main into the 2.23-maintenance branch (#2789), including:
+
+        * Only decode fields used by the data class in `Relation.load()` (#2636)
+
+    A batch goes after the category's ordinary bullets, since its list
+    would otherwise run straight on into theirs.
+    """
+    lines = [_bullet(change, reference(change)) for change in changes if not change.includes]
+    for batch in (change for change in changes if change.includes):
+        if lines:
+            lines.append('')
+        lines.append(_bullet(batch, reference(batch))[2:] + ', including:')
+        lines.append('')
+        lines.extend(_bullet(change, reference(change)) for change in batch.includes)
+    return lines
+
+
 def format_release_notes(categories: Mapping[str, list[Change]], compare_url: str | None) -> str:
     """Format for release notes.
 
@@ -80,7 +104,7 @@ def format_release_notes(categories: Mapping[str, list[Change]], compare_url: st
     if categories[BREAKING]:
         lines.append(f'### {commit_type_to_category(BREAKING)}')
         lines.append(f'{BREAKING_PREAMBLE}\n')
-        lines.extend(_bullet(change, _reference(change)) for change in categories[BREAKING])
+        lines.extend(_items(categories[BREAKING], _reference))
         lines.append('')
         logger.info(
             'Breaking changes detected in the release notes. '
@@ -93,7 +117,7 @@ def format_release_notes(categories: Mapping[str, list[Change]], compare_url: st
             lines.append(f'### {commit_type_to_category(commit_type)}')
             if commit_type == UNKNOWN:
                 lines.append(f'{UNKNOWN_PREAMBLE}\n')
-            lines.extend(_bullet(change, _reference(change)) for change in items)
+            lines.extend(_items(items, _reference))
             lines.append('')
     if compare_url:
         lines.append(f'{FULL_CHANGELOG_PREFIX}: {compare_url}')
@@ -110,6 +134,14 @@ def _reference(change: Change) -> str | None:
     if change.pr_number is None:
         return None
     return f'in #{change.pr_number}'
+
+
+def _link(change: Change, repo: str) -> str | None:
+    """Render the `([#N](url))` half of a CHANGES.md bullet, or nothing."""
+    if change.pr_number is None:
+        return None
+    url = PULL_REQUEST_URL_TEMPLATE.format(repo=repo, number=change.pr_number)
+    return f'([#{change.pr_number}]({url}))'
 
 
 def format_changes(
@@ -145,11 +177,6 @@ def format_changes(
     for commit_type, items in categories.items():
         if items:
             lines.append(f'## {commit_type_to_category(commit_type)}\n')
-            for change in items:
-                reference = None
-                if change.pr_number is not None:
-                    url = PULL_REQUEST_URL_TEMPLATE.format(repo=repo, number=change.pr_number)
-                    reference = f'([#{change.pr_number}]({url}))'
-                lines.append(_bullet(change, reference))
+            lines.extend(_items(items, lambda change: _link(change, repo)))
             lines.append('')
     return '\n'.join(lines) + '\n'
