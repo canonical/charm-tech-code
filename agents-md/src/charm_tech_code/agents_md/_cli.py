@@ -99,7 +99,7 @@ def _check(argv: list[str]) -> int:
         try:
             with _common.collecting() as collected:
                 module.main()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             notes.append(f'check {check_id} raised {type(exc).__name__}: {exc}')
             continue
         finally:

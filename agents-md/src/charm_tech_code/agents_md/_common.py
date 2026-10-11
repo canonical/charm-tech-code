@@ -38,10 +38,14 @@ EXIT_UNKNOWN = 3
 
 
 def repo_root() -> pathlib.Path:
-    """Return the repo root. Falls back to CWD when not inside a git tree
-    (the skill can be invoked against an unpacked tarball, for example)."""
+    """Return the repo root.
+
+    Falls back to CWD when not inside a git tree (the skill can be invoked
+    against an unpacked tarball, for example).
+    """
     try:
         out = subprocess.run(
+            # ruff: ignore[start-process-with-partial-path]
             ['git', 'rev-parse', '--show-toplevel'],
             capture_output=True,
             text=True,
@@ -55,10 +59,13 @@ def repo_root() -> pathlib.Path:
 
 
 def origin_url() -> str:
-    """Return the origin remote URL normalised to https form, without a
-    trailing .git. Empty string if no origin remote."""
+    """Return the origin remote URL normalised to https form, without a trailing .git.
+
+    Empty string if no origin remote.
+    """
     try:
         url = subprocess.run(
+            # ruff: ignore[start-process-with-partial-path]
             ['git', 'config', '--get', 'remote.origin.url'],
             capture_output=True,
             text=True,
@@ -122,9 +129,11 @@ def emit_check(
 
 
 def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    """Convenience wrapper around subprocess.run with text=True and
-    capture_output=True by default. Never raises on non-zero exit —
-    callers should inspect .returncode."""
+    """Run a command with text=True and capture_output=True by default.
+
+    A convenience wrapper around subprocess.run. Never raises on non-zero
+    exit — callers should inspect .returncode.
+    """
     kwargs.setdefault('text', True)
     kwargs.setdefault('capture_output', True)
     kwargs.setdefault('check', False)
@@ -132,8 +141,11 @@ def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
 
 
 def cd_repo_root() -> pathlib.Path:
-    """Chdir to the repo root and return it. Exits EXIT_UNKNOWN if the
-    root cannot be reached (matches the shell behaviour of `cd || exit 3`)."""
+    """Chdir to the repo root and return it.
+
+    Exits EXIT_UNKNOWN if the root cannot be reached (matches the shell
+    behaviour of `cd || exit 3`).
+    """
     root = repo_root()
     try:
         os.chdir(root)

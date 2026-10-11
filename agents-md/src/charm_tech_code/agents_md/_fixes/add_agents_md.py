@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Fix: copy the AGENTS.md template into the repo root.
+
 Agent must fill in {{...}} placeholders before committing — the
 template is intentionally a skeleton, not a working file.
 """

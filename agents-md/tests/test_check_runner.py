@@ -26,6 +26,7 @@ def test_only_dispatches_selected_check(tmp_path):
         'Run the unit tests with `python -m pytest`.\n'
     )
     proc = subprocess.run(
+        # ruff: ignore[start-process-with-partial-path]
         ['agents-md', 'check', '--only=agents-md'],
         capture_output=True,
         text=True,

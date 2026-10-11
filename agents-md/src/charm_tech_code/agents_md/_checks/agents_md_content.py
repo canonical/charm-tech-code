@@ -130,8 +130,11 @@ SCOPE_LINT_PATTERNS = [
 
 
 def extract_commands(text: str) -> list[tuple[str, str]]:
-    """Return (raw_command, source) pairs from fenced shell blocks and
-    markdown table cells that look like commands."""
+    """Return (raw_command, source) pairs for the commands in AGENTS.md.
+
+    Commands come from fenced shell blocks and from markdown table cells that
+    look like commands.
+    """
     commands: list[tuple[str, str]] = []
     for m in FENCE_RE.finditer(text):
         lang = m.group(1).lower()
@@ -161,10 +164,12 @@ def extract_commands(text: str) -> list[tuple[str, str]]:
 
 
 def entry_point_tool(cmd: str) -> str:
-    """First non-assignment token of the whole command line. A tool
-    introduced mid-line by an explicit install step (e.g. `go install X &&
+    """Return the first non-assignment token of the whole command line.
+
+    A tool introduced mid-line by an explicit install step (e.g. `go install X &&
     X ...`) is intentionally not checked here — it's expected to be absent
-    until that install step runs."""
+    until that install step runs.
+    """
     try:
         tokens = shlex.split(cmd)
     except ValueError:
@@ -203,9 +208,7 @@ def looks_like_path(cand: str) -> bool:
         # itself a relative-path marker ("." / "..") means "module path",
         # not "local file".
         first_seg = cand.split('/', 1)[0]
-        if '.' in first_seg and not first_seg.startswith('.'):
-            return False
-        return True
+        return '.' not in first_seg or first_seg.startswith('.')
     if cand.startswith('.'):
         return True
     if FILE_EXT_RE.search(cand):
@@ -235,7 +238,7 @@ def workflow_texts(root: pathlib.Path) -> dict[str, str]:
     for p in sorted(list(wf_dir.glob('*.yml')) + list(wf_dir.glob('*.yaml'))):
         try:
             out[str(p.relative_to(root))] = p.read_text(errors='replace')
-        except OSError:
+        except OSError:  # ruff: ignore[try-except-in-loop]
             continue
     return out
 
@@ -243,10 +246,13 @@ def workflow_texts(root: pathlib.Path) -> dict[str, str]:
 def check_version_drift(
     pins: list[tuple[str, str]], workflows: dict[str, str]
 ) -> tuple[list[dict], list[dict]]:
-    """Return (drifted, checked). checked includes every pin that could be
-    cross-referenced against a workflow (pass or fail), for evidence
-    transparency — e.g. a tool version pinned differently in an unrelated
-    workflow is visible even when the AGENTS.md claim matches somewhere."""
+    """Return (drifted, checked) for the version pins mentioned in AGENTS.md.
+
+    checked includes every pin that could be cross-referenced against a
+    workflow (pass or fail), for evidence transparency — e.g. a tool version
+    pinned differently in an unrelated workflow is visible even when the
+    AGENTS.md claim matches somewhere.
+    """
     drifted: list[dict] = []
     checked: list[dict] = []
     for tool, doc_version in pins:

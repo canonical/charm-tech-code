@@ -78,8 +78,11 @@ def parse_flag(name: str) -> str:
 
 
 def battery_path() -> pathlib.Path | None:
-    """Explicit --battery=<path> wins; otherwise the battery named after the
-    repo the origin URL points at."""
+    """Return the path to this repo's question battery, or None if there is none.
+
+    Explicit --battery=<path> wins; otherwise the battery named after the
+    repo the origin URL points at.
+    """
     explicit = parse_flag('battery')
     if explicit:
         p = pathlib.Path(explicit)
@@ -98,9 +101,10 @@ def collapse(text: str) -> str:
 
 def validate_schema(entry: dict, index: int) -> list[str]:
     where = entry.get('id') or f'entry[{index}]'
-    problems = []
-    for key in sorted(REQUIRED_ENTRY_KEYS - set(entry)):
-        problems.append(f"{where}: missing required key '{key}'")
+    problems = [
+        f"{where}: missing required key '{key}'"
+        for key in sorted(REQUIRED_ENTRY_KEYS - set(entry))
+    ]
     if entry.get('classification') not in CLASSIFICATIONS and 'classification' in entry:
         problems.append(f'{where}: unknown classification {entry["classification"]!r}')
 
@@ -192,7 +196,7 @@ def run_assertion(assertion: dict, entry_id: str, root: pathlib.Path) -> dict | 
         try:
             if needle.search(go_file.read_text(errors='replace')):
                 return None
-        except OSError:
+        except OSError:  # ruff: ignore[try-except-in-loop]
             continue
     return {
         'entry': entry_id,
