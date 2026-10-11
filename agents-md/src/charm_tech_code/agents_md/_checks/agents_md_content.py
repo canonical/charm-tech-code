@@ -289,6 +289,7 @@ def classify_command(cmd: str) -> tuple[str, str]:
 
 
 def looks_like_path(cand: str) -> bool:
+    """Return whether an inline-code snippet looks like a reference to a local file."""
     if not cand or ' ' in cand or cand.startswith(('http://', 'https://')):
         return False
     if cand.startswith(('~', '/')):
@@ -312,6 +313,7 @@ def looks_like_path(cand: str) -> bool:
 
 
 def extract_referenced_paths(text: str) -> set[str]:
+    """Return the local paths referenced by markdown links and inline code."""
     paths: set[str] = set()
     for m in MD_LINK_RE.finditer(text):
         target = m.group(1)
@@ -366,6 +368,7 @@ def inside(root: pathlib.Path, ref: str) -> bool:
 
 
 def workflow_texts(root: pathlib.Path) -> dict[str, str]:
+    """Return the text of each readable workflow file, keyed by repo-relative path."""
     wf_dir = root / '.github' / 'workflows'
     out: dict[str, str] = {}
     if not wf_dir.is_dir():
@@ -409,10 +412,12 @@ def check_version_drift(
 
 
 def scope_lint(text: str) -> list[str]:
+    """Return a label for each kind of harness-shaped content found in `text`."""
     return [label for pattern, label in SCOPE_LINT_PATTERNS if pattern.search(text)]
 
 
 def main() -> int:
+    """Run the content checks, emit the result, and return the exit code."""
     root = _common.cd_repo_root()
 
     p = pathlib.Path('AGENTS.md')
