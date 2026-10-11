@@ -20,32 +20,38 @@ Implements the five Layer 1 checks from
 roadmap/26.10/repo-setup/agents-md-validation.md (canonical-work-queue):
 
 1. Commands parse and their entry-point tool resolves in a dev environment.
-2. Safe commands actually pass: runnable (lint/format-check/unit-test/build)
-   commands are executed and must exit 0; environment-gated commands
-   (integration needing Docker/LXD/juju, root-only tests, anything that would
-   mutate the tree or start a long-running process) are only parsed and
-   reported verify-manually, with the gating dependency named.
+2. Safe commands actually pass, with `--run`. A command is only run when it
+   starts with an allowlisted tool and subcommand (`make lint`, `uv run
+   pytest`, `go test`, ...), needs no shell (no `&&`, pipes, redirects or
+   `$`), changes nothing, and needs nothing the dev environment may not
+   have (Docker, LXD, juju, root, integration). Everything else is only
+   parsed and reported verify-manually, with the reason named. Each command
+   can take up to three minutes and they run one after another, so `--run`
+   is the expensive part and doesn't belong in a per-change check.
 3. Paths and symbols resolve: every referenced file exists (a bare name
    anywhere in the repo, a link without its #anchor, and never a ~/ or
-   absolute path, which describe the reader's machine); every named
-   gocheck test suite (`-check.f <Suite>` after a `go test <package>`) still
-   lives in the named package; every "`Symbol` in `path`" reference resolves.
+   absolute path, which describe the reader's machine, or a placeholder or
+   glob such as `lib/<owner>/` or `**/*.py`); every named gocheck test suite
+   (`-check.f <Suite>` after a `go test <package>`) still lives in the named
+   package; every "`Symbol` in `path`" reference inside the repo resolves.
 4. Version pins mentioned in prose (`tool@vX.Y.Z`) match what
    .github/workflows actually pin.
-5. Scope lint: flag harness-shaped content (attribution trailers, tool
-   hints, per-agent config) that belongs in harness config, not AGENTS.md.
+5. Scope lint: flag harness output that has leaked into AGENTS.md
+   (attribution trailers and markers). Mentioning a harness by name, or its
+   config directory, is often exactly what an AGENTS.md should do, so those
+   are not findings.
 
 This is a content check, not a presence check — see agents-md.py for
 presence/length. If AGENTS.md is absent this check is n/a.
 
-Convention: one check emits exactly one result (see common.emit_check);
-all five sub-checks are folded into a single pass/fail with per-sub-check
-evidence, following the runner's one-result-per-check contract.
+One check emits exactly one JSON result (see emit_check), so all five
+sub-checks fold into a single pass/fail carrying per-sub-check evidence.
 """
 
 from __future__ import annotations
 
 import glob
+import os
 import re
 import shlex
 import shutil
@@ -71,6 +77,9 @@ RUNNABLE_TIMEOUT_SECONDS = 180
 
 FENCE_RE = re.compile(r'```[ \t]*([A-Za-z0-9_+-]*)\n(.*?)\n?```', re.DOTALL)
 FENCE_LANGS = {'', 'bash', 'sh', 'shell', 'console', 'zsh'}
+# A `console` block is a transcript: commands carry a `$ ` prompt and every
+# other line is output. Other shell blocks may have the prompt too.
+PROMPT_RE = re.compile(r'^\$\s+')
 TABLE_ROW_RE = re.compile(r'^\|(.+)\|[ \t]*$')
 INLINE_CODE_RE = re.compile(r'`([^`\n]+)`')
 COMMAND_ENTRYPOINTS = {
@@ -99,15 +108,16 @@ COMMAND_ENTRYPOINTS = {
 }
 ENV_ASSIGN_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
 
-# Check 2 classification. Order matters: side-effecting first, then
-# environment-gate keywords, then the runnable allowlist. Anything matching
-# none of these is treated conservatively as environment-gated ("not
-# recognised as safe" rather than risk running an unknown command).
+# Check 2 classification. Order matters: shell syntax first (a command run
+# without a shell would get `&&` or `>` as an argument), then side effects,
+# then environment-gate keywords, then the allowlist. Anything matching none
+# of these is not run.
+SHELL_SYNTAX_RE = re.compile(r'[|&;<>`$]')
 SIDE_EFFECT_RE = re.compile(
     r'\bgo run\b|\bgo install\b|\bgo fmt\b(?!.*-l)|\bpip install\b'
     r'|\buv tool install\b|\buv pip install\b|(?:tox -e|make)\s+format\b'
     r'|\bruff format\b(?!.*(--check|--diff))|\bblack\b(?!.*--check)'
-    r'|\bmake\s+run\b|\bmake\s+cli-help\b|\bnpm install\b'
+    r'|\bmake\s+run\b|\bmake\s+cli-help\b|\bnpm install\b|--fix\b|--write\b'
 )
 ENV_GATE_PATTERNS = [
     (re.compile(r'\bdocker\b|\bcompose\b', re.IGNORECASE), 'Docker'),
@@ -118,16 +128,58 @@ ENV_GATE_PATTERNS = [
     (re.compile(r'\bintegration\b', re.IGNORECASE), 'integration environment'),
     (re.compile(r'CHARM_PATH|packed charms?', re.IGNORECASE), 'packed charms'),
 ]
-RUNNABLE_HINT_RE = re.compile(
-    r'\btest\b|\bunit\b|\bpytest\b|\blint\b|\bbuild\b|\bvet\b|--check\b|--diff\b'
-    r'|staticcheck|govulncheck|pyright|\bty check\b|gofmt -l',
-    re.IGNORECASE,
+# The commands that are run with --run, as the leading words of the command
+# once any `VAR=value` assignments and a `uv run [options]` wrapper are
+# removed. A tool and subcommand, not a word anywhere in the line, so the
+# default for anything unrecognised is not to run it.
+RUNNABLE_COMMANDS = (
+    ('make', 'lint'),
+    ('make', 'test'),
+    ('make', 'unit'),
+    ('make', 'check'),
+    ('tox', '-e', 'lint'),
+    ('tox', '-e', 'static'),
+    ('tox', '-e', 'unit'),
+    ('pytest',),
+    ('python', '-m', 'pytest'),
+    ('python3', '-m', 'pytest'),
+    ('ruff', 'check'),
+    ('ruff', 'format', '--check'),
+    ('ruff', 'format', '--diff'),
+    ('pyright',),
+    ('ty', 'check'),
+    ('mypy',),
+    ('go', 'test'),
+    ('go', 'vet'),
+    ('gofmt', '-l'),
+    ('staticcheck',),
+    ('govulncheck',),
+    ('cargo', 'test'),
+    ('cargo', 'check'),
+    ('npm', 'test'),
 )
+# `uv run` options that take a value as the next word.
+UV_RUN_VALUE_OPTIONS = frozenset({
+    '--group',
+    '--with',
+    '--extra',
+    '--python',
+    '-p',
+    '--package',
+    '--directory',
+    '--project',
+    '--env-file',
+})
 
 VERSION_PIN_RE = re.compile(r'([A-Za-z0-9_.\-/]+)@v(\d+\.\d+(?:\.\d+)?)')
 SUITE_RE = re.compile(r'go test\s+(\.[^\s]+)\s+.*-check\.f[= ]([A-Za-z_][A-Za-z0-9_]*)')
 SYMBOL_IN_PATH_RE = re.compile(r'`([A-Za-z_][\w.]*)`\s+in\s+`([^`]+)`')
 MD_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)\s]+)\)')
+FILE_EXT_RE = re.compile(r'\.(md|py|go|toml|yaml|yml|txt|cfg|ini|sh|json|lock)$', re.IGNORECASE)
+KNOWN_EXTENSIONLESS_FILENAMES = {'dockerfile', 'makefile', 'license', 'copying'}
+# Characters that make a path a template (`lib/charms/<owner>/`,
+# `{name}.yaml`) or a glob (`**/*.py`) rather than something to look up.
+PLACEHOLDER_CHARS = frozenset('<>{}*?[]')
 SKIPPED_DIRS = frozenset({
     '.git',
     '.venv',
@@ -138,19 +190,14 @@ SKIPPED_DIRS = frozenset({
     'build',
     'dist',
 })
-FILE_EXT_RE = re.compile(r'\.(md|py|go|toml|yaml|yml|txt|cfg|ini|sh|json|lock)$', re.IGNORECASE)
-KNOWN_EXTENSIONLESS_FILENAMES = {'dockerfile', 'makefile', 'license', 'copying'}
 
+# Only what a harness writes, not what a person writes about one: a
+# repository that is worked on with Claude Code may well say so, and point
+# at `.claude/`, and that is guidance rather than leaked output.
 SCOPE_LINT_PATTERNS = [
     (re.compile(r'Co-Authored-By', re.IGNORECASE), 'attribution trailer (Co-Authored-By)'),
     (re.compile(r'Generated (with|by)\s*\[?Claude', re.IGNORECASE), 'Claude attribution line'),
-    (re.compile(r'Claude Code', re.IGNORECASE), 'harness name (Claude Code)'),
-    (re.compile(r'claude\.ai/code', re.IGNORECASE), 'harness URL (claude.ai/code)'),
-    (re.compile(r'GitHub Copilot|\bCopilot\b'), 'harness name (Copilot)'),
-    (re.compile(r'\bChatGPT\b|\bOpenAI\b'), 'harness name (ChatGPT/OpenAI)'),
-    (re.compile(r'\bAnthropic\b'), 'harness vendor name (Anthropic)'),
     (re.compile(r'\U0001F916'), 'robot-emoji attribution marker'),
-    (re.compile(r'\.claude/'), 'harness-specific config path (.claude/)'),
 ]
 
 
@@ -167,6 +214,11 @@ def extract_commands(text: str) -> list[tuple[str, str]]:
             continue
         for line in m.group(2).splitlines():
             line = line.strip()
+            prompt = PROMPT_RE.match(line)
+            if lang == 'console' and not prompt:
+                continue
+            if prompt:
+                line = line[prompt.end() :]
             if not line or line.startswith('#'):
                 continue
             cmd = re.split(r'\s+#\s?', line, maxsplit=1)[0].strip()
@@ -206,22 +258,44 @@ def entry_point_tool(cmd: str) -> str:
     return ''
 
 
+def split_assignments(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
+    """Split leading `VAR=value` words off a command, as the shell would."""
+    env: dict[str, str] = {}
+    for index, token in enumerate(tokens):
+        if not ENV_ASSIGN_RE.match(token):
+            return env, tokens[index:]
+        name, _, value = token.partition('=')
+        env[name] = value
+    return env, []
+
+
+def without_uv_run(words: list[str]) -> list[str]:
+    """Return the command a `uv run [options]` wrapper runs, or *words* unchanged."""
+    if words[:2] != ['uv', 'run']:
+        return words
+    index = 2
+    while index < len(words) and words[index].startswith('-'):
+        index += 2 if words[index] in UV_RUN_VALUE_OPTIONS else 1
+    return words[index:]
+
+
 def classify_command(cmd: str) -> tuple[str, str]:
     """Return (bucket, reason). bucket is 'runnable' or 'environment-gated'."""
+    if SHELL_SYNTAX_RE.search(cmd):
+        return 'environment-gated', 'needs a shell'
     if SIDE_EFFECT_RE.search(cmd):
-        return (
-            'environment-gated',
-            (
-                'would mutate the working tree or start a long-running process — not executed '
-                'automatically'
-            ),
-        )
+        return 'environment-gated', 'side effects'
     for pattern, name in ENV_GATE_PATTERNS:
         if pattern.search(cmd):
             return 'environment-gated', name
-    if RUNNABLE_HINT_RE.search(cmd):
+    try:
+        _, words = split_assignments(shlex.split(cmd))
+    except ValueError:
+        return 'environment-gated', 'unparseable'
+    words = without_uv_run(words)
+    if any(tuple(words[: len(prefix)]) == prefix for prefix in RUNNABLE_COMMANDS):
         return 'runnable', ''
-    return 'environment-gated', 'not recognised as a safe check command — verify manually'
+    return 'environment-gated', 'not allowlisted'
 
 
 def looks_like_path(cand: str) -> bool:
@@ -231,6 +305,8 @@ def looks_like_path(cand: str) -> bool:
     if cand.startswith(('~', '/')):
         # A home-directory or absolute path is about the reader's machine (a
         # cache, a config file), not the repo, so there is nothing to resolve.
+        return False
+    if not PLACEHOLDER_CHARS.isdisjoint(cand):
         return False
     if '/' in cand:
         # Exclude Go/domain-style import paths (github.com/..., gopkg.in/...,
@@ -254,7 +330,11 @@ def extract_referenced_paths(text: str) -> set[str]:
         if target.startswith(('http://', 'https://', '#', 'mailto:')):
             continue
         # CONTRIBUTING.md#pull-requests is a reference to CONTRIBUTING.md.
-        paths.add(target.split('#', 1)[0].split('?', 1)[0])
+        target = target.split('#', 1)[0].split('?', 1)[0]
+        # A leading / in a markdown link is the repository root on GitHub.
+        target = target.lstrip('/')
+        if target and PLACEHOLDER_CHARS.isdisjoint(target):
+            paths.add(target)
     for m in INLINE_CODE_RE.finditer(text):
         cand = m.group(1).strip()
         if looks_like_path(cand):
@@ -271,6 +351,8 @@ def path_resolves(root: Path, ref: str) -> bool:
     resolves if a file of that name (or a directory, with a trailing slash)
     exists anywhere in the repo outside the usual tool and build directories.
     """
+    if not inside(root, ref):
+        return False
     if (root / ref).exists():
         return True
     name = ref.rstrip('/')
@@ -283,6 +365,16 @@ def path_resolves(root: Path, ref: str) -> bool:
         if not want_dir or found.is_dir():
             return True
     return False
+
+
+def inside(root: Path, ref: str) -> bool:
+    """Return whether *ref*, taken relative to *root*, stays inside it.
+
+    `root / '/etc/passwd'` is `/etc/passwd`, and `../x` is outside too: the
+    check never reads a file it was pointed at outside the repo.
+    """
+    resolved_root = root.resolve()
+    return (resolved_root / ref).resolve().is_relative_to(resolved_root)
 
 
 def workflow_texts(root: Path) -> dict[str, str]:
@@ -317,6 +409,10 @@ def check_version_drift(
             for vm in re.finditer(re.escape(tool) + r'@v(\d+\.\d+(?:\.\d+)?)', text):
                 found.add(f'v{vm.group(1)}')
         if not found:
+            # Not a failure: plenty of tools in an AGENTS.md were never
+            # pinned in CI. But it's in the evidence, because a pin CI used to
+            # have and has since dropped looks exactly like this.
+            checked.append({'tool': tool, 'doc_version': doc_version, 'ci_versions': []})
             continue
         entry = {'tool': tool, 'doc_version': doc_version, 'ci_versions': sorted(found)}
         checked.append(entry)
@@ -351,9 +447,11 @@ def main() -> int:
     text = p.read_text(errors='replace')
 
     # --- Checks 1 & 2: commands ---
+    run_commands = '--run' in sys.argv[1:]
     commands = extract_commands(text)
     missing_tools: list[dict] = []
     seen_missing_tools: set[str] = set()
+    runnable: list[str] = []
     runnable_results: list[dict] = []
     gated: list[dict] = []
 
@@ -367,14 +465,20 @@ def main() -> int:
         if bucket == 'environment-gated':
             gated.append({'command': cmd, 'gating_dependency': reason})
             continue
-
-        try:
-            tokens = shlex.split(cmd)
-        except ValueError:
-            runnable_results.append({'command': cmd, 'status': 'unparseable'})
+        runnable.append(cmd)
+        if not run_commands:
             continue
+
+        # classify_command has already refused anything that needs a shell,
+        # so the words are the whole command.
+        assignments, words = split_assignments(shlex.split(cmd))
         try:
-            proc = run(tokens, cwd=root, timeout=RUNNABLE_TIMEOUT_SECONDS)
+            proc = run(
+                words,
+                cwd=root,
+                timeout=RUNNABLE_TIMEOUT_SECONDS,
+                env={**os.environ, **assignments},
+            )
         except subprocess.TimeoutExpired:
             runnable_results.append({'command': cmd, 'status': 'timeout'})
             continue
@@ -396,6 +500,13 @@ def main() -> int:
 
     symbol_findings: list[dict] = []
     for sym, sym_path in SYMBOL_IN_PATH_RE.findall(text):
+        if not inside(root, sym_path):
+            symbol_findings.append({
+                'symbol': sym,
+                'path': sym_path,
+                'problem': 'path is outside the repo',
+            })
+            continue
         target = root / sym_path
         if not target.is_file():
             symbol_findings.append({
@@ -415,7 +526,7 @@ def main() -> int:
     suite_findings: list[dict] = []
     for pkg, suite in SUITE_RE.findall(text):
         pkg_dir = (root / pkg).resolve()
-        if not pkg_dir.is_dir():
+        if not inside(root, pkg) or not pkg_dir.is_dir():
             suite_findings.append({
                 'suite': suite,
                 'package': pkg,
@@ -467,6 +578,8 @@ def main() -> int:
         'path': 'AGENTS.md',
         'commands_extracted': len(commands),
         'missing_tools': missing_tools,
+        'runnable': runnable,
+        'commands_run': run_commands,
         'runnable_checked': len(runnable_results),
         'runnable_failed': failed_runnable,
         'environment_gated': gated,
@@ -498,11 +611,16 @@ def main() -> int:
         )
         return EXIT_FAIL
 
+    ran = (
+        f'{len(runnable_results)} run'
+        if run_commands
+        else f'{len(runnable)} runnable but not run without --run'
+    )
     emit_check(
         CHECK_ID,
         'pass',
         f'AGENTS.md content verified: {len(commands)} command(s) parsed '
-        f'({len(runnable_results)} run, {len(gated)} environment-gated/'
+        f'({ran}, {len(gated)} environment-gated/'
         f'verify-manually), {len(ref_paths)} path(s) resolved, '
         f'{len(version_checked)} version pin(s) cross-checked against CI, '
         'no scope-lint findings.',

@@ -21,12 +21,15 @@ Usage:
     charm-tech-baseline check [--tier=product|canonical|personal]
                               [--only=<check>[,<check>...]]
                               [--format=json|markdown]
+                              [--run] [--battery=<path>]
     charm-tech-baseline detect-tier
     charm-tech-baseline fix <fix-name> [args...]
     charm-tech-baseline list
 
 Check IDs are the ones in the report (`code-of-conduct`, `security-md`, ...),
-not module names.
+not module names. `--run` makes agents-md-content run the allowlisted
+commands it finds in AGENTS.md, which can take minutes; without it, nothing
+in AGENTS.md is executed.
 
 `check` exits 0 when every selected check ran, whatever it found: findings
 are in the report, not the exit code. It exits 1 when a check raised or
@@ -52,7 +55,8 @@ FORMATS = ('json', 'markdown')
 
 # The flags a check reads off its own command line, beyond --tier. Anything
 # else is a typo, and a typo that silently does nothing looks like it worked.
-CHECK_FLAGS = ('--battery=',)
+CHECK_SWITCHES = ('--run',)
+CHECK_OPTIONS = ('--battery=',)
 
 
 def _modules(package: ModuleType) -> dict[str, ModuleType]:
@@ -96,7 +100,7 @@ def _check(argv: list[str]) -> int:
         elif arg in ('-h', '--help'):
             usage(sys.stdout)
             return 0
-        elif arg.startswith(CHECK_FLAGS):
+        elif arg in CHECK_SWITCHES or arg.startswith(CHECK_OPTIONS):
             passthrough.append(arg)
         else:
             print(f'Unknown argument: {arg}', file=sys.stderr)

@@ -106,18 +106,99 @@ def test_fail_when_command_tool_missing(run_check):
     assert any(m['tool'] == 'definitelynotarealbinary123' for m in r['evidence']['missing_tools'])
 
 
-def test_fail_when_runnable_command_fails(run_check):
-    md = textwrap.dedent("""\
-        # AGENTS.md
+FAILING_TEST = 'def test_fails():\n    assert False\n'
+PASSING_TEST = 'import os\n\n\ndef test_env():\n    assert os.environ["MARKER"] == "set"\n'
 
-        ```bash
-        false --check   # lint gate
-        ```
-        """)
-    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md})
+
+def _fenced(*commands: str, lang: str = 'bash') -> str:
+    return '# AGENTS.md\n\n```' + lang + '\n' + '\n'.join(commands) + '\n```\n'
+
+
+def test_commands_not_run_without_flag(run_check):
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': _fenced('python3 -m pytest -q'), 'test_x.py': FAILING_TEST},
+    )
+    assert r['status'] == 'pass'
+    assert r['evidence']['commands_run'] is False
+    assert r['evidence']['runnable'] == ['python3 -m pytest -q']
+    assert r['evidence']['runnable_checked'] == 0
+    assert 'not run without --run' in r['summary']
+
+
+def test_fail_when_runnable_command_fails(run_check):
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': _fenced('python3 -m pytest -q'), 'test_x.py': FAILING_TEST},
+        args=('--run',),
+    )
     assert r['status'] == 'fail'
-    assert r['evidence']['runnable_failed']
-    assert r['evidence']['runnable_failed'][0]['command'].startswith('false')
+    assert r['evidence']['runnable_failed'][0]['command'] == 'python3 -m pytest -q'
+
+
+def test_assignments_reach_the_command(run_check):
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': _fenced('MARKER=set python3 -m pytest -q'), 'test_x.py': PASSING_TEST},
+        args=('--run',),
+    )
+    assert r['status'] == 'pass', r['evidence']['runnable_failed']
+    assert r['evidence']['runnable_checked'] == 1
+
+
+def test_shell_syntax_is_never_run(run_check, tmp_path):
+    # Run without a shell, `&&` would be an argument to rm: this deleted
+    # build/ and was reported as a pass.
+    (tmp_path / 'build').mkdir()
+    (tmp_path / 'build' / 'keep').write_text('x')
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': _fenced('rm -rf build && make test', 'go test ./... > out.txt')},
+        args=('--run',),
+    )
+    assert (tmp_path / 'build' / 'keep').exists()
+    assert r['evidence']['runnable'] == []
+    assert {g['gating_dependency'] for g in r['evidence']['environment_gated']} == {
+        'needs a shell'
+    }
+
+
+def test_only_allowlisted_commands_are_runnable(run_check):
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {
+            'AGENTS.md': _fenced(
+                'uv run --group unit pytest tests/',
+                'tox -e lint',
+                'ruff check --fix .',
+                'make all',
+                'echo test',
+            )
+        },
+    )
+    assert r['evidence']['runnable'] == ['uv run --group unit pytest tests/', 'tox -e lint']
+    reasons = {g['command']: g['gating_dependency'] for g in r['evidence']['environment_gated']}
+    assert reasons == {
+        'ruff check --fix .': 'side effects',
+        'make all': 'not allowlisted',
+        'echo test': 'not allowlisted',
+    }
+
+
+def test_console_block_is_a_transcript(run_check):
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': _fenced('$ make lint', 'All checks passed!', lang='console')},
+    )
+    assert r['evidence']['commands_extracted'] == 1
+    assert r['evidence']['runnable'] == ['make lint']
+    assert all(m['tool'] != '$' for m in r['evidence']['missing_tools'])
 
 
 def test_suite_not_found_in_package_flags_finding(run_check):
@@ -176,6 +257,47 @@ def test_scope_lint_flags_harness_content(run_check):
     r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md})
     assert r['status'] == 'fail'
     assert r['evidence']['scope_lint_findings']
+
+
+def test_placeholders_and_globs_are_not_paths(run_check):
+    md = textwrap.dedent("""\
+        # AGENTS.md
+
+        Libraries live in `lib/charms/<owner>/vN/<lib>.py`, one per
+        `roadmap/{cycle}/` folder, and `**/*.py` is linted. Skills are in
+        `~/.claude/skills/` and scratch goes in `/tmp/`. See
+        [the guide](CONTRIBUTING.md#pull-requests) and [the root](/README.md).
+        """)
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': md, 'CONTRIBUTING.md': '# x\n', 'README.md': '# x\n'},
+    )
+    assert r['evidence']['missing_paths'] == []
+    assert r['status'] == 'pass'
+
+
+def test_symbol_outside_the_repo_is_not_read(run_check):
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': '# AGENTS.md\n\nUsers are `root` in `/etc/passwd`.\n'},
+    )
+    assert r['status'] == 'fail'
+    assert r['evidence']['symbol_findings'] == [
+        {'symbol': 'root', 'path': '/etc/passwd', 'problem': 'path is outside the repo'}
+    ]
+
+
+def test_scope_lint_allows_naming_the_harness(run_check):
+    md = textwrap.dedent("""\
+        # AGENTS.md
+
+        This repo is worked on with Claude Code and GitHub Copilot; the
+        skills in `.claude/skills/` are symlinked into place.
+        """)
+    r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md, '.claude/skills/x': ''})
+    assert r['evidence']['scope_lint_findings'] == []
 
 
 def test_version_pin_drift_flagged(run_check):
@@ -260,3 +382,16 @@ def test_path_with_directory_must_exist_as_written(run_check):
     md = '# AGENTS.md\n\nSee `docs/_ast.py`.\n'
     r = run_check('agents-md-content', 'canonical', {'AGENTS.md': md, 'src/_ast.py': ''})
     assert r['evidence']['missing_paths'] == ['docs/_ast.py']
+
+
+def test_version_pin_ci_no_longer_pins_is_evidence(run_check):
+    md = '# AGENTS.md\n\nPinned tool: widget/cmd/widget@v1.0.0 (see CI).\n'
+    r = run_check(
+        'agents-md-content',
+        'canonical',
+        {'AGENTS.md': md, '.github/workflows/lint.yaml': 'steps:\n  - run: make lint\n'},
+    )
+    assert r['status'] == 'pass'
+    assert r['evidence']['version_pins_checked'] == [
+        {'tool': 'widget', 'doc_version': 'v1.0.0', 'ci_versions': []}
+    ]
