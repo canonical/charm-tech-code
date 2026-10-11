@@ -1,0 +1,95 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Check: YAML files under .github/ use the .yaml extension, not .yml.
+
+Tier coverage: product, canonical, personal.
+
+Convention: Charm Tech (and the broader Canonical convention) prefers
+the explicit `.yaml` spelling — matching the official YAML spec and the
+pattern already used by almost every Charm Tech-authored workflow this cycle.
+Mixed extensions inside one repo also defeat tooling globs that only
+match one form.
+
+Scope: anything under .github/ — workflows, dependabot, zizmor,
+issue templates, etc. Anything outside .github/ (Snapcraft snapcraft.yaml,
+Rockcraft rockcraft.yaml, etc.) is out of scope; those names are fixed
+by upstream tooling.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from ..common import (
+    EXIT_FAIL,
+    EXIT_NA,
+    EXIT_PASS,
+    cd_repo_root,
+    emit_check,
+    parse_tier,
+    tier_applies,
+)
+
+CHECK_ID = 'yaml-extension'
+APPLIES = 'product,canonical,personal'
+
+
+def main() -> int:
+    """Check that YAML files under .github/ use .yaml, and return the exit code."""
+    tier = parse_tier()
+    if not tier_applies(APPLIES, tier):
+        emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
+        return EXIT_NA
+
+    cd_repo_root()
+
+    gh = Path('.github')
+    if not gh.is_dir():
+        emit_check(CHECK_ID, 'na', 'No .github/ directory; nothing to check.')
+        return EXIT_NA
+
+    offenders = sorted(str(p) for p in gh.rglob('*.yml') if p.is_file())
+
+    if not offenders:
+        emit_check(
+            CHECK_ID,
+            'pass',
+            'All YAML files under .github/ use the .yaml extension.',
+            {},
+        )
+        return EXIT_PASS
+
+    count = len(offenders)
+    joined = ', '.join(offenders)
+    emit_check(
+        CHECK_ID,
+        'fail',
+        f'{count} file(s) under .github/ use .yml instead of .yaml: {joined}.',
+        {'offenders': offenders},
+        {
+            'kind': 'mechanical',
+            'script': 'rename-yml-to-yaml',
+            'human_review': (
+                'git mv each .yml -> .yaml under .github/. Confirm no external reference uses the '
+                'old path (workflow_call uses:, docs links, downstream consumers of action.yml).'
+            ),
+        },
+    )
+    return EXIT_FAIL
+
+
+if __name__ == '__main__':
+    sys.exit(main())

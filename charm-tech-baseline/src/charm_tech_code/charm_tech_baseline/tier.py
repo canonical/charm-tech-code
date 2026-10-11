@@ -1,0 +1,79 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Work out which baseline tier the current repo is in.
+
+Inspects the current repo's origin remote and emits one of:
+
+    product | canonical | personal | unknown
+
+Detection rules (in order):
+  1. URL matches https://github.com/canonical/<repo>      -> canonical or product
+  2. URL matches https://github.com/<other-org>/<repo>:
+     a. If the repo is a fork of canonical/<repo> (detected via
+        `gh repo view --json isFork,parent`, or an `upstream` remote
+        pointing at canonical/<repo>)                     -> canonical or product
+     b. Otherwise                                          -> personal
+  3. No remote / no clear org                              -> unknown
+
+The fork lookup matters because Charm Tech engineers routinely work
+from a personal fork of a canonical/* repo; the baseline that applies
+is the upstream repo's, not the fork owner's.
+
+Product-tier classification within canonical/ is driven by a small
+allowlist below (Charm Tech products as of 2026-06 — operator, pebble,
+jubilant, concierge, charmlibs). All other canonical/* repos are
+'canonical' tier (cross-cutting requirements only).
+
+Override: pass an argument to force a tier (useful when auditing a
+repo before transfer to the canonical org).
+
+detect() returns the tier; main() prints it and exits 0.
+"""
+
+from __future__ import annotations
+
+import sys
+
+from .common import baseline_slug
+
+PRODUCT_REPOS = {'operator', 'pebble', 'jubilant', 'concierge', 'charmlibs'}
+
+
+def detect() -> str:
+    """Return the tier for the repo in the current working directory.
+
+    Returns "unknown" rather than guessing when the origin remote is absent
+    or is not a GitHub URL.
+    """
+    slug = baseline_slug()
+    if not slug:
+        return 'unknown'
+    org, repo = slug.split('/')
+    if org == 'canonical':
+        return 'product' if repo in PRODUCT_REPOS else 'canonical'
+    return 'personal'
+
+
+def main() -> int:
+    """Print the detected tier. An argument forces a tier instead."""
+    if len(sys.argv) >= 2:
+        arg = sys.argv[1]
+        if arg in ('product', 'canonical', 'personal'):
+            print(arg)
+            return 0
+        print('unknown', file=sys.stderr)
+        return 1
+    print(detect())
+    return 0

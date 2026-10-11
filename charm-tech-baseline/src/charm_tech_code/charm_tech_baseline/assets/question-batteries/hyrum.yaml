@@ -1,0 +1,530 @@
+# Question battery for canonical/hyrum AGENTS.md.
+# Schema: question-batteries.md in the charm-tech-baseline skill
+# (skills/engineering/charm-tech-baseline/references/), on
+# feat/add-charm-tech-baseline-skill in tonyandrewmeyer/charm-tech.
+#
+# NOTE: this file is staged here, not in the skill repo, because this
+# routine cannot push to tonyandrewmeyer/charm-tech-code (not attached
+# as a source). It needs moving into
+# src/charm_tech_code/charm_tech_baseline/assets/question-batteries/
+# in charm-tech-code once that lands - see PROGRESS.md.
+schema_version: 1
+repo: hyrum
+upstream: canonical/hyrum
+source:
+  agents_md_ref: chore/agents-md-trim
+  agents_md_sha: e1803004b19a1db17580d74e080cf4b1b5ba2d13
+  agents_md_sha256: bd26161dd06a11737a5eaf26efd0c71741668990a0a80145a5baf7d228c7843b
+  seeded_from: roadmap/26.10/repo-setup/agents-md-validation.md (implementation follow-up 4, hyrum review-and-seed)
+  seeded_on: 2026-08-27
+
+entries:
+  - id: runner-backend-auto-detected
+    question: >-
+      Does hyrum need to be told whether a charm uses tox or make, or does it
+      work that out itself?
+    classification: cache
+    source_line: The runner backend is either `tox` or `make`, auto-detected per charm.
+    answer:
+      grade: keywords
+      require:
+        - auto
+      reject:
+        - specify
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_runners/detect.py
+        pattern: "class AutoRunner"
+    ci_verifiable: true
+
+  - id: make-lint-command
+    question: What single command lints hyrum, and which four tools does it run?
+    classification: cache
+    source_line: >-
+      make lint # ruff check + ruff format --check + codespell + pyright
+      (strict)
+    answer:
+      grade: command
+      expect: make lint
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^lint:"
+    ci_verifiable: true
+    note: >-
+      `make lint` currently fails in this sandbox (ruff 0.16.0's
+      noqa-comments rule flagging tools/discover_launchpad_charms.py's
+      old-style `# noqa:` comments) - a pre-existing repo bug, not an
+      AGENTS.md staleness issue: the command genuinely runs those four
+      tools. Left unfixed, out of scope for this pass.
+
+  - id: make-unit-command
+    question: What single command runs hyrum's unit tests, and what does it measure?
+    classification: cache
+    source_line: "make unit # pytest with coverage"
+    answer:
+      grade: command
+      expect: make unit
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^unit:"
+    ci_verifiable: true
+    note: "Ran clean in this session: 415 passed."
+
+  - id: make-other-wrappers
+    question: >-
+      Besides `make lint` and `make unit`, what other make targets does
+      hyrum's Makefile provide for formatting, running everything, and
+      listing targets?
+    classification: cache
+    source_line: >-
+      make format # apply ruff formatting make all # format + lint + unit
+      make help # list every target
+    answer:
+      grade: keywords
+      require:
+        - format
+        - all
+        - help
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^format:"
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^all:"
+      - kind: text_in_file
+        file: Makefile
+        pattern: "^help:"
+    ci_verifiable: true
+
+  - id: uv-autosyncs-no-manual-install
+    question: >-
+      Before running `make lint` or `make unit` for the first time, do you
+      need a separate `uv sync` or `pip install` step?
+    classification: override
+    source_line: >-
+      Each `make` target runs `uv run …`, which auto-syncs the default
+      groups.
+    answer:
+      grade: keywords
+      require:
+        - auto-sync
+      reject:
+        - pip install
+    verify:
+      - kind: text_in_file
+        file: Makefile
+        pattern: "uv run"
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: "default-groups"
+    ci_verifiable: true
+
+  - id: pre-commit-install-command
+    question: What command installs hyrum's pre-commit hooks, and what do they mirror?
+    classification: cache
+    source_line: >-
+      Pre-commit hooks mirror the CI checks; install them with `pre-commit
+      install`.
+    answer:
+      grade: command
+      expect: pre-commit install
+    verify:
+      - kind: path_exists
+        path: .pre-commit-config.yaml
+    ci_verifiable: true
+
+  - id: style-guide-is-external
+    question: >-
+      Where does hyrum's documentation and Python style guide live - a local
+      STYLE.md in this repo, or somewhere else?
+    classification: override
+    source_line: >-
+      This project follows the Charm Tech team style guides. Read them if
+      more clarification is required
+    answer:
+      grade: keywords
+      require:
+        - charm-tech
+      reject:
+        - local STYLE.md
+    verify:
+      - kind: text_in_file
+        file: AGENTS.md
+        pattern: "github.com/canonical/charm-tech/blob/main/STYLE.md"
+    ci_verifiable: true
+    note: >-
+      No local STYLE.md/CONTRIBUTING.md-style pointer file exists in this
+      repo to anchor against, so verify checks AGENTS.md's own link text -
+      the fact being tested is "the guide is external", which AGENTS.md is
+      the only place recording.
+
+  - id: no-prose-documentation
+    question: >-
+      Should you write prose documentation (guides, explanations) for
+      hyrum, or leave that to a human?
+    classification: override
+    source_line: "Avoid writing prose documentation: that is a task for humans."
+    answer:
+      grade: keywords
+      require:
+        - human
+      reject:
+        - I will write
+    verify:
+      - kind: none
+        reason: >-
+          A house policy, not represented anywhere else in the tree -
+          grepped README.md and CONTRIBUTING.md for "prose"/"documentation"
+          and found no matching statement.
+    ci_verifiable: false
+    gated_by: house convention stated only in AGENTS.md
+
+  - id: cli-framework-is-argparse
+    question: >-
+      What CLI framework does hyrum's command line use - Click, or
+      something else?
+    classification: override
+    source_line: >-
+      Entry point: `hyrum._cli:main` — an `argparse` CLI (no Click; the
+      dependency was dropped) with three subcommands
+    answer:
+      grade: keywords
+      require:
+        - argparse
+      reject:
+        - click
+        - Click
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_cli.py
+        pattern: "^import argparse"
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: "\\[project\\.scripts\\]"
+    ci_verifiable: true
+    note: >-
+      This is the fix this pass made. The pre-review line said "a Click
+      group"; `click` was dropped from dependencies in #33
+      ("refactor: drop click, rich, and pyyaml dependencies"), well before
+      AGENTS.md was added. Layer 1 has no check for a wrong framework name
+      in prose - found only by reading `_cli.py`'s imports. An agent
+      extending the CLI on the old advice would reach for `@click.command`
+      decorators against a codebase that has none.
+
+  - id: cli-three-subcommands
+    question: What are hyrum's three CLI subcommands, and what does each do?
+    classification: cache
+    source_line: >-
+      three subcommands: `check` (the core bulk-runner), `compare` (diff
+      two `--save-results` JSON runs), and `get-charms` (clones/pulls every
+      repository listed in `charm-list/charms.csv` into the cache folder)
+    answer:
+      grade: keywords
+      require:
+        - check
+        - compare
+        - get-charms
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_cli.py
+        pattern: "'compare',"
+      - kind: text_in_file
+        file: src/hyrum/_cli.py
+        pattern: "'get-charms'"
+    ci_verifiable: true
+    note: >-
+      This is the other fix this pass made: the pre-review line named only
+      two subcommands, missing `compare` (added in #82, after AGENTS.md was
+      last touched).
+
+  - id: check-needs-prepopulated-cache
+    question: >-
+      Does `hyrum check` clone or select the charms it runs against itself,
+      or does something else need to happen first?
+    classification: override
+    source_line: >-
+      The `hyrum check` subcommand does not curate the charm collection; it
+      expects a pre-populated cache folder. `hyrum get-charms` populates
+      it.
+    answer:
+      grade: keywords
+      require:
+        - get-charms
+        - pre-populated
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_cli.py
+        pattern: "iter_charm_repos"
+    ci_verifiable: true
+
+  - id: get-charms-concurrency
+    question: How does `hyrum get-charms` clone/pull many charm repos - one at a time, or concurrently?
+    classification: cache
+    source_line: >-
+      `_get_charms` — distributed cache-population subcommand:
+      shallow-clones or pulls every repository in the CSV concurrently via
+      `asyncio`.
+    answer:
+      grade: keywords
+      require:
+        - asyncio
+        - concurrently
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_get_charms.py
+        pattern: "^import asyncio"
+    ci_verifiable: true
+
+  - id: patcher-protocol-shape
+    question: What must a hyrum patcher implement to plug into the `Patcher` protocol?
+    classification: cache
+    source_line: "`Patcher` protocol (one `apply()` context manager)"
+    answer:
+      grade: keywords
+      require:
+        - apply
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_patchers/base.py
+        pattern: "def apply\\(self, repo: pathlib\\.Path\\)"
+    ci_verifiable: true
+
+  - id: patcher-catalog
+    question: >-
+      Which hyrum patcher would you use to swap out a charm's `ops`
+      dependency, versus an arbitrary PyPI/git/local dependency, versus a
+      `charmlibs-*` package from a canonical/charmlibs branch, versus a
+      vendored `lib/charms/...` library?
+    classification: cache
+    source_line: >-
+      four concrete patchers: `OpsSourcePatcher` (the `ops` dependency),
+      `GenericDepPatcher` (any other PyPI/git/local dependency),
+      `CharmlibPatcher` (a `charmlibs-*` package from a branch of the
+      canonical/charmlibs monorepo), `VendoredLibPatcher` (a vendored
+      `lib/charms/<author>/v<n>/<lib>.py` swapped for its PyPI equivalent)
+    answer:
+      grade: keywords
+      require:
+        - OpsSourcePatcher
+        - GenericDepPatcher
+        - CharmlibPatcher
+        - VendoredLibPatcher
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_patchers/ops_source.py
+        pattern: "^class OpsSourcePatcher"
+      - kind: text_in_file
+        file: src/hyrum/_patchers/generic.py
+        pattern: "^class GenericDepPatcher"
+      - kind: text_in_file
+        file: src/hyrum/_patchers/charmlib_source.py
+        pattern: "^class CharmlibPatcher"
+      - kind: text_in_file
+        file: src/hyrum/_patchers/vendored_lib.py
+        pattern: "^class VendoredLibPatcher"
+    ci_verifiable: true
+    note: >-
+      This is the third fix this pass made: the pre-review line described
+      `VendoredLibPatcher` as a hypothetical "future charm-library
+      patcher" and didn't mention `GenericDepPatcher` or `CharmlibPatcher`
+      at all - all three already existed (#59, #25, #60). Found by reading
+      src/hyrum/_patchers/, not by Layer 1.
+
+  - id: make-runner-nq-probe
+    question: >-
+      When hyrum runs a make target that doesn't exist for a charm, how
+      does the make runner tell that apart from the target existing but
+      the command genuinely failing?
+    classification: override
+    source_line: >-
+      GNU make's missing-target ambiguity is handled by probing with
+      `make -nq` and falling back to stderr inspection.
+    answer:
+      grade: keywords
+      require:
+        - "-nq"
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_runners/make_runner.py
+        pattern: "-nq"
+    ci_verifiable: true
+    note: >-
+      GNU make exits 2 for both "no rule to make target" and a genuine
+      recipe failure, so a naive exit-code check would misclassify a typo'd
+      target as a charm failure. Getting this wrong changes what
+      `no_target` vs `failed` means for a whole run's tally.
+
+  - id: pool-outcome-error-statuses
+    question: >-
+      Does hyrum's Outcome record an infrastructure problem (a runner that
+      wouldn't launch, a patch that wouldn't apply) with the same status as
+      a genuine tox/make failure, or a different one?
+    classification: override
+    source_line: >-
+      `Outcome` dataclass with `patcher_error` and `runner_error` as
+      statuses distinct from `failed` (so infrastructure problems don't
+      get mis-attributed to the charm)
+    answer:
+      grade: keywords
+      require:
+        - patcher_error
+        - runner_error
+      reject:
+        - same status
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_pool.py
+        pattern: "'runner_error',"
+      - kind: text_in_file
+        file: src/hyrum/_pool.py
+        pattern: "'patcher_error',"
+    ci_verifiable: true
+
+  - id: preflight-before-pool
+    question: >-
+      If a `--patch` git ref is invalid or a runner executable is missing,
+      does hyrum find out once before starting, or once per charm as it
+      works through the list?
+    classification: cache
+    source_line: >-
+      The `check` subcommand preflights `--patch` git refs and the runner
+      executables before the pool starts, so a typo or a missing tool
+      fails once, not once per charm.
+    answer:
+      grade: keywords
+      require:
+        - once
+        - before
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_cli.py
+        pattern: "_preflight_patch_refs"
+    ci_verifiable: true
+
+  - id: report-no-rich
+    question: >-
+      Does hyrum's terminal report use the Rich library for its coloured
+      output, and if not, what handles the ANSI formatting?
+    classification: override
+    source_line: >-
+      `_report` — tally + verbose offender lists, hand-rolled ANSI
+      formatting (`_ansi`); no Rich dependency.
+    answer:
+      grade: keywords
+      require:
+        - "no"
+        - _ansi
+      reject:
+        - rich
+    verify:
+      - kind: path_exists
+        path: src/hyrum/_ansi.py
+      - kind: text_in_file
+        file: src/hyrum/_report.py
+        pattern: "from hyrum import _ansi"
+    ci_verifiable: true
+    note: >-
+      Rich was dropped in the same #33 refactor that dropped Click; the
+      pre-review AGENTS.md still credited it, same root cause as the
+      cli-framework-is-argparse finding.
+
+  - id: tools-stdlib-only
+    question: >-
+      Can a script under hyrum's tools/ directory import a third-party
+      package like `requests`, the same way the main package can?
+    classification: override
+    source_line: >-
+      `tools/` — stdlib-only maintenance scripts that are **not** shipped
+      in the hyrum wheel.
+    answer:
+      grade: keywords
+      require:
+        - stdlib
+      reject:
+        - "yes"
+    verify:
+      - kind: text_in_file
+        file: pyproject.toml
+        pattern: 'packages = \["src/hyrum"\]'
+      - kind: text_in_file
+        file: tools/update_charm_list.py
+        pattern: "^import urllib"
+    ci_verifiable: true
+
+  - id: scope-lint-and-unit-only
+    question: >-
+      During the 26.10 cycle, is hyrum expected to add support for running
+      charms' integration test suites?
+    classification: override
+    source_line: >-
+      Scope during the 26.10 cycle is **lint and unit tests only**. Do not
+      add integration-test support.
+    answer:
+      grade: keywords
+      require:
+        - "no"
+      reject:
+        - integration test support
+    verify:
+      - kind: text_in_file
+        file: README.md
+        pattern: "lint and unit tests only"
+    ci_verifiable: true
+
+  - id: fake-proc-fake-spawner
+    question: >-
+      How are hyrum's subprocess-driven runners unit-tested - do the tests
+      spawn real `tox`/`make` processes?
+    classification: cache
+    source_line: >-
+      Subprocess-driven runners are tested with a `FakeProc` / `FakeSpawner`
+      pair (see `tests/test_runners.py`) that monkeypatches
+      `asyncio.create_subprocess_exec` — no real subprocesses are spawned
+      in the unit suite.
+    answer:
+      grade: keywords
+      require:
+        - FakeProc
+        - FakeSpawner
+      reject:
+        - real subprocess
+    verify:
+      - kind: text_in_file
+        file: tests/test_runners.py
+        pattern: "class FakeProc"
+      - kind: text_in_file
+        file: tests/test_runners.py
+        pattern: "class FakeSpawner"
+    ci_verifiable: true
+
+  - id: run-lock-monkeypatched
+    question: >-
+      Do the ops-source and generic patchers' unit tests actually invoke
+      `poetry lock` / `uv lock`, and if not, what's monkeypatched to stop
+      them?
+    classification: cache
+    source_line: >-
+      The `ops_source`/`generic` patchers' lockfile regeneration is
+      monkeypatched out (the `run_lock` helper in
+      `src/hyrum/_patchers/_common.py`) so unit tests don't spawn `poetry`
+      / `uv`.
+    answer:
+      grade: keywords
+      require:
+        - run_lock
+      reject:
+        - _run_lock
+    verify:
+      - kind: text_in_file
+        file: src/hyrum/_patchers/_common.py
+        pattern: "^def run_lock"
+    ci_verifiable: true
+    note: >-
+      This is the fourth fix this pass made: the pre-review line named the
+      helper `_run_lock` (with a leading underscore); the real symbol is
+      `run_lock`, imported into both ops_source.py and generic.py from
+      _common.py. Not a path/command Layer 1 checks, so only found by
+      reading the test monkeypatch targets.
