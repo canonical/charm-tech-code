@@ -140,15 +140,25 @@ def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, **kwargs)
 
 
+class RepoRootUnreachableError(Exception):
+    """The repo root exists according to git but can't be changed into."""
+
+
 def cd_repo_root() -> pathlib.Path:
     """Chdir to the repo root and return it.
 
-    Exits EXIT_UNKNOWN if the root cannot be reached (matches the shell
-    behaviour of `cd || exit 3`).
+    Raises RepoRootUnreachableError if the root can't be reached. Every
+    check and fix runs inside the one process, where `sys.exit` would end
+    the whole run and lose every result collected so far. The runner turns
+    the exception into a note, and `fix` into exit code 3.
+
+    The chdir is process-wide, and the checks rely on that being harmless:
+    they all chdir to this same root, so the order they run in doesn't
+    matter. A check that chdirs anywhere else must change back.
     """
     root = repo_root()
     try:
         os.chdir(root)
-    except OSError:
-        sys.exit(EXIT_UNKNOWN)
+    except OSError as exc:
+        raise RepoRootUnreachableError(f'cannot change into the repo root {root}: {exc}') from exc
     return root

@@ -10,7 +10,7 @@ authors = [
 license = "Apache-2.0"
 # PyYAML only, for the question batteries. Everything else is stdlib, and
 # `gh` and `git` are called as subprocesses rather than through a library.
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml>=6"]
 
 [project.scripts]
 agents-md = "charm_tech_code.agents_md._cli:main"

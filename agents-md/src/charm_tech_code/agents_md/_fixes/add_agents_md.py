@@ -26,16 +26,10 @@ import sys
 
 from .. import _common
 
-SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
-
 
 def main() -> int:
-    try:
-        import os
-
-        os.chdir(_common.repo_root())
-    except OSError:
-        return 3
+    """Copy the AGENTS.md template into place, and return the exit code."""
+    _common.cd_repo_root()
 
     if pathlib.Path('AGENTS.md').exists():
         sys.stderr.write('AGENTS.md already exists; refusing to overwrite.\n')
