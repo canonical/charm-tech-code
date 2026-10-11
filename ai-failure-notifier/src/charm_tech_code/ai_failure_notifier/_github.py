@@ -22,14 +22,21 @@ import subprocess
 from typing import Any
 
 from . import _summary
+from ._constants import MARKER_PREFIX
 from ._markers import find_run_markers
 from ._models import CandidateIssue, FailedJob
 
 
 def gh(*args: str, check: bool = True) -> subprocess.CompletedProcess:
     """Run a `gh` subcommand, returning the completed process."""
-    # S607: `gh` is deliberately called by name, resolved from the runner's PATH.
-    return subprocess.run(['gh', *args], text=True, capture_output=True, check=check)  # noqa: S607
+    # `gh` is deliberately called by name so the runner's PATH resolves it.
+    # `args` is constructed in this module and is trusted.
+    return subprocess.run(
+        ['gh', *args],  # ruff: ignore[start-process-with-partial-path]
+        text=True,
+        capture_output=True,
+        check=check,
+    )
 
 
 def gh_json(*args: str) -> Any:
@@ -69,14 +76,9 @@ def fetch_job_log(repo: str, run_id: str, job_id: int) -> str:
     above exists to strip them. Runners carry a gh new enough to refuse (2.97.0
     when this was measured, in fork run 32673538357), so without the flag every
     fetch comes back empty and the signature degrades to the job name.
-
-    Older builds have no such check and no such flag, and reject it as unknown
-    rather than ignoring it, so those retry without.
     """
     endpoint = f'repos/{repo}/actions/jobs/{job_id}/logs'
     result = gh('api', endpoint, '--allow-escape-sequences', check=False)
-    if 'unknown flag' in (result.stderr or ''):
-        result = gh('api', endpoint, check=False)
     if not result.stdout.strip():
         # `gh` puts the status on stderr ("gh: Not Found (HTTP 404)"), and the
         # exit code alone is 1 for all of them. Without the status there is no
@@ -111,9 +113,41 @@ def fetch_issue_texts(repo: str, number: int) -> list[str]:
     """Fetch an issue's body plus all comment bodies, for marker scanning."""
     data = gh_json('issue', 'view', str(number), '--repo', repo, '--json', 'body,comments') or {}
     texts = [data.get('body') or '']
-    for c in data.get('comments') or []:
-        texts.append(c.get('body') or '')
+    texts.extend(comment.get('body') or '' for comment in data.get('comments') or [])
     return texts
+
+
+def find_notifier_comment(repo: str, number: int, run_id: str) -> int | None:
+    """Return the REST id of the comment the notifier left on issue `number` for `run_id`.
+
+    `gh issue view --json comments` only has GraphQL node ids, and editing a
+    comment through the REST API needs the numeric one, so this reads the
+    comments endpoint instead. If there's more than one match, the most recent
+    wins. `None` means there's no such comment, which is also what an earlier
+    edit leaves behind, since the edit replaces the notifier's marker.
+    """
+    needle = f'{MARKER_PREFIX}:run={run_id}:origin=comment'
+    result = gh(
+        'api',
+        '--paginate',
+        f'repos/{repo}/issues/{number}/comments',
+        '--jq',
+        f'.[] | select(.body | contains("{needle}")) | .id',
+    )
+    ids = result.stdout.split()
+    return int(ids[-1]) if ids else None
+
+
+def edit_comment(repo: str, comment_id: int, body: str) -> None:
+    """Replace the body of an issue comment."""
+    gh(
+        'api',
+        '--method',
+        'PATCH',
+        f'repos/{repo}/issues/comments/{comment_id}',
+        '-f',
+        f'body={body}',
+    )
 
 
 def resolve_origin(
@@ -138,54 +172,46 @@ def resolve_origin(
     issue keeps that lookup to reading the one issue we were handed.
     """
     texts = [(notify_issue, text) for text in fetch_issue_texts(repo, notify_issue)]
-    enriched_issue, origin_kind, origin_issue = find_run_markers(texts, run_id)
+    enriched_issue, origin_kind, _ = find_run_markers(texts, run_id)
     # The passed-in values win: a marker we failed to find on the issue does
     # not make the issue the wrong one.
     return enriched_issue, notify_origin or origin_kind, notify_issue
+
+
+# `comments` is what makes a candidate legible: an automatically-opened issue's
+# body is one line reading "Scheduled workflow 'X' failed: <url>", and any
+# diagnosis anybody has written about it is in the thread.
+CANDIDATE_FIELDS = 'number,title,body,createdAt,closedAt,comments'
+
+
+def _list_issues(repo: str, workflow_name: str, state: str) -> list[dict[str, Any]]:
+    """One side of the coarse search: issues in `state` matching the workflow name."""
+    return (
+        gh_json(
+            'issue',
+            'list',
+            '--repo',
+            repo,
+            '--state',
+            state,
+            '--search',
+            f'"{workflow_name}"',
+            '--json',
+            CANDIDATE_FIELDS,
+            '--limit',
+            '20',
+        )
+        or []
+    )
 
 
 def search_candidates(
     repo: str, workflow_name: str
 ) -> tuple[list[CandidateIssue], list[CandidateIssue]]:
     """Coarse candidate search: open and closed issues matching the workflow name."""
-    fields = 'number,title,body,createdAt,closedAt'
-    open_issues = (
-        gh_json(
-            'issue',
-            'list',
-            '--repo',
-            repo,
-            '--state',
-            'open',
-            '--search',
-            f'"{workflow_name}"',
-            '--json',
-            fields,
-            '--limit',
-            '20',
-        )
-        or []
-    )
-    closed_issues = (
-        gh_json(
-            'issue',
-            'list',
-            '--repo',
-            repo,
-            '--state',
-            'closed',
-            '--search',
-            f'"{workflow_name}"',
-            '--json',
-            fields,
-            '--limit',
-            '20',
-        )
-        or []
-    )
     return (
-        [CandidateIssue.from_gh(i) for i in open_issues],
-        [CandidateIssue.from_gh(i) for i in closed_issues],
+        [CandidateIssue.from_gh(i) for i in _list_issues(repo, workflow_name, 'open')],
+        [CandidateIssue.from_gh(i) for i in _list_issues(repo, workflow_name, 'closed')],
     )
 
 
@@ -198,3 +224,38 @@ def existing_labels(repo: str) -> set[str]:
 def filter_labels(labels: list[str], available: set[str]) -> list[str]:
     """Drop labels that don't already exist in the repo (never auto-create)."""
     return [label for label in labels if label in available]
+
+
+def existing_issue_types(repo: str) -> set[str]:
+    """Return the issue type names enabled for `repo`, which may be none.
+
+    Issue types come from the owning organisation, so a repo can have none at
+    all: a personal fork returns `null` here, and so does any repo whose org
+    has not enabled them.
+    """
+    owner, _, name = repo.partition('/')
+    query = (
+        'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) '
+        '{ issueTypes(first: 50) { nodes { name isEnabled } } } }'
+    )
+    data = (
+        gh_json(
+            'api', 'graphql', '-f', f'query={query}', '-F', f'owner={owner}', '-F', f'name={name}'
+        )
+        or {}
+    )
+    repository = (data.get('data') or {}).get('repository') or {}
+    types = repository.get('issueTypes') or {}
+    return {node['name'] for node in types.get('nodes') or [] if node.get('isEnabled')}
+
+
+def match_issue_type(issue_type: str | None, available: set[str]) -> str | None:
+    """Resolve `issue_type` to the repo's own spelling, or `None` if it has no such type.
+
+    The model is asked for a lowercase name, and GitHub's are capitalised, so
+    the match ignores case and the repo's spelling is what gets passed on.
+    """
+    if not issue_type:
+        return None
+    folded = issue_type.casefold()
+    return next((name for name in sorted(available) if name.casefold() == folded), None)

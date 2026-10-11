@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Nothing in this suite may reach the network or run a real subprocess.
+"""Nothing in this suite may reach the network, run a real subprocess, or sleep.
 
 This is not belt-and-braces. The tests mock `gh` by patching the name on the
 module they import, and `mock.patch.object` keeps succeeding when a refactor
@@ -25,6 +25,7 @@ against whatever repository the fixtures name.
 from __future__ import annotations
 
 import subprocess
+import time
 import urllib.request
 
 import pytest
@@ -47,3 +48,6 @@ def no_real_side_effects(monkeypatch: pytest.MonkeyPatch) -> None:
     for attr in ('run', 'Popen', 'call', 'check_call', 'check_output'):
         monkeypatch.setattr(subprocess, attr, _blocked(f'subprocess.{attr}'))
     monkeypatch.setattr(urllib.request, 'urlopen', _blocked('urllib.request.urlopen'))
+    # The OpenRouter retry waits between attempts. A test that reaches a real
+    # sleep has forgotten to pass a fake one, and would pass, slowly.
+    monkeypatch.setattr(time, 'sleep', _blocked('time.sleep'))
