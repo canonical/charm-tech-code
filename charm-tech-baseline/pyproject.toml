@@ -13,7 +13,7 @@ license = "Apache-2.0"
 # each of those carried its own `# /// script` dependency block when they were
 # standalone scripts. Everything else is stdlib, and `gh` and `git` are called
 # as subprocesses rather than through a library.
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml>=6"]
 
 [project.scripts]
 charm-tech-baseline = "charm_tech_code.charm_tech_baseline:main"

@@ -30,22 +30,18 @@ CONTRIBUTING.md exists and documents these types.
 
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 from pathlib import Path
 
-from ..common import ASSETS, baseline_slug, repo_root, run
+from ..common import ASSETS, baseline_slug, cd_repo_root, run
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def main() -> int:
     """Install the PR-title workflow and script, and return the exit code."""
-    try:
-        os.chdir(repo_root())
-    except OSError:
-        return 3
+    cd_repo_root()
 
     workflow = '.github/workflows/validate-pr-title.yaml'
     script = '.github/check-conventional-pr-title.py'

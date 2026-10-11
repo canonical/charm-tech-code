@@ -27,20 +27,32 @@ Usage:
 
 Check IDs are the ones in the report (`code-of-conduct`, `security-md`, ...),
 not module names.
+
+`check` exits 0 when every selected check ran, whatever it found: findings
+are in the report, not the exit code. It exits 1 when a check raised or
+produced no result (each is listed under `notes`), and 2 on a usage error.
 """
 
 from __future__ import annotations
 
 import datetime
 import importlib
+import json
 import pkgutil
 import sys
 from types import ModuleType
+from typing import TextIO
 
 from . import checks as checks_pkg
 from . import fixes as fixes_pkg
 from . import tier as tier_mod
-from .common import collecting, origin_url
+from .common import RepoRootUnreachableError, baseline_slug, collecting, origin_url
+
+FORMATS = ('json', 'markdown')
+
+# The flags a check reads off its own command line, beyond --tier. Anything
+# else is a typo, and a typo that silently does nothing looks like it worked.
+CHECK_FLAGS = ('--battery=',)
 
 
 def _modules(package: ModuleType) -> dict[str, ModuleType]:
@@ -52,21 +64,25 @@ def _modules(package: ModuleType) -> dict[str, ModuleType]:
     found: dict[str, ModuleType] = {}
     for info in pkgutil.iter_modules(package.__path__):
         module = importlib.import_module(f'{package.__name__}.{info.name}')
-        found[getattr(module, 'CHECK_ID', info.name.replace('_', '-'))] = module
+        name = getattr(module, 'CHECK_ID', info.name.replace('_', '-'))
+        if name in found:
+            # Otherwise one of the two would silently never run.
+            raise RuntimeError(f'{found[name].__name__} and {module.__name__} are both {name!r}')
+        found[name] = module
     return found
 
 
-def usage() -> None:
-    """Write the usage text to stderr."""
-    sys.stderr.write((__doc__ or '').strip() + '\n')
+def usage(stream: TextIO) -> None:
+    """Write the usage text to *stream*."""
+    stream.write((__doc__ or '').strip() + '\n')
 
 
 def _check(argv: list[str]) -> int:
     tier_override = ''
     only_filter = ''
     fmt = 'json'
-    # Anything the runner does not recognise is passed through to the checks.
-    # A check ignores flags it does not know, so this only means anything
+    # Flags meant for a check are passed through to every selected check. A
+    # check ignores flags it does not know, so this only means anything
     # alongside --only, where exactly one check is listening.
     passthrough: list[str] = []
 
@@ -78,13 +94,17 @@ def _check(argv: list[str]) -> int:
         elif arg.startswith('--format='):
             fmt = arg[len('--format=') :]
         elif arg in ('-h', '--help'):
-            print((__doc__ or '').strip())
+            usage(sys.stdout)
             return 0
-        elif arg.startswith('--'):
+        elif arg.startswith(CHECK_FLAGS):
             passthrough.append(arg)
         else:
             print(f'Unknown argument: {arg}', file=sys.stderr)
             return 2
+
+    if fmt not in FORMATS:
+        print(f'Unknown format: {fmt} (expected one of: {", ".join(FORMATS)})', file=sys.stderr)
+        return 2
 
     if tier_override:
         tier = tier_override
@@ -121,11 +141,13 @@ def _check(argv: list[str]) -> int:
         # reaches the check just as an overridden one does.
         sys.argv = [check_id, f'--tier={tier}', *passthrough]
         # A check that raises is a bug in the check, not a finding about the
-        # repo, so it becomes a note rather than a fail.
+        # repo, so it becomes a note rather than a fail. SystemExit is caught
+        # too, so that a check parsing its own arguments strictly can't take
+        # the rest of the report down with it.
         try:
             with collecting() as collected:
                 module.main()
-        except Exception as exc:
+        except (Exception, SystemExit) as exc:
             notes.append(f'check {check_id} raised {type(exc).__name__}: {exc}')
             continue
         finally:
@@ -137,13 +159,15 @@ def _check(argv: list[str]) -> int:
 
     generated_at = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     repo = origin_url()
+    # From a fork clone, origin is the fork but the baseline is upstream's.
+    baseline_repo = baseline_slug()
+    status = 1 if notes else 0
 
     if fmt == 'json':
-        import json
-
         report = {
             'schema_version': 1,
             'repo': repo,
+            'baseline_repo': baseline_repo,
             'tier': tier,
             'tier_source': tier_source,
             'generated_at': generated_at,
@@ -151,11 +175,12 @@ def _check(argv: list[str]) -> int:
             'notes': notes,
         }
         print(json.dumps(report))
-        return 0
+        return status
 
     # Markdown summary path — human spot-checks; agents should prefer JSON.
     print('# Repo-setup audit\n')
     print(f'- Repo: `{repo}`')
+    print(f'- Baseline from: `{baseline_repo}`')
     print(f'- Tier: **{tier}** ({tier_source})')
     print(f'- Generated: {generated_at}\n')
     print('## Findings\n')
@@ -165,7 +190,7 @@ def _check(argv: list[str]) -> int:
         print('\n## Notes\n')
         for n in notes:
             print(f'- {n}')
-    return 0
+    return status
 
 
 def _fix(argv: list[str]) -> int:
@@ -180,7 +205,11 @@ def _fix(argv: list[str]) -> int:
     # The fix scripts read sys.argv directly, as they did when each was its
     # own script.
     sys.argv = [f'charm-tech-baseline fix {name}', *rest]
-    return available[name].main()
+    try:
+        return available[name].main()
+    except RepoRootUnreachableError as exc:
+        print(exc, file=sys.stderr)
+        return 3
 
 
 def _list() -> int:
@@ -196,9 +225,12 @@ def _list() -> int:
 def main() -> int:
     """Dispatch the subcommand in argv and return its exit code."""
     argv = sys.argv[1:]
-    if not argv or argv[0] in ('-h', '--help'):
-        usage()
-        return 0 if argv else 2
+    if not argv:
+        usage(sys.stderr)
+        return 2
+    if argv[0] in ('-h', '--help'):
+        usage(sys.stdout)
+        return 0
     command, rest = argv[0], argv[1:]
     if command == 'check':
         return _check(rest)
@@ -210,7 +242,7 @@ def main() -> int:
     if command == 'list':
         return _list()
     print(f'Unknown command: {command}', file=sys.stderr)
-    usage()
+    usage(sys.stderr)
     return 2
 
 

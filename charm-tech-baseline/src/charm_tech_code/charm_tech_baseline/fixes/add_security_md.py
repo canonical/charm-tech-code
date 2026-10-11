@@ -23,22 +23,18 @@ This script never overwrites an existing SECURITY.md.
 
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 from pathlib import Path
 
-from ..common import ASSETS, repo_root
+from ..common import ASSETS, cd_repo_root
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def main() -> int:
     """Copy the SECURITY.md template into place, and return the exit code."""
-    try:
-        os.chdir(repo_root())
-    except OSError:
-        return 3
+    cd_repo_root()
 
     if Path('SECURITY.md').exists():
         sys.stderr.write(

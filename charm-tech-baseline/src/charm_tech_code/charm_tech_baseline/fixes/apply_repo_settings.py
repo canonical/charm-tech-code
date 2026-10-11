@@ -33,6 +33,8 @@ and bypass policy decided per repo).
 
 Usage: charm-tech-baseline fix apply-repo-settings [--dry-run]
 The script prints each gh call before running; pass --dry-run to print only.
+From a fork clone it patches the upstream canonical/* repo, the one the
+repo-settings check reads, not the fork.
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ import shutil
 import subprocess
 import sys
 
-from ..common import origin_url
+from ..common import baseline_slug
 
 HELP_TEXT = """Fix: patch live GitHub repo settings to match the baseline.
 
@@ -64,6 +66,8 @@ and bypass policy decided per repo).
 
 Usage: charm-tech-baseline fix apply-repo-settings [--dry-run]
 The script prints each gh call before running; pass --dry-run to print only.
+From a fork clone it patches the upstream canonical/* repo, the one the
+repo-settings check reads, not the fork.
 """
 
 
@@ -84,19 +88,21 @@ def main() -> int:
         sys.stderr.write('gh CLI not installed.\n')
         return 3
 
-    url = origin_url()
-    prefix = 'https://github.com/'
-    if not (url.startswith(prefix) and len(url) > len(prefix)):
-        sys.stderr.write(f'Could not parse owner/repo from origin URL: {url}\n')
+    slug = baseline_slug()
+    if not slug:
+        sys.stderr.write('Could not find a GitHub owner/repo from the origin remote.\n')
         return 3
-    slug = url[len(prefix) :]
     owner = slug.split('/', 1)[0]
+    failures: list[str] = []
 
     def run_cmd(cmd: list[str]) -> None:
         sys.stdout.write('+ ' + ' '.join(cmd) + '\n')
         sys.stdout.flush()
-        if not dry_run:
-            subprocess.run(cmd)
+        if dry_run:
+            return
+        if subprocess.run(cmd, check=False).returncode != 0:
+            # Carry on with the rest: each call sets something independent.
+            failures.append(' '.join(cmd[:5]))
 
     # Merge + branch hygiene + security-and-analysis (one PATCH call).
     run_cmd([
@@ -144,6 +150,12 @@ def main() -> int:
             'whatever the org allows. If the repo needs additional vetted actions, declare them '
             'in CRA rather than per-repo.\n'
         )
+
+    if failures:
+        sys.stderr.write('\nThese calls failed, so those settings are unchanged:\n')
+        for failure in failures:
+            sys.stderr.write(f'  {failure}\n')
+        return 1
 
     sys.stdout.write('\nDone. Re-run charm-tech-baseline check --only=repo-settings to confirm.\n')
     if owner == 'canonical':

@@ -30,6 +30,12 @@ uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdi
   `fix add-code-of-conduct`.
 - `list` prints the check and fix names.
 
+`check` exits 0 whenever every check ran, whatever the findings, because the
+findings are in the report. It exits 1 when a check raised or produced no
+result, which the report lists under `notes`, and 2 on a usage error such as
+an unknown flag. From a fork clone, the report's `repo` is the fork and
+`baseline_repo` is the upstream whose baseline was applied.
+
 Every check reports one of `pass`, `fail`, `na` or `unknown`. `unknown` means
 the answer lives somewhere this cannot see - a Drive sheet, a spreadsheet -
 and needs a person to look; it is not a quieter `pass`.
@@ -58,4 +64,12 @@ registry needs updating.
 ```shell
 uv sync --group unit
 uv run pytest
+```
+
+This repository doesn't meet its own baseline yet (no `AGENTS.md`,
+`SECURITY.md` or `exclude-newer`, among others), so running the tool here is
+a quick way to see real findings:
+
+```shell
+uv run charm-tech-baseline check --tier=canonical --format=markdown
 ```

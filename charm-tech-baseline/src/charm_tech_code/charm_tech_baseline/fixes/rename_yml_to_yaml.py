@@ -24,21 +24,16 @@ note on the matching check flags this; rerun the audit + grep after.
 
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
-from ..common import repo_root, run
+from ..common import cd_repo_root, run
 
 
 def main() -> int:
     """Rename the .yml files under .github/, and return the exit code."""
-    try:
-        os.chdir(repo_root())
-    except OSError:
-        return 3
+    cd_repo_root()
 
     if not Path('.github').is_dir():
         sys.stdout.write('No .github/ directory; nothing to do.\n')
@@ -54,6 +49,7 @@ def main() -> int:
 
     renamed = 0
     skipped = 0
+    failed = 0
     for src in offenders:
         dst = src[: -len('.yml')] + '.yaml'
         if Path(dst).exists():
@@ -64,19 +60,24 @@ def main() -> int:
         if in_git_repo:
             tracked = run(['git', 'ls-files', '--error-unmatch', '--', src]).returncode == 0
         if tracked:
-            # ruff: ignore[start-process-with-partial-path]
-            subprocess.run(['git', 'mv', '--', src, dst])
+            # git mv refuses in ordinary states (a conflicted merge, a held
+            # index lock), and a refusal must not be reported as a rename.
+            moved = run(['git', 'mv', '--', src, dst])
+            if moved.returncode != 0:
+                sys.stderr.write(f'FAILED: {src} — {moved.stderr.strip()}\n')
+                failed += 1
+                continue
         else:
             shutil.move(src, dst)
         sys.stdout.write(f'Renamed: {src} -> {dst}\n')
         renamed += 1
 
-    sys.stdout.write(f'\nDone: {renamed} renamed, {skipped} skipped.\n')
+    sys.stdout.write(f'\nDone: {renamed} renamed, {skipped} skipped, {failed} failed.\n')
     sys.stdout.write(
         'Reminder: grep the repo (and downstream consumers) for the old .yml paths in case any '
         'workflow_call / README / action ref points at them.\n'
     )
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':
