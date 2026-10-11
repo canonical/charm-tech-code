@@ -7,7 +7,7 @@ Keeps the `AGENTS.md` files across the Charm Tech estate current and load-bearin
 | ID | What it does |
 |---|---|
 | `agents-md` | The file exists, and is a pointer rather than an encyclopaedia. |
-| `agents-md-content` | Staleness. Extracts every command, path, symbol and tool version, runs or resolves each against the repo, and reports what no longer exists. |
+| `agents-md-content` | Staleness. Extracts every command, path, symbol and tool version, resolves each against the repo, and reports what no longer exists. With `--run` it also runs the safe commands. |
 | `agents-md-battery` | Runs the repo's question battery: question, checkable answer, source line. Tests whether the file changes what an agent does, rather than whether it conforms to a style. |
 
 `agents-md fix add-agents-md` writes the template into a repo that has none.
@@ -19,6 +19,10 @@ uvx --from charm-tech-code-agents-md agents-md check
 uvx --from charm-tech-code-agents-md agents-md check --only=agents-md-content --format=markdown
 uvx --from charm-tech-code-agents-md agents-md list
 ```
+
+`check` runs nothing from `AGENTS.md` unless you pass `--run`. With it, `agents-md-content` runs each command that starts with an allowlisted tool and subcommand (`make lint`, `uv run pytest`, `go test` and so on), needs no shell, and changes nothing, and reports any that fail. That can take minutes, so leave it out of a per-change check.
+
+`check` exits 0 whenever every check ran, whatever the findings, because the findings are in the report. It exits 1 when a check raised or produced no result, which the report lists under `notes`, and 2 on a usage error such as an unknown flag.
 
 ## Question batteries
 
