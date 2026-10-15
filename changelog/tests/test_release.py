@@ -482,10 +482,25 @@ class TestThanks:
         assert thanks(section) == 'Thanks @ducky-debugger for your contribution to this release!'
 
     def test_several_are_each_thanked_once_in_order(self):
-        assert thanks(CREDITED_CHANGES) == (
-            'Thanks @ducky-debugger, Hazel Grouse, and @tea-cosy'
+        section = (
+            CREDITED_CHANGES + '* Pour it out by @milk-first ([#106](https://example.com/106))\n'
+        )
+        assert thanks(section) == (
+            'Thanks @ducky-debugger, @tea-cosy, and @milk-first'
             ' for your contributions to this release!'
         )
+
+    def test_a_name_credit_is_not_thanked(self):
+        # "by Hazel Grouse" reads the same as a summary ending in "by"
+        # something, so only handles are thanked.
+        assert 'Hazel Grouse' not in (thanks(CREDITED_CHANGES) or '')
+
+    @pytest.mark.parametrize(
+        'summary', ['Deselect the checks by default', 'Handle errors raised by Pebble']
+    )
+    def test_by_in_a_summary_with_a_link_is_not_a_credit(self, summary: str):
+        section = f'# 3.8.3 - 22 September 2026\n\n## Fixes\n\n* {summary} ([#391](https://example.com/391))\n'
+        assert thanks(section) is None
 
     def test_two_have_no_comma(self):
         section = CREDITED_CHANGES.replace(' by Hazel Grouse', '').replace(' by @tea-cosy', '')
@@ -502,7 +517,7 @@ class TestThanks:
         url = 'https://github.com/canonical/operator/compare/3.8.2...3.8.3'
         body = release_body('The notes.', CREDITED_CHANGES, url)
         assert body.endswith(
-            f'**All commits**: {url}\n\nThanks @ducky-debugger, Hazel Grouse, and @tea-cosy'
+            f'**All commits**: {url}\n\nThanks @ducky-debugger and @tea-cosy'
             ' for your contributions to this release!\n'
         )
 
