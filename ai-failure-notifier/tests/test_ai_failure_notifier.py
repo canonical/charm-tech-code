@@ -223,7 +223,7 @@ class SignatureExtractionTests(unittest.TestCase):
             f'{ts}============ 2 failed in 1.23s ============',
             f'{ts}some trailing noise, not part of the summary',
         ])
-        pytest_failures, go_failures, _tb, _tail = _signatures.parse_job_log(log)
+        pytest_failures, go_failures, _tb, _tail, _statuses = _signatures.parse_job_log(log)
         self.assertEqual(
             pytest_failures,
             [
@@ -239,7 +239,7 @@ class SignatureExtractionTests(unittest.TestCase):
 
     def test_parse_job_log_go_failures(self):
         log = '--- FAIL: TestFoo (0.03s)\n--- FAIL: TestBar (0.01s)\n'
-        _pytest_failures, go_failures, _tb, _tail = _signatures.parse_job_log(log)
+        _pytest_failures, go_failures, _tb, _tail, _statuses = _signatures.parse_job_log(log)
         self.assertEqual(go_failures, ['TestFoo', 'TestBar'])
 
     def test_parse_job_log_traceback_top_error_prefers_last_match(self):
@@ -248,7 +248,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'some other output',
             'AttributeError: the real one',
         ])
-        _, _, tb, _ = _signatures.parse_job_log(log)
+        _, _, tb, _, _ = _signatures.parse_job_log(log)
         self.assertEqual(tb, 'AttributeError: the real one')
 
     def test_parse_job_log_tail_excerpt_stops_before_first_error_marker(self):
@@ -258,7 +258,7 @@ class SignatureExtractionTests(unittest.TestCase):
             '##[error]something broke',
             'line after (should not appear in tail)',
         ])
-        _, _, _, tail = _signatures.parse_job_log(log)
+        _, _, _, tail, _ = _signatures.parse_job_log(log)
         self.assertEqual(tail, ['line before 1', 'line before 2'])
 
     def test_parse_job_log_ignores_the_step_script_the_runner_echoes(self):
@@ -275,7 +275,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'short test summary info',
             "FAILED test/test_model.py::TestModel::test_thing - KeyError: 'host'",
         ])
-        pytest_failures, _go, tb, _tail = _signatures.parse_job_log(log)
+        pytest_failures, _go, tb, _tail, _statuses = _signatures.parse_job_log(log)
         self.assertIsNone(tb)
         self.assertEqual([f.error for f in pytest_failures], ["KeyError: 'host'"])
 
@@ -289,7 +289,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'short test summary info',
             'FAILED test/test_model.py::TestModel::test_thing - KeyError',
         ])
-        pytest_failures, _go, _tb, _tail = _signatures.parse_job_log(log)
+        pytest_failures, _go, _tb, _tail, _statuses = _signatures.parse_job_log(log)
         self.assertEqual(len(pytest_failures), 1)
 
     def test_parse_job_log_keeps_groups_the_step_itself_opened(self):
@@ -300,7 +300,7 @@ class SignatureExtractionTests(unittest.TestCase):
             'AttributeError: this is real output',
             '##[endgroup]',
         ])
-        _, _, tb, _ = _signatures.parse_job_log(log)
+        _, _, tb, _, _ = _signatures.parse_job_log(log)
         self.assertEqual(tb, 'AttributeError: this is real output')
 
     def test_strip_log_drops_the_env_dump_with_the_script(self):
@@ -312,6 +312,184 @@ class SignatureExtractionTests(unittest.TestCase):
             'real output',
         ])
         self.assertEqual(_signatures.strip_log(log), ['real output'])
+
+    # The shape of jubilant's wait timeout in pytest's summary, trimmed from a
+    # real scheduled "ops Integration Tests" failure (39219345374, 2026-10-19):
+    # the summary line only says the wait timed out, and the reason is further
+    # down, in the `Status(...)` that is the rest of the message.
+    WAIT_TIMEOUT_SUMMARY = (
+        '=========================== short test summary info ============================',
+        'ERROR test/integration/test_tracing.py::test_direct_connection'
+        ' - TimeoutError: wait timed out after 900s',
+        'Status(',
+        '  model=ModelStatus(',
+        "    model_status=StatusInfo(current='available', since='19 Oct 2026 08:17:13Z'),",
+        '  ),',
+        '  apps={',
+        "    'minio': AppStatus(",
+        "      app_status=StatusInfo(current='active', since='19 Oct 2026 08:16:17Z'),",
+        '      units={',
+        "        'minio/0': UnitStatus(",
+        "          workload_status=StatusInfo(current='active', since='19 Oct 2026 08:16:17Z'),",
+        "          juju_status=StatusInfo(current='idle', since='19 Oct 2026 08:02:15Z'),",
+        '        ),',
+        '      },',
+        '    ),',
+        "    'tempo': AppStatus(",
+        "      app_status=StatusInfo(current='error', message='hook failed: \"start\"',"
+        " since='19 Oct 2026 08:01:36Z'),",
+        '      units={',
+        "        'tempo/0': UnitStatus(",
+        "          workload_status=StatusInfo(current='error', message='hook failed: \"start\"',"
+        " since='19 Oct 2026 08:01:36Z'),",
+        "          juju_status=StatusInfo(current='idle', since='19 Oct 2026 08:01:49Z'),",
+        '        ),',
+        '      },',
+        '    ),',
+        "    'tempo-worker': AppStatus(",
+        "      app_status=StatusInfo(current='waiting', message='Waiting for coordinator',"
+        " since='19 Oct 2026 08:16:15Z'),",
+        '    ),',
+        '  },',
+        '  storage=CombinedStorage(',
+        "    filesystems={'0': FilesystemInfo(size=1024)},",
+        '  ),',
+        ')',
+        '======================== 1 error in 1248.60s (0:20:48) =========================',
+    )
+
+    def test_unhealthy_statuses_from_a_jubilant_wait_timeout(self):
+        statuses = _signatures.parse_unhealthy_statuses('\n'.join(self.WAIT_TIMEOUT_SUMMARY))
+        self.assertEqual(
+            statuses,
+            ['tempo: error (hook failed: "start")', 'tempo/0: error (hook failed: "start")'],
+        )
+
+    def test_unhealthy_statuses_reach_the_job_signature(self):
+        job = _signatures.build_job_signature(
+            1, 'integration', 'Run tox', '\n'.join(self.WAIT_TIMEOUT_SUMMARY)
+        )
+        self.assertEqual(job.unhealthy_statuses[0], 'tempo: error (hook failed: "start")')
+        self.assertIn(
+            'unhealthy_statuses',
+            json.loads(_signatures.build_run_signature('1', 'w', 'url', '', [job]).as_json())[
+                'jobs'
+            ][0],
+        )
+
+    def test_unhealthy_statuses_ignore_the_traceback_copy_of_the_status(self):
+        # With --tb native the same Status(...) is printed in the traceback
+        # first; only the summary's copy counts, so nothing is listed twice and
+        # a status that only the traceback has is not listed at all.
+        log = '\n'.join([
+            'Traceback (most recent call last):',
+            "    'other': AppStatus(",
+            "      app_status=StatusInfo(current='error', message='only in the traceback'),",
+            *self.WAIT_TIMEOUT_SUMMARY,
+        ])
+        self.assertEqual(
+            _signatures.parse_unhealthy_statuses(log),
+            ['tempo: error (hook failed: "start")', 'tempo/0: error (hook failed: "start")'],
+        )
+
+    def test_unhealthy_statuses_blocked_without_a_message_and_double_quoted(self):
+        log = '\n'.join([
+            'short test summary info',
+            'FAILED test/integration/test_charm.py::test_deploy - TimeoutError: wait timed out',
+            "    'db': AppStatus(",
+            "      app_status=StatusInfo(current='blocked'),",
+            "    'app': AppStatus(",
+            "      app_status=StatusInfo(current='error', message=\"can't connect\"),",
+            '======== 1 failed in 3.00s ========',
+        ])
+        self.assertEqual(
+            _signatures.parse_unhealthy_statuses(log),
+            ['db: blocked', "app: error (can't connect)"],
+        )
+
+    def test_unhealthy_statuses_split_over_several_lines(self):
+        # jubilant prints a StatusInfo one field per line once it doesn't fit
+        # on one. The 'db' app is jubilant's own output for this message.
+        message = (
+            'Waiting for the database relation to provide credentials;'
+            ' see juju debug-log for details'
+        )
+        log = '\n'.join([
+            'short test summary info',
+            'FAILED test/integration/test_charm.py::test_deploy - TimeoutError: wait timed out',
+            "    'db': AppStatus(",
+            "      charm='db',",
+            '      app_status=StatusInfo(',
+            "        current='blocked',",
+            f"        message='{message}',",
+            "        since='19 Oct 2026 08:01:36Z',",
+            '      ),',
+            '      units={',
+            "        'db/0': UnitStatus(",
+            '          workload_status=StatusInfo(',
+            "            current='blocked',",
+            f"            message='{message}',",
+            "            since='19 Oct 2026 08:01:36Z',",
+            '          ),',
+            "          juju_status=StatusInfo(current='idle', since='19 Oct 2026 08:01:36Z'),",
+            '        ),',
+            '      },',
+            '    ),',
+            "    'app': AppStatus(",
+            "      app_status=StatusInfo(current='error', message='hook failed: \"start\"'),",
+            '======== 1 failed in 3.00s ========',
+        ])
+        self.assertEqual(
+            _signatures.parse_unhealthy_statuses(log),
+            [
+                f'db: blocked ({message})',
+                f'db/0: blocked ({message})',
+                'app: error (hook failed: "start")',
+            ],
+        )
+
+    def test_unhealthy_statuses_are_capped(self):
+        lines = ['short test summary info', 'FAILED t.py::t - TimeoutError: wait timed out']
+        for i in range(_constants.MAX_UNHEALTHY_STATUSES + 5):
+            lines += [f"    'app{i}': AppStatus(", "      app_status=StatusInfo(current='error'),"]
+        statuses = _signatures.parse_unhealthy_statuses('\n'.join(lines))
+        self.assertEqual(len(statuses), _constants.MAX_UNHEALTHY_STATUSES)
+
+    def test_unhealthy_statuses_past_the_cap_keep_errors_over_blocked(self):
+        # A blocked app with many units comes first, but the app in error
+        # after it is the one worth keeping.
+        lines = ['short test summary info', 'FAILED t.py::t - TimeoutError: wait timed out']
+        lines += ["    'db': AppStatus(", "      app_status=StatusInfo(current='blocked'),"]
+        for i in range(_constants.MAX_UNHEALTHY_STATUSES):
+            lines += [
+                f"        'db/{i}': UnitStatus(",
+                f"          workload_status=StatusInfo(current='blocked', message='unit {i}'),",
+            ]
+        lines += ["    'tempo': AppStatus(", "      app_status=StatusInfo(current='error'),"]
+        statuses = _signatures.parse_unhealthy_statuses('\n'.join(lines))
+        self.assertEqual(len(statuses), _constants.MAX_UNHEALTHY_STATUSES)
+        self.assertEqual(statuses[0], 'db: blocked')
+        self.assertEqual(statuses[-1], 'tempo: error')
+
+    def test_unhealthy_statuses_include_a_status_juju_could_not_report(self):
+        # jubilant sets current='failed' when Juju reports a status-error.
+        log = '\n'.join([
+            'short test summary info',
+            'FAILED t.py::t - TimeoutError: wait timed out',
+            "    'tempo': AppStatus(",
+            "      app_status=StatusInfo(current='failed', message='cannot get status'),",
+        ])
+        self.assertEqual(
+            _signatures.parse_unhealthy_statuses(log), ['tempo: failed (cannot get status)']
+        )
+
+    def test_no_unhealthy_statuses_without_a_status_dump(self):
+        log = '\n'.join([
+            'short test summary info',
+            'FAILED tests/unit/test_x.py::test_a - AssertionError: x',
+            '============ 1 failed in 1.23s ============',
+        ])
+        self.assertEqual(_signatures.parse_unhealthy_statuses(log), [])
 
     def test_build_run_signature_matches_fixture_shape(self):
         jobs = [
@@ -689,6 +867,36 @@ class SchemaValidationTests(unittest.TestCase):
             'confidence': 'low',
         }
         self.assertEqual(_envelope.validate_envelope(envelope), [])
+
+    def test_describe_envelope_records_the_routing_and_why(self):
+        envelope: dict[str, Any] = {
+            'action': 'new',
+            'target_issue': None,
+            'title': 'Something failed',
+            'body': 'details',
+            'labels': [],
+            'issue_type': None,
+            'dedup_reason': 'no candidate names this test',
+            'confidence': 'medium',
+            'also': [
+                {
+                    'action': 'comment',
+                    'target_issue': 44,
+                    'title': None,
+                    'labels': None,
+                    'issue_type': None,
+                    'body': 'again',
+                    'dedup_reason': '#44 names the same lint error',
+                    'confidence': 'high',
+                }
+            ],
+        }
+        self.assertEqual(
+            _envelope.describe_envelope(envelope),
+            'envelope: new on new issue, confidence medium. '
+            'Reason: no candidate names this test\n'
+            'also[0]: comment on #44, confidence high. Reason: #44 names the same lint error',
+        )
 
     def test_new_envelope_with_no_labels_is_valid(self):
         # No label is mandatory: the repo's label set is centrally managed, and
