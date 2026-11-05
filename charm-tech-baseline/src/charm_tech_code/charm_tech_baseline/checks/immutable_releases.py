@@ -1,0 +1,124 @@
+# Copyright 2026 Canonical Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Check: GitHub releases are immutable (latest release's `immutable: true`).
+
+Tier coverage: product, canonical.
+
+Implementation: uses `gh api repos/<owner>/<repo>/releases` if `gh` is
+available; falls back to a 'unknown' note if it isn't.
+
+Known blockers (do not flag as fail):
+  - pebble: snap build (pebble#856)
+  - concierge: goreleaser monolith (concierge#172 / #142)
+Heuristically: if the repo origin is canonical/{pebble,concierge,charmlibs},
+emit a note explaining the blocker.
+"""
+
+from __future__ import annotations
+
+import shutil
+import sys
+
+from ..common import (
+    EXIT_FAIL,
+    EXIT_NA,
+    EXIT_PASS,
+    EXIT_UNKNOWN,
+    baseline_slug,
+    emit_check,
+    parse_tier,
+    run,
+    tier_applies,
+)
+
+CHECK_ID = 'immutable-releases'
+APPLIES = 'product,canonical'
+
+
+def main() -> int:
+    """Check that the latest release is immutable, and return the exit code."""
+    tier = parse_tier()
+    if not tier_applies(APPLIES, tier):
+        emit_check(CHECK_ID, 'na', f'Not applicable for tier {tier}.')
+        return EXIT_NA
+
+    slug = baseline_slug()
+
+    if slug == 'canonical/pebble':
+        emit_check(
+            CHECK_ID,
+            'na',
+            'pebble immutable-releases blocked on snap-build process update (pebble#856).',
+        )
+        return EXIT_NA
+    if slug == 'canonical/concierge':
+        emit_check(
+            CHECK_ID,
+            'na',
+            (
+                'concierge immutable-releases blocked on goreleaser build/publish split '
+                '(concierge#172 / #142).'
+            ),
+        )
+        return EXIT_NA
+
+    if not shutil.which('gh'):
+        emit_check(
+            CHECK_ID, 'unknown', 'gh CLI not installed; cannot query release immutability flag.'
+        )
+        return EXIT_UNKNOWN
+
+    r = run(['gh', 'api', f'repos/{slug}/releases?per_page=1', '--jq', '.[0].immutable // empty'])
+    flag = r.stdout.strip() if r.returncode == 0 else ''
+    if not flag:
+        emit_check(
+            CHECK_ID,
+            'na',
+            f'No releases on {slug} yet — toggle the setting before the first release.',
+        )
+        return EXIT_NA
+
+    if flag == 'true':
+        emit_check(
+            CHECK_ID,
+            'pass',
+            'Latest release is immutable.',
+            {'slug': slug},
+        )
+        return EXIT_PASS
+
+    emit_check(
+        CHECK_ID,
+        'fail',
+        (
+            'Latest release is NOT immutable. Setting needs to be flipped, or an active blocker '
+            'tracked.'
+        ),
+        {'slug': slug},
+        {
+            'kind': 'judgement',
+            'human_review': (
+                'Flip the per-repo Make-published-releases-immutable toggle in GitHub Settings. '
+                'If '
+                'blocked on tooling (goreleaser, snap-build), record the blocker upstream and '
+                'revisit when the upstream lands.'
+            ),
+        },
+    )
+    return EXIT_FAIL
+
+
+if __name__ == '__main__':
+    sys.exit(main())
