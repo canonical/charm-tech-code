@@ -1,0 +1,13 @@
+chore: bump certifi from 2025.10.5 to 2026.10.19
+
+Bumps [certifi](https://github.com/certifi/python-certifi) from 2025.10.5 to 2026.10.19.
+- [Commits](https://github.com/certifi/python-certifi/compare/2025.10.05...2026.10.19)
+
+---
+updated-dependencies:
+- dependency-name: certifi
+  dependency-version: 2026.10.19
+  dependency-type: indirect
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>

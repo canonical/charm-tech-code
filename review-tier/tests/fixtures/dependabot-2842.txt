@@ -1,0 +1,15 @@
+chore: bump opentelemetry-api from 1.45.0 to 1.45.1
+
+Bumps [opentelemetry-api](https://github.com/open-telemetry/opentelemetry-python) from 1.45.0 to 1.45.1.
+- [Release notes](https://github.com/open-telemetry/opentelemetry-python/releases)
+- [Changelog](https://github.com/open-telemetry/opentelemetry-python/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/open-telemetry/opentelemetry-python/compare/v1.45.0...v1.45.1)
+
+---
+updated-dependencies:
+- dependency-name: opentelemetry-api
+  dependency-version: 1.45.1
+  dependency-type: direct:production
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>
