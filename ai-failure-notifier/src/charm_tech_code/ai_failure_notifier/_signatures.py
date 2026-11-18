@@ -23,8 +23,13 @@ from ._constants import (
     GO_FAIL,
     GROUP_END,
     GROUP_RUN_START,
+    MAX_UNHEALTHY_STATUSES,
     PYTEST_SUMMARY,
     PYTEST_SUMMARY_END,
+    STATUS_ENTITY,
+    STATUS_FIELDS,
+    STATUS_INFO,
+    STATUS_INFO_END,
     TRACEBACK_END,
     TS,
 )
@@ -59,17 +64,78 @@ def strip_log(text: str) -> list[str]:
     return lines
 
 
+class _StatusCollector:
+    """Pick the apps and units in error, failed or blocked out of a `Status(...)` dump.
+
+    Fed one line at a time from pytest's summary section. `found()` returns
+    entries like 'tempo/0: error (hook failed: "start")', in the order they
+    appear, without repeats.
+    """
+
+    def __init__(self) -> None:
+        self._found: list[tuple[str, str]] = []  # (current, entry)
+        self._entity: str | None = None
+        # The field lines of a StatusInfo that jubilant split over several lines.
+        self._split_fields: list[str] | None = None
+
+    def end_summary(self) -> None:
+        self._entity = None
+        self._split_fields = None
+
+    def feed(self, line: str) -> None:
+        if self._split_fields is not None:
+            if not STATUS_INFO_END.match(line):
+                self._split_fields.append(line.strip())
+                return
+            fields = ' '.join(self._split_fields)
+            self._split_fields = None
+        else:
+            m = STATUS_ENTITY.match(line)
+            if m:
+                self._entity = m.group('name')
+                return
+            m = STATUS_INFO.match(line)
+            if not m or self._entity is None:
+                return
+            fields = m.group('fields')
+            if not fields:
+                self._split_fields = []
+                return
+        m = STATUS_FIELDS.match(fields)
+        if not m:
+            return
+        current = m.group('current')
+        entry = f'{self._entity}: {current}'
+        if m.group('message'):
+            entry += f' ({m.group("message")})'
+        if (current, entry) not in self._found:
+            self._found.append((current, entry))
+
+    def found(self) -> list[str]:
+        # Past the cap, drop blocked entries first: error and failed are the
+        # stronger evidence, and one app with many units shouldn't hide them.
+        kept = [i for i, (current, _) in enumerate(self._found) if current != 'blocked']
+        kept += [i for i, (current, _) in enumerate(self._found) if current == 'blocked']
+        return [self._found[i][1] for i in sorted(kept[:MAX_UNHEALTHY_STATUSES])]
+
+
 def parse_job_log(
     text: str,
-) -> tuple[list[PytestFailure], list[str], str | None, list[str]]:
+) -> tuple[list[PytestFailure], list[str], str | None, list[str], list[str]]:
     """Parse one job's raw log text.
 
-    Returns (pytest_failures, go_failures, traceback_top_error, tail_excerpt).
+    Returns (pytest_failures, go_failures, traceback_top_error, tail_excerpt,
+    unhealthy_statuses).
+
+    The unhealthy statuses are only read from pytest's summary section: the
+    same `Status(...)` also appears in the traceback above it, and reading
+    both would list everything twice.
     """
     lines = strip_log(text)
 
     pytest_failures: list[PytestFailure] = []
     go_failures: list[str] = []
+    statuses = _StatusCollector()
     in_summary = False
 
     for line in lines:
@@ -84,6 +150,9 @@ def parse_job_log(
                 continue
             if PYTEST_SUMMARY_END.match(line):
                 in_summary = False
+                statuses.end_summary()
+            else:
+                statuses.feed(line)
         m = GO_FAIL.match(line)
         if m:
             go_failures.append(m.group(1))
@@ -112,14 +181,19 @@ def parse_job_log(
                 break
         tail.reverse()
 
-    return pytest_failures, go_failures, traceback_top_error, tail
+    return pytest_failures, go_failures, traceback_top_error, tail, statuses.found()
+
+
+def parse_unhealthy_statuses(text: str) -> list[str]:
+    """Find the apps and units in error, failed or blocked in pytest's summary section."""
+    return parse_job_log(text)[4]
 
 
 def build_job_signature(
     job_id: int, job_name: str, failed_step: str | None, log_text: str
 ) -> JobSignature:
     """Parse one job's log into its signature."""
-    pytest_failures, go_failures, traceback_top_error, tail = parse_job_log(log_text)
+    pytest_failures, go_failures, traceback_top_error, tail, statuses = parse_job_log(log_text)
     return JobSignature(
         job_id=job_id,
         job_name=job_name,
@@ -128,6 +202,7 @@ def build_job_signature(
         go_failures=go_failures,
         traceback_top_error=traceback_top_error,
         tail_excerpt=tail,
+        unhealthy_statuses=statuses,
     )
 
 
