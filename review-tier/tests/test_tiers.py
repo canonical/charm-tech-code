@@ -37,7 +37,7 @@ from charm_tech_code.review_tier._tiers import approvers, changed_lines, decide
 def test_team_low_risk(config, files):
     decision = decide(make_pr(files), config)
     assert (decision.tier, decision.required) == ('Team PRs on low-risk paths', 1)
-    assert 'on low-risk paths' in decision.reason
+    assert 'is on a low-risk path' in decision.reason
 
 
 @pytest.mark.parametrize(

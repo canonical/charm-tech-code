@@ -63,13 +63,18 @@ def test_title_is_major(title, major):
 
 # (fixture, the PR's title, qualifies, words in the reason)
 CASES = [
-    ('2864', 'chore: bump the actions group across 1 directory with 4 updates', True, 'all 4'),
+    (
+        '2864',
+        'chore: bump the actions group across 1 directory with 4 updates',
+        True,
+        'every update (4)',
+    ),
     (
         '2816',
         'chore: bump ruff from 0.16.9 to 0.16.10 in /examples/httpbin-demo'
         ' in the dev-tooling group',
         True,
-        'all 1',
+        'every update (1)',
     ),
     ('2790', 'chore: bump the actions group with 4 updates', False, 'astral-sh/setup-uv, tiobe'),
     ('2674', 'chore: bump the actions group across 1 directory with 8 updates', False, 'major'),

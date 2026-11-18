@@ -132,8 +132,8 @@ def team_tier(pr: PullRequest, cfg: Config) -> tuple[bool, str]:
     if pr.lines_changed >= cfg.line_limit:
         return False, f'{pr.lines_changed} lines changed, and the limit is {cfg.line_limit}.'
     return True, (
-        f'@{pr.author} is on the team list, all {len(pr.files)} changed files are on'
-        f' low-risk paths, and {pr.lines_changed} lines changed (under {cfg.line_limit}).'
+        f'@{pr.author} is on the team list, every changed file ({len(pr.files)}) is on a'
+        f' low-risk path, and {pr.lines_changed} lines changed (under {cfg.line_limit}).'
     )
 
 
@@ -180,7 +180,7 @@ def dependabot_tier(pr: PullRequest) -> tuple[bool, str]:
     if majors:
         return False, f'Dependabot marks {", ".join(majors)} as a semver-major update.'
     if updates and all(kind for _, kind in updates):
-        return True, f'all {len(updates)} updates are minor or patch, by update-type metadata.'
+        return True, f'every update ({len(updates)}) is minor or patch, by update-type metadata.'
     major = title_is_major(pr.title)
     if major is None:
         return False, 'there is no update-type metadata, and the title has no versions to compare.'
