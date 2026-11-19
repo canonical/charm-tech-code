@@ -59,6 +59,25 @@ def test_reordering_and_reformatting_are_not_changes():
     assert lock_differences(BASE, head, OWN) == []
 
 
+def test_reordered_string_list_is_not_a_change():
+    # canonical/operator#2806: a newer uv wrote ops's extras in another order.
+    head = mutate(
+        HEAD,
+        'provides-extras = ["harness", "testing", "tracing"]',
+        'provides-extras = ["testing", "harness", "tracing"]',
+    )
+    assert lock_differences(BASE, head, OWN) == []
+
+
+def test_string_list_entry_added():
+    head = mutate(
+        HEAD,
+        'provides-extras = ["harness", "testing", "tracing"]',
+        'provides-extras = ["harness", "testing", "tracing", "extra"]',
+    )
+    assert lock_differences(BASE, head, OWN) == ['package[ops].metadata.provides-extras changed']
+
+
 def test_hidden_dependency_added_to_our_package():
     head = mutate(
         HEAD,

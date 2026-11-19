@@ -283,6 +283,10 @@ def _diff(a: Any, b: Any, path: str) -> list[str]:
                 out += _diff(a[k], b[k], f'{path}{k}.')
         return out
     if isinstance(a, list) and isinstance(b, list):
+        # A list of plain strings (`provides-extras`) is a set: uv versions
+        # differ in the order they write it, and the order means nothing.
+        if all(isinstance(x, str) for x in a + b) and sorted(a) == sorted(b):
+            return []
         ka, kb = [_key(x) for x in a], [_key(x) for x in b]
         # A list of named entries (packages, dependencies) is compared by name,
         # so the message says which one changed rather than that the list did.
@@ -301,7 +305,8 @@ def lock_differences(base: str, head: str, own: frozenset[str]) -> list[str]:
     """How two `uv.lock` files differ, other than in our own packages' versions and pins.
 
     Both are compared as TOML, not as text, so ordering and formatting can't hide
-    anything and can't fail the check. A dependency added, removed, re-pinned or
+    anything and can't fail the check, and a list of plain strings is compared as
+    a set. A dependency added, removed, re-pinned or
     given a new marker, or a change to the lock's own header, is a difference.
     """
     return _diff(_strip(tomllib.loads(base), own), _strip(tomllib.loads(head), own), '')
