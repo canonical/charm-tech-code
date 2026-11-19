@@ -69,6 +69,8 @@ def test_team_line_limit(config):
 
 
 def test_team_login_is_case_insensitive(config):
+    # The configuration lists 'MattPatchava', and GitHub logins are case-insensitive.
+    assert decide(make_pr(author='MattPatchava'), config).required == 1
     assert decide(make_pr(author='mattpatchava'), config).required == 1
 
 
@@ -222,6 +224,18 @@ def test_bot_best_practices(config):
     assert decide(pr, config).required == 1
 
 
+def test_bot_best_practices_other_file(config):
+    # This branch has no line pattern, so only the file list stops it.
+    pr = make_pr(
+        ['docs/reuse/best-practices.txt', 'ops/model.py'],
+        author='prints-charming-bot',
+        branch='auto-update-best-practice-docs',
+    )
+    decision = decide(pr, config)
+    assert decision.required == 2
+    assert '`ops/model.py` is not one of the files' in decision.reason
+
+
 def test_changed_lines():
     assert changed_lines('a\nb\nc\n', 'a\nB\nc\nd\n') == ['b', 'B', 'd']
     assert changed_lines(None, 'x\n') == ['x']
@@ -243,6 +257,7 @@ def review(login, state, kind='User'):
         ([review('a', 'APPROVED'), review('a', 'COMMENTED')], ['a']),
         ([review('a', 'APPROVED'), review('a', 'CHANGES_REQUESTED')], []),
         ([review('a', 'DISMISSED')], []),
+        ([review('a', 'APPROVED'), review('a', 'DISMISSED')], []),
         ([review('a', 'CHANGES_REQUESTED'), review('a', 'APPROVED')], ['a']),
         ([review('a', 'APPROVED'), review('b', 'APPROVED')], ['a', 'b']),
         ([review('author', 'APPROVED')], []),

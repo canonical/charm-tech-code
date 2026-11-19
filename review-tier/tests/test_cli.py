@@ -103,17 +103,21 @@ def test_load(monkeypatch, config):
         'pulls/1/files': [{'filename': 'test/a.py', 'previous_filename': 'ops/a.py'}],
         'pulls/1/reviews': [{'user': {'login': 'dwilding', 'type': 'User'}, 'state': 'APPROVED'}],
     }
-    files = {}
+    files = []
 
     def file(path, ref):
-        files[path] = ref
+        files.append((path, ref))
         return fixture('review-tier.toml')
 
-    monkeypatch.setattr(gh, 'get', lambda path: {'pulls/1': pr}[path])
+    gets = {
+        'pulls/1': pr,
+        f'compare/{"b" * 40}...{"h" * 40}': {'merge_base_commit': {'sha': 'm' * 40}},
+    }
+    monkeypatch.setattr(gh, 'get', lambda path: gets[path])
     monkeypatch.setattr(gh, 'paged', lambda path: lists[path])
     monkeypatch.setattr(gh, 'file', file)
     request, loaded, approved = _github.load(gh, 1)
-    assert files == {'.github/review-tier.toml': 'main'}
+    assert files == [('.github/review-tier.toml', 'main')]
     assert loaded == config
     assert approved == ['dwilding']
     assert request.labels_ever == {'docs', 'full-review'}
@@ -121,3 +125,7 @@ def test_load(monkeypatch, config):
     assert request.files == [('test/a.py', 'ops/a.py')]
     assert request.commits[0].author is None
     assert not request.commits[0].verified
+    # The base side is the merge base, not the base branch's tip, which may have moved on.
+    request.read('test/a.py', 'base')
+    request.read('test/a.py', 'head')
+    assert files[1:] == [('test/a.py', 'm' * 40), ('test/a.py', 'h' * 40)]
