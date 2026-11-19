@@ -18,12 +18,7 @@
 from __future__ import annotations
 
 import dataclasses
-import sys
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover
-    import tomli as tomllib
+import tomllib
 
 PATH = '.github/review-tier.toml'
 

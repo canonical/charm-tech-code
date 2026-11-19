@@ -21,13 +21,8 @@ import dataclasses
 import difflib
 import fnmatch
 import re
-import sys
+import tomllib
 from typing import TYPE_CHECKING, Any
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover
-    import tomli as tomllib
 
 from ._config import PATH
 

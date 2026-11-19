@@ -3,13 +3,13 @@ name = "charm-tech-code-review-tier"
 version = "0.1.0"
 description = "Decide how many approvals a pull request needs, and check it has them."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "The Charm Tech team at Canonical Ltd."},
 ]
 license = "Apache-2.0"
-# Only the tomllib backport: the check runs on every PR event, so every dependency costs.
-dependencies = ["tomli; python_version < '3.11'"]
+# None: the check runs on every PR event, so every dependency costs.
+dependencies = []
 
 [project.scripts]
 review-tier = "charm_tech_code.review_tier._cli:main"
