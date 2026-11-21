@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import collections
 import dataclasses
 import difflib
 import fnmatch
@@ -215,12 +216,30 @@ def dependabot_tier(pr: PullRequest) -> tuple[bool, str]:
 
 def changed_lines(base: str | None, head: str | None) -> list[str]:
     """Every line removed from `base` or added in `head`."""
+    removed, added = _removed_added(base, head)
+    return removed + added
+
+
+def _removed_added(base: str | None, head: str | None) -> tuple[list[str], list[str]]:
+    """The lines removed from `base`, and the lines added in `head`."""
     a, b = (base or '').splitlines(), (head or '').splitlines()
-    out: list[str] = []
+    removed: list[str] = []
+    added: list[str] = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
         if op != 'equal':
-            out += a[i1:i2] + b[j1:j2]
-    return out
+            removed += a[i1:i2]
+            added += b[j1:j2]
+    return removed, added
+
+
+def _line_keys(lines: list[str], allowed: re.Pattern[str]) -> collections.Counter[str]:
+    """What each version or pin line sets: `version`, or the package (with any extras)."""
+    keys: collections.Counter[str] = collections.Counter()
+    for line in lines:
+        m = allowed.fullmatch(line)
+        assert m is not None  # _bad_line has already checked every line.
+        keys['version' if m[2] else m[4] + (m[5] or '')] += 1
+    return keys
 
 
 def _bad_line(pr: PullRequest, path: str, pattern: re.Pattern[str]) -> str | None:
@@ -244,6 +263,11 @@ def release_tier(pr: PullRequest, cfg: Config) -> tuple[bool, str]:
     for path in sorted(cfg.release_line_checked & set(pr.paths())):
         if bad := _bad_line(pr, path, allowed):
             return False, bad + '.'
+        # Every version or pin removed must be put back with a new value, so a
+        # release can change a pin but can't drop one or add a new one.
+        removed, added = _removed_added(pr.read(path, 'base'), pr.read(path, 'head'))
+        if _line_keys(removed, allowed) != _line_keys(added, allowed):
+            return False, f'`{path}` adds or removes a version or pin, rather than changing one.'
     lock = cfg.release_lockfile
     if lock in set(pr.paths()):
         base, head = pr.read(lock, 'base'), pr.read(lock, 'head')

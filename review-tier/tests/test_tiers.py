@@ -163,6 +163,25 @@ def test_release_other_lines(config, path, text, line):
     assert f'`{path}` changes a line that is not allowed: `{line}`' in decision.reason
 
 
+@pytest.mark.parametrize(
+    'text',
+    [
+        # A pin removed, with the lock left alone.
+        PYPROJECT.format(v='8.10.0.dev0', ops='3.10.0.dev0').replace(
+            '    "ops==3.10.0.dev0",\n', ''
+        ),
+        # A pin on one of our own packages added.
+        PYPROJECT.format(v='8.10.0.dev0', ops='3.10.0.dev0').replace(
+            '    "ops==', '    "ops-tracing==3.10.0.dev0",\n    "ops=='
+        ),
+    ],
+)
+def test_release_pin_added_or_removed(config, text):
+    decision = decide(release_pr({'testing/pyproject.toml': text}), config)
+    assert decision.required == 2
+    assert '`testing/pyproject.toml` adds or removes a version or pin' in decision.reason
+
+
 def test_release_hidden_dependency_in_lock(config):
     lock = fixture('uv-2807-head.lock').replace(
         '    { name = "websocket-client" },\n]',
