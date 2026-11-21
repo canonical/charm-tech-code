@@ -58,7 +58,6 @@ class PullRequest:
     (`'head'`), or None where the file doesn't exist.
     """
 
-    title: str
     author: str
     branch: str
     lines_changed: int
@@ -146,7 +145,7 @@ def update_types(message: str) -> list[tuple[str, str | None]]:
 
     Dependabot calls a change to the second number of a 0.x version (0.41 to
     0.42) a minor update, but on 0.x that's the number that changes when
-    something breaks, so it counts as major here, as it does for a title.
+    something breaks, so it counts as major here, as it does in a commit message.
     """
     out: list[tuple[str, str | None]] = []
     for block in _UPDATES.findall(message):

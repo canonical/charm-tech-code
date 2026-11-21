@@ -110,10 +110,8 @@ def load(gh: GitHub, number: int) -> tuple[PullRequest, _config.Config, list[str
     files = [
         (f['filename'], f.get('previous_filename')) for f in gh.paged(f'pulls/{number}/files')
     ]
-    # GitHub stops these lists at 250 commits and 3000 files, and a short list
-    # could leave out the commit or file that rules out a tier. No tier is meant
-    # for a PR that size, so it needs two approvals rather than a decision on
-    # part of it.
+    # GitHub stops these lists at 250 commits and 3000 files. A PR that size
+    # needs two approvals rather than a decision on part of it.
     incomplete = None
     if len(commits) < pr['commits'] or len(files) < pr['changed_files']:
         incomplete = (
@@ -121,7 +119,6 @@ def load(gh: GitHub, number: int) -> tuple[PullRequest, _config.Config, list[str
             f' {len(files)} of the {pr["changed_files"]} files in this PR'
         )
     request = PullRequest(
-        title=pr['title'],
         author=author,
         branch=pr['head']['ref'],
         lines_changed=pr['additions'] + pr['deletions'],

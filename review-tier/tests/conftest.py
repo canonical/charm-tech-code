@@ -41,7 +41,6 @@ def make_pr(
     files=('test/test_main.py',),
     *,
     author='tonyandrewmeyer',
-    title='test: add a test',
     branch='some-branch',
     lines=10,
     commits=(),
@@ -52,7 +51,6 @@ def make_pr(
     """A PR; `base` and `head` map paths to file text on each side."""
     sides = {'base': base or {}, 'head': head or {}}
     return PullRequest(
-        title=title,
         author=author,
         branch=branch,
         lines_changed=lines,

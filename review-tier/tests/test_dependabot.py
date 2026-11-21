@@ -59,15 +59,9 @@ def test_zero_minor_update_is_major():
 
 
 def test_zero_minor_needs_two_either_way(config):
-    """The metadata and the title agree about a 0.x minor bump."""
-    title = 'chore: bump foo from 0.41.0 to 0.42.0'
-    for message in (ZERO_MINOR, title):
-        pr = make_pr(
-            ['uv.lock'],
-            author='dependabot[bot]',
-            title=title,
-            commits=[dependabot_commit(message)],
-        )
+    """The metadata and the commit's subject line agree about a 0.x minor bump."""
+    for message in (ZERO_MINOR, 'chore: bump foo from 0.41.0 to 0.42.0'):
+        pr = make_pr(['uv.lock'], author='dependabot[bot]', commits=[dependabot_commit(message)])
         assert decide(pr, config).required == 2
 
 
@@ -76,7 +70,7 @@ def test_indirect_update_has_no_type():
 
 
 @pytest.mark.parametrize(
-    ('title', 'major'),
+    ('line', 'major'),
     [
         ('chore: bump opentelemetry-api from 1.45.1 to 1.45.2 in /examples/k8s-5-observe', False),
         ('chore: bump certifi from 2025.10.5 to 2026.10.19', True),
@@ -89,45 +83,28 @@ def test_indirect_update_has_no_type():
         ('chore: bump the actions group with 4 updates', None),
     ],
 )
-def test_bump_is_major(title, major):
-    assert bump_is_major(title) is major
+def test_bump_is_major(line, major):
+    assert bump_is_major(line) is major
 
 
-# (fixture, the PR's title, qualifies, words in the reason)
+# (fixture, qualifies, words in the reason)
 CASES = [
-    (
-        '2864',
-        'chore: bump the actions group across 1 directory with 4 updates',
-        True,
-        'every update (4)',
-    ),
-    (
-        '2816',
-        'chore: bump ruff from 0.16.9 to 0.16.10 in /examples/httpbin-demo'
-        ' in the dev-tooling group',
-        True,
-        'every update (1)',
-    ),
-    ('2790', 'chore: bump the actions group with 4 updates', False, 'astral-sh/setup-uv, tiobe'),
-    ('2674', 'chore: bump the actions group across 1 directory with 8 updates', False, 'major'),
-    ('2625', 'chore: bump rich from 14.1.0 to 15.0.0', False, 'rich'),
-    (
-        '2900',
-        'chore: bump opentelemetry-api from 1.45.1 to 1.45.2 in /examples/k8s-5-observe',
-        True,
-        'commit messages',
-    ),
-    ('2842', 'chore: bump opentelemetry-api from 1.45.0 to 1.45.1', True, 'commit messages'),
-    ('2839', 'chore: bump certifi from 2025.10.5 to 2026.10.19', False, 'major bump'),
+    ('2864', True, 'every update (4)'),
+    ('2816', True, 'every update (1)'),
+    ('2790', False, 'astral-sh/setup-uv, tiobe'),
+    ('2674', False, 'major'),
+    ('2625', False, 'rich'),
+    ('2900', True, 'commit messages'),
+    ('2842', True, 'commit messages'),
+    ('2839', False, 'major bump'),
 ]
 
 
-@pytest.mark.parametrize(('number', 'title', 'ok', 'words'), CASES)
-def test_real_dependabot_prs(config, number, title, ok, words):
+@pytest.mark.parametrize(('number', 'ok', 'words'), CASES)
+def test_real_dependabot_prs(config, number, ok, words):
     pr = make_pr(
         ['uv.lock'],
         author='dependabot[bot]',
-        title=title,
         commits=[dependabot_commit(fixture(f'dependabot-{number}.txt'))],
     )
     decision = decide(pr, config)
@@ -141,25 +118,9 @@ def test_unclassifiable_message_needs_two(config):
     pr = make_pr(
         ['docs/requirements.txt'],
         author='dependabot[bot]',
-        title=message,
         commits=[dependabot_commit(message)],
     )
     assert decide(pr, config).required == 2
-
-
-@pytest.mark.parametrize(
-    ('title', 'message', 'required'),
-    [
-        # An edited title can neither lower the tier nor raise it.
-        ('chore: bump rich from 14.1.0 to 14.2.0', 'chore: bump rich from 14.1.0 to 15.0.0', 2),
-        ('chore: bump rich from 14.1.0 to 15.0.0', 'chore: bump rich from 14.1.0 to 14.2.0', 1),
-    ],
-)
-def test_title_is_not_read(config, title, message, required):
-    pr = make_pr(
-        ['uv.lock'], author='dependabot[bot]', title=title, commits=[dependabot_commit(message)]
-    )
-    assert decide(pr, config).required == required
 
 
 def test_version_only_in_message_body(config):
@@ -167,7 +128,6 @@ def test_version_only_in_message_body(config):
     pr = make_pr(
         ['examples/k8s-5-observe/uv.lock'],
         author='dependabot[bot]',
-        title='chore: bump opentelemetry-api in /examples/k8s-5-observe',
         commits=[dependabot_commit(fixture('dependabot-2900.txt'))],
     )
     assert decide(pr, config).required == 1
@@ -187,7 +147,6 @@ def test_someone_else_pushed_a_commit(config, commit):
     pr = make_pr(
         ['uv.lock'],
         author='dependabot[bot]',
-        title='chore: bump rich from 14.1.0 to 14.2.0',
         commits=[dependabot_commit(fixture('dependabot-2816.txt')), commit],
     )
     decision = decide(pr, config)
@@ -196,5 +155,5 @@ def test_someone_else_pushed_a_commit(config, commit):
 
 
 def test_no_commits(config):
-    pr = make_pr(['uv.lock'], author='dependabot[bot]', title='chore: bump x from 1.0 to 1.1')
+    pr = make_pr(['uv.lock'], author='dependabot[bot]')
     assert decide(pr, config).required == 2
