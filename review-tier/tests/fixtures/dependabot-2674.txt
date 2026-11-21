@@ -1,0 +1,97 @@
+chore: bump the actions group across 1 directory with 8 updates
+
+Bumps the actions group with 8 updates in the / directory:
+
+| Package | From | To |
+| --- | --- | --- |
+| [actions/checkout](https://github.com/actions/checkout) | `7.0.0` | `7.0.1` |
+| [astral-sh/setup-uv](https://github.com/astral-sh/setup-uv) | `8.2.0` | `9.0.0` |
+| [actions/setup-python](https://github.com/actions/setup-python) | `6.3.0` | `7.0.0` |
+| [actions/setup-go](https://github.com/actions/setup-go) | `6.5.0` | `7.0.0` |
+| [actions/attest](https://github.com/actions/attest) | `4.1.1` | `4.2.2` |
+| [pypa/gh-action-pypi-publish](https://github.com/pypa/gh-action-pypi-publish) | `1.14.0` | `1.14.2` |
+| [tiobe/tics-github-action](https://github.com/tiobe/tics-github-action) | `3.10.0` | `3.12.0` |
+| [github/codeql-action/upload-sarif](https://github.com/github/codeql-action) | `4.36.2` | `4.37.6` |
+
+
+
+Updates `actions/checkout` from 7.0.0 to 7.0.1
+- [Release notes](https://github.com/actions/checkout/releases)
+- [Changelog](https://github.com/actions/checkout/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/actions/checkout/compare/9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0...3d3c42e5aac5ba805825da76410c181273ba90b1)
+
+Updates `astral-sh/setup-uv` from 8.2.0 to 9.0.0
+- [Release notes](https://github.com/astral-sh/setup-uv/releases)
+- [Commits](https://github.com/astral-sh/setup-uv/compare/fac544c07dec837d0ccb6301d7b5580bf5edae39...c771a70e6277c0a99b617c7a806ffedaca235ff9)
+
+Updates `actions/setup-python` from 6.3.0 to 7.0.0
+- [Release notes](https://github.com/actions/setup-python/releases)
+- [Commits](https://github.com/actions/setup-python/compare/ece7cb06caefa5fff74198d8649806c4678c61a1...5fda3b95a4ea91299a34e894583c3862153e4b97)
+
+Updates `actions/setup-go` from 6.5.0 to 7.0.0
+- [Release notes](https://github.com/actions/setup-go/releases)
+- [Commits](https://github.com/actions/setup-go/compare/924ae3a1cded613372ab5595356fb5720e22ba16...b7ad1dad31e06c5925ef5d2fc7ad053ef454303e)
+
+Updates `actions/attest` from 4.1.1 to 4.2.2
+- [Release notes](https://github.com/actions/attest/releases)
+- [Changelog](https://github.com/actions/attest/blob/main/RELEASE.md)
+- [Commits](https://github.com/actions/attest/compare/a1948c3f048ba23858d222213b7c278aabede763...1e69f48acb82d1966a394da916b4c1698aa569d6)
+
+Updates `pypa/gh-action-pypi-publish` from 1.14.0 to 1.14.2
+- [Release notes](https://github.com/pypa/gh-action-pypi-publish/releases)
+- [Commits](https://github.com/pypa/gh-action-pypi-publish/compare/cef221092ed1bacb1cc03d23a2d87d1d172e277b...dc37677b2e1c63e2034f94d8a5b11f265b73ba33)
+
+Updates `tiobe/tics-github-action` from 3.10.0 to 3.12.0
+- [Release notes](https://github.com/tiobe/tics-github-action/releases)
+- [Commits](https://github.com/tiobe/tics-github-action/compare/016a4d79f3027fe7b4a2901619a58c745ab7cadf...333078bc527399e5916a166bd1a3a788be5a01a9)
+
+Updates `github/codeql-action/upload-sarif` from 4.36.2 to 4.37.6
+- [Release notes](https://github.com/github/codeql-action/releases)
+- [Changelog](https://github.com/github/codeql-action/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/github/codeql-action/compare/8aad20d150bbac5944a9f9d289da16a4b0d87c1e...5595ccaf912efad79be6eef63a5619ff05969be3)
+
+---
+updated-dependencies:
+- dependency-name: actions/attest
+  dependency-version: 4.2.0
+  dependency-type: direct:production
+  update-type: version-update:semver-minor
+  dependency-group: actions
+- dependency-name: actions/checkout
+  dependency-version: 7.0.1
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+  dependency-group: actions
+- dependency-name: actions/setup-go
+  dependency-version: 7.0.0
+  dependency-type: direct:production
+  update-type: version-update:semver-major
+  dependency-group: actions
+- dependency-name: actions/setup-python
+  dependency-version: 7.0.0
+  dependency-type: direct:production
+  update-type: version-update:semver-major
+  dependency-group: actions
+- dependency-name: astral-sh/setup-uv
+  dependency-version: 9.0.0
+  dependency-type: direct:production
+  update-type: version-update:semver-major
+  dependency-group: actions
+- dependency-name: github/codeql-action/upload-sarif
+  dependency-version: 4.37.3
+  dependency-type: direct:production
+  update-type: version-update:semver-minor
+  dependency-group: actions
+- dependency-name: pypa/gh-action-pypi-publish
+  dependency-version: 1.14.1
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+  dependency-group: actions
+- dependency-name: tiobe/tics-github-action
+  dependency-version: 3.12.0
+  dependency-type: direct:production
+  update-type: version-update:semver-minor
+  dependency-group: actions
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>

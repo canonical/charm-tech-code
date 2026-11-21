@@ -1,0 +1,48 @@
+chore: bump the actions group with 4 updates
+
+Bumps the actions group with 4 updates: [actions/checkout](https://github.com/actions/checkout), [astral-sh/setup-uv](https://github.com/astral-sh/setup-uv), [tiobe/tics-github-action](https://github.com/tiobe/tics-github-action) and [github/codeql-action/upload-sarif](https://github.com/github/codeql-action).
+
+
+Updates `actions/checkout` from 7.0.0 to 7.0.1
+- [Release notes](https://github.com/actions/checkout/releases)
+- [Changelog](https://github.com/actions/checkout/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/actions/checkout/compare/v7...3d3c42e5aac5ba805825da76410c181273ba90b1)
+
+Updates `astral-sh/setup-uv` from 8.2.0 to 10.2.0
+- [Release notes](https://github.com/astral-sh/setup-uv/releases)
+- [Commits](https://github.com/astral-sh/setup-uv/compare/v8.2.0...c18668ad3cf93ea998bef934396af7bb5c839dc7)
+
+Updates `tiobe/tics-github-action` from 3.12.0 to 4.0.0
+- [Release notes](https://github.com/tiobe/tics-github-action/releases)
+- [Commits](https://github.com/tiobe/tics-github-action/compare/333078bc527399e5916a166bd1a3a788be5a01a9...06afa6781ba53ab58efbe766d41d84febad1f683)
+
+Updates `github/codeql-action/upload-sarif` from 4.37.8 to 4.38.2
+- [Release notes](https://github.com/github/codeql-action/releases)
+- [Changelog](https://github.com/github/codeql-action/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/github/codeql-action/compare/db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28...2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2)
+
+---
+updated-dependencies:
+- dependency-name: actions/checkout
+  dependency-version: 7.0.1
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+  dependency-group: actions
+- dependency-name: astral-sh/setup-uv
+  dependency-version: 10.2.0
+  dependency-type: direct:production
+  update-type: version-update:semver-major
+  dependency-group: actions
+- dependency-name: tiobe/tics-github-action
+  dependency-version: 4.0.0
+  dependency-type: direct:production
+  update-type: version-update:semver-major
+  dependency-group: actions
+- dependency-name: github/codeql-action/upload-sarif
+  dependency-version: 4.38.2
+  dependency-type: direct:production
+  update-type: version-update:semver-minor
+  dependency-group: actions
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>

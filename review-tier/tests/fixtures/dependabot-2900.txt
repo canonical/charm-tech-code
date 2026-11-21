@@ -1,0 +1,15 @@
+chore: bump opentelemetry-api in /examples/k8s-5-observe
+
+Bumps [opentelemetry-api](https://github.com/open-telemetry/opentelemetry-python) from 1.45.1 to 1.45.2.
+- [Release notes](https://github.com/open-telemetry/opentelemetry-python/releases)
+- [Changelog](https://github.com/open-telemetry/opentelemetry-python/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/open-telemetry/opentelemetry-python/compare/v1.45.1...v1.45.2)
+
+---
+updated-dependencies:
+- dependency-name: opentelemetry-api
+  dependency-version: 1.45.2
+  dependency-type: indirect
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>
