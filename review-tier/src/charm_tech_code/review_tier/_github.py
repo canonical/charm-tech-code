@@ -120,4 +120,5 @@ def load(gh: GitHub, number: int) -> tuple[PullRequest, _config.Config, list[str
         labels_ever=labels,
         read=read,
     )
-    return request, config, approvers(gh.paged(f'pulls/{number}/reviews'), author)
+    reviews = gh.paged(f'pulls/{number}/reviews')
+    return request, config, approvers(reviews, author, config.reviewers)

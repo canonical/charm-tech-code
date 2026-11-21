@@ -36,6 +36,7 @@ class Config:
     """Everything a repository says about its tiers."""
 
     team: frozenset[str]
+    reviewers: frozenset[str]  # Whose approvals count.
     line_limit: int
     allow: tuple[str, ...]
     allow_except: tuple[str, ...]
@@ -51,11 +52,16 @@ class Config:
 
 
 def parse(text: str) -> Config:
-    """Parse the TOML configuration file. A missing key is an error, not a default."""
+    """Parse the TOML configuration file.
+
+    A missing key is an error, not a default, except for `reviewers`, which is
+    the team list if it isn't given, and `label`.
+    """
     d = tomllib.loads(text)
     release, bot = d['release'], d['bot']
     return Config(
         team=frozenset(login.lower() for login in d['team']),
+        reviewers=frozenset(login.lower() for login in d.get('reviewers', d['team'])),
         line_limit=int(d['line-limit']),
         allow=tuple(d['low-risk']['allow']),
         allow_except=tuple(d['low-risk']['except']),

@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 from conftest import fixture, make_pr
 
+from charm_tech_code.review_tier import _config
 from charm_tech_code.review_tier._tiers import approvers, changed_lines, decide
 
 # --- Team PRs on low-risk paths ---
@@ -260,10 +261,19 @@ def review(login, state, kind='User'):
         ([review('a', 'APPROVED'), review('a', 'DISMISSED')], []),
         ([review('a', 'CHANGES_REQUESTED'), review('a', 'APPROVED')], ['a']),
         ([review('a', 'APPROVED'), review('b', 'APPROVED')], ['a', 'b']),
+        ([review('A', 'APPROVED')], ['A']),
+        # Anyone can approve a PR on a public repository, but only reviewers count.
+        ([review('a', 'APPROVED'), review('stranger', 'APPROVED')], ['a']),
         ([review('author', 'APPROVED')], []),
         ([review('copilot', 'APPROVED', 'Bot')], []),
         ([{'user': None, 'state': 'APPROVED'}], []),
     ],
 )
 def test_approvers(reviews, expected):
-    assert approvers(reviews, 'author') == expected
+    assert approvers(reviews, 'author', frozenset({'a', 'b', 'author', 'copilot'})) == expected
+
+
+def test_reviewers_default_to_team(config):
+    assert config.reviewers == config.team
+    text = 'reviewers = ["Someone"]\n' + fixture('review-tier.toml')
+    assert _config.parse(text).reviewers == {'someone'}

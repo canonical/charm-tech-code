@@ -307,19 +307,25 @@ def lock_differences(base: str, head: str, own: frozenset[str]) -> list[str]:
     return _diff(_strip(tomllib.loads(base), own), _strip(tomllib.loads(head), own), '')
 
 
-def approvers(reviews: list[dict[str, Any]], author: str) -> list[str]:
+def approvers(reviews: list[dict[str, Any]], author: str, reviewers: frozenset[str]) -> list[str]:
     """The reviewers whose latest decision on the PR is still an approval.
 
     `reviews` is the REST API's list, which is oldest first. A comment doesn't
     change a reviewer's decision; requesting changes, or having the approval
-    dismissed (by hand, or by a push), takes it away. Bots and the author
-    don't count, and each reviewer counts once.
+    dismissed (by hand, or by a push), takes it away. Only the logins in
+    `reviewers` (lowercase) count, as anyone can approve a PR on a public
+    repository. Bots and the author don't count, and each reviewer counts once.
     """
     latest: dict[str, str] = {}
     for r in reviews:
         user = r.get('user') or {}
         login = user.get('login')
-        if not login or login == author or user.get('type') == 'Bot':
+        if (
+            not login
+            or login == author
+            or user.get('type') == 'Bot'
+            or login.lower() not in reviewers
+        ):
             continue
         if r.get('state') in ('APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'):
             latest[login] = r['state']

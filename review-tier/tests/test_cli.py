@@ -101,7 +101,10 @@ def test_load(monkeypatch, config):
             }
         ],
         'pulls/1/files': [{'filename': 'test/a.py', 'previous_filename': 'ops/a.py'}],
-        'pulls/1/reviews': [{'user': {'login': 'dwilding', 'type': 'User'}, 'state': 'APPROVED'}],
+        'pulls/1/reviews': [
+            {'user': {'login': 'dwilding', 'type': 'User'}, 'state': 'APPROVED'},
+            {'user': {'login': 'stranger', 'type': 'User'}, 'state': 'APPROVED'},
+        ],
     }
     files = []
 

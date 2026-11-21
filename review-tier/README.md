@@ -15,7 +15,7 @@ A PR needs one approval if it matches one of these, and two otherwise:
 
 Anyone can add the `full-review` label (or the one the configuration's `label` names) to ask for two approvals. The label is sticky: once it has been added, the PR needs two approvals even if it's removed. Nothing lowers a tier.
 
-An approval counts if it's from someone other than the author and not a bot, and it's still that reviewer's latest decision: requesting changes, or having the approval dismissed, takes it away. Each reviewer counts once.
+An approval counts if it's from someone on the `reviewers` list in the configuration (the team list, if there's no `reviewers` list), other than the author, and it's still that reviewer's latest decision: requesting changes, or having the approval dismissed, takes it away. Each reviewer counts once.
 
 The check's job summary, and its failure message, say which rule decided the tier and why.
 
