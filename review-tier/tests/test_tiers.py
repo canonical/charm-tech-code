@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from conftest import fixture, make_pr
 
@@ -296,6 +298,15 @@ def test_reviewers_default_to_team(config):
     assert config.reviewers == config.team
     text = 'reviewers = ["Someone"]\n' + fixture('review-tier.toml')
     assert _config.parse(text).reviewers == {'someone'}
+
+
+def test_incomplete_pr_needs_two(config):
+    pr = dataclasses.replace(make_pr(), incomplete='GitHub lists only 3000 of the 3001 files')
+    decision = decide(pr, config)
+    assert decision.required == 2
+    assert (
+        decision.reason == 'GitHub lists only 3000 of the 3001 files, so it needs two approvals.'
+    )
 
 
 def test_missing_config_key():

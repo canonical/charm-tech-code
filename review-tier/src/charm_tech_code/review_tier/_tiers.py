@@ -66,6 +66,8 @@ class PullRequest:
     commits: list[Commit]
     labels_ever: set[str]  # Every label the PR has had, not only the current ones.
     read: Callable[[str, str], str | None]
+    # Set when GitHub's list of commits or files stops short of the whole PR.
+    incomplete: str | None = None
 
     def paths(self) -> Iterable[str]:
         """Every path the PR touches, including where a renamed file came from."""
@@ -93,6 +95,8 @@ def decide(pr: PullRequest, cfg: Config) -> Decision:
             f'`{cfg.label}` has been added to this PR, so it needs two approvals,'
             ' even if the label has since been removed.',
         )
+    if pr.incomplete:
+        return Decision(None, 2, f'{pr.incomplete}, so it needs two approvals.')
     if pr.author.lower() in cfg.team:
         name, (ok, why) = TEAM, team_tier(pr, cfg)
     elif pr.author == DEPENDABOT:

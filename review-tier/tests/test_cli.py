@@ -60,6 +60,37 @@ def test_no_approvals(monkeypatch, config, summary):
     assert 'nobody yet' in summary.read_text()
 
 
+def test_load_incomplete_lists(monkeypatch, config):
+    """A PR with more commits or files than GitHub lists is marked incomplete."""
+    gh = _github.GitHub('o/r', None)
+    pr = {
+        'title': 't',
+        'user': {'login': 'tonyandrewmeyer'},
+        'labels': [],
+        'base': {'ref': 'main', 'sha': 'b' * 40},
+        'head': {'ref': 'x', 'sha': 'h' * 40},
+        'additions': 1,
+        'deletions': 0,
+        'commits': 1,
+        'changed_files': 3001,
+    }
+    lists = {
+        'issues/1/timeline': [],
+        'pulls/1/commits': [
+            {'sha': 'c' * 40, 'author': None, 'committer': None, 'commit': {'message': 'm'}}
+        ],
+        'pulls/1/files': [{'filename': f'test/{i}.py'} for i in range(3000)],
+        'pulls/1/reviews': [],
+    }
+    monkeypatch.setattr(gh, 'get', lambda path: pr)
+    monkeypatch.setattr(gh, 'paged', lambda path: lists[path])
+    monkeypatch.setattr(gh, 'file', lambda path, ref: fixture('review-tier.toml'))
+    request, _, _ = _github.load(gh, 1)
+    assert request.incomplete == (
+        'GitHub lists only 1 of the 1 commits and 3000 of the 3001 files in this PR'
+    )
+
+
 def test_paged_follows_links(monkeypatch):
     gh = _github.GitHub('canonical/operator', 'token')
     pages = {
@@ -86,6 +117,8 @@ def test_load(monkeypatch, config):
         'head': {'ref': 'x', 'sha': 'h' * 40},
         'additions': 3,
         'deletions': 4,
+        'commits': 1,
+        'changed_files': 1,
     }
     lists = {
         'issues/1/timeline': [
@@ -125,6 +158,7 @@ def test_load(monkeypatch, config):
     assert approved == ['dwilding']
     assert request.labels_ever == {'docs', 'full-review'}
     assert request.lines_changed == 7
+    assert request.incomplete is None
     assert request.files == [('test/a.py', 'ops/a.py')]
     assert request.commits[0].author is None
     assert not request.commits[0].verified
