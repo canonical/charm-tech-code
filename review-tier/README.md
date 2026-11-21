@@ -21,11 +21,42 @@ The check's job summary, and its failure message, say which rule decided the tie
 
 ## Running it
 
+A workflow along these lines runs the check. Pin `setup-uv` and the `charm-tech-code` commit by SHA.
+
 ```yaml
-run: uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdirectory=review-tier" review-tier "$PR_NUMBER"
+name: Review tier
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review-tier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: astral-sh/setup-uv@<40-char-sha>  # vX.Y.Z
+      - run: uvx --from "git+https://github.com/canonical/charm-tech-code@<40-char-sha>#subdirectory=review-tier" review-tier "$PR_NUMBER"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
 ```
 
 It reads `GITHUB_REPOSITORY` and `GITHUB_TOKEN` from the environment, and needs only `contents: read` and `pull-requests: read`. It has no secrets and needs no org-read token, so it runs the same on a PR from a fork. The configuration is `.github/review-tier.toml` on the base branch; `tests/fixtures/review-tier.toml` is the one proposed for `canonical/operator`.
+
+## What the check assumes
+
+The check only decides anything when its workflow runs, and it trusts the ruleset for the rest, so the workflow and the ruleset need to be set up like this:
+
+* The workflow runs on `pull_request` and `pull_request_review`, never `pull_request_target`. The check needs no secrets and no write access, so there's no reason to use `pull_request_target`, which runs with the repository's secrets and, unless `permissions` says otherwise, a token that can write.
+* The `pull_request` types include `labeled` and `unlabeled`, so adding the `full-review` label fails the check straight away rather than at the next push, and `edited`, as the Dependabot tier can fall back to the title. The `pull_request_review` types include `submitted` and `dismissed`, so the check notices a new approval, or one taken away.
+* The step sets `GITHUB_TOKEN` from `github.token`. Actions doesn't put the token in the environment by default, and without it the check makes unauthenticated API calls, which are limited to 60 an hour for each IP address, and runner addresses are shared.
+* The ruleset requires one approval, dismisses stale approvals when new commits are pushed, and requires this check's job (`review-tier` above) to pass. The check counts an approval no matter which commit it was given on, so without dismissal an approval of an earlier, smaller change keeps counting after a push.
 
 ## Developing
 
