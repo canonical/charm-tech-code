@@ -20,7 +20,7 @@ from __future__ import annotations
 import pytest
 from conftest import dependabot_commit, fixture, make_pr
 
-from charm_tech_code.review_tier._tiers import decide, title_is_major, update_types
+from charm_tech_code.review_tier._tiers import bump_is_major, decide, update_types
 
 
 def test_grouped_update_types():
@@ -89,8 +89,8 @@ def test_indirect_update_has_no_type():
         ('chore: bump the actions group with 4 updates', None),
     ],
 )
-def test_title_is_major(title, major):
-    assert title_is_major(title) is major
+def test_bump_is_major(title, major):
+    assert bump_is_major(title) is major
 
 
 # (fixture, the PR's title, qualifies, words in the reason)
@@ -115,9 +115,9 @@ CASES = [
         '2900',
         'chore: bump opentelemetry-api from 1.45.1 to 1.45.2 in /examples/k8s-5-observe',
         True,
-        'title',
+        'commit messages',
     ),
-    ('2842', 'chore: bump opentelemetry-api from 1.45.0 to 1.45.1', True, 'title'),
+    ('2842', 'chore: bump opentelemetry-api from 1.45.0 to 1.45.1', True, 'commit messages'),
     ('2839', 'chore: bump certifi from 2025.10.5 to 2026.10.19', False, 'major bump'),
 ]
 
@@ -136,16 +136,41 @@ def test_real_dependabot_prs(config, number, title, ok, words):
     assert words in decision.reason
 
 
-def test_unclassifiable_title_needs_two(config):
-    message = fixture('dependabot-2900.txt')
-    title = 'chore: update sphinxcontrib-mermaid requirement from ~=2.0 to ~=2.1'
+def test_unclassifiable_message_needs_two(config):
+    message = 'chore: update sphinxcontrib-mermaid requirement from ~=2.0 to ~=2.1'
     pr = make_pr(
         ['docs/requirements.txt'],
         author='dependabot[bot]',
-        title=title,
+        title=message,
         commits=[dependabot_commit(message)],
     )
     assert decide(pr, config).required == 2
+
+
+@pytest.mark.parametrize(
+    ('title', 'message', 'required'),
+    [
+        # An edited title can neither lower the tier nor raise it.
+        ('chore: bump rich from 14.1.0 to 14.2.0', 'chore: bump rich from 14.1.0 to 15.0.0', 2),
+        ('chore: bump rich from 14.1.0 to 15.0.0', 'chore: bump rich from 14.1.0 to 14.2.0', 1),
+    ],
+)
+def test_title_is_not_read(config, title, message, required):
+    pr = make_pr(
+        ['uv.lock'], author='dependabot[bot]', title=title, commits=[dependabot_commit(message)]
+    )
+    assert decide(pr, config).required == required
+
+
+def test_version_only_in_message_body(config):
+    """Dependabot's subject line can leave out the versions, but the body has them."""
+    pr = make_pr(
+        ['examples/k8s-5-observe/uv.lock'],
+        author='dependabot[bot]',
+        title='chore: bump opentelemetry-api in /examples/k8s-5-observe',
+        commits=[dependabot_commit(fixture('dependabot-2900.txt'))],
+    )
+    assert decide(pr, config).required == 1
 
 
 @pytest.mark.parametrize(

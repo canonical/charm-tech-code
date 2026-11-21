@@ -133,7 +133,7 @@ def team_tier(pr: PullRequest, cfg: Config) -> tuple[bool, str]:
 
 
 _UPDATES = re.compile(r'^updated-dependencies:\n(.*?)^\.\.\.$', re.M | re.S)
-_TITLE = re.compile(r'from v?(\d+)(?:\.(\d+))?\S* to v?(\d+)(?:\.(\d+))?')
+_BUMP = re.compile(r'from v?(\d+)(?:\.(\d+))?\S* to v?(\d+)(?:\.(\d+))?')
 
 
 def update_types(message: str) -> list[tuple[str, str | None]]:
@@ -156,16 +156,27 @@ def update_types(message: str) -> list[tuple[str, str | None]]:
     return out
 
 
-def title_is_major(title: str) -> bool | None:
-    """Whether a 'from X to Y' title crosses a major version, or a minor one on 0.x.
+def bump_is_major(line: str) -> bool | None:
+    """Whether a 'from X to Y' line crosses a major version, or a minor one on 0.x.
 
-    None if the title doesn't say.
+    None if the line doesn't say.
     """
-    m = _TITLE.search(title)
+    m = _BUMP.search(line)
     if not m:
         return None
     old_major, old_minor, new_major, new_minor = m.groups()
     return old_major != new_major or (old_major == '0' and old_minor != new_minor)
+
+
+def messages_are_major(messages: list[str]) -> bool | None:
+    """Whether any 'from X to Y' line in the commit messages is a major bump.
+
+    The commit messages are signed, but the PR's title can be edited by anyone
+    with write access, so only the messages are read. None if no line says.
+    """
+    found = [bump_is_major(line) for m in messages for line in m.splitlines()]
+    found = [major for major in found if major is not None]
+    return any(found) if found else None
 
 
 def dependabot_tier(pr: PullRequest) -> tuple[bool, str]:
@@ -186,15 +197,20 @@ def dependabot_tier(pr: PullRequest) -> tuple[bool, str]:
         return False, f'{", ".join(majors)} is a semver-major update (or a minor one on 0.x).'
     if updates and all(kind for _, kind in updates):
         return True, f'every update ({len(updates)}) is minor or patch, by update-type metadata.'
-    major = title_is_major(pr.title)
+    major = messages_are_major([c.message for c in pr.commits])
     if major is None:
-        return False, 'there is no update-type metadata, and the title has no versions to compare.'
+        return False, (
+            'there is no update-type metadata, and the commit messages have no versions to'
+            ' compare.'
+        )
     if major:
         return False, (
-            'there is no update-type metadata, and the title is a major bump'
+            'there is no update-type metadata, and the commit messages have a major bump'
             ' (or a minor one on 0.x).'
         )
-    return True, 'there is no update-type metadata, and the title is a minor or patch bump.'
+    return True, (
+        'there is no update-type metadata, and the commit messages only have minor or patch bumps.'
+    )
 
 
 def changed_lines(base: str | None, head: str | None) -> list[str]:
