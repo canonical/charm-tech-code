@@ -41,6 +41,36 @@ def test_grouped_update_types_with_majors():
     ]
 
 
+ZERO_MINOR = """chore: bump foo from 0.41.0 to 0.42.0
+
+---
+updated-dependencies:
+- dependency-name: foo
+  dependency-version: 0.42.0
+  dependency-type: direct:production
+  update-type: version-update:semver-minor
+...
+"""
+
+
+def test_zero_minor_update_is_major():
+    assert update_types(ZERO_MINOR) == [('foo', 'major')]
+    assert update_types(fixture('dependabot-2816.txt')) == [('ruff', 'patch')]
+
+
+def test_zero_minor_needs_two_either_way(config):
+    """The metadata and the title agree about a 0.x minor bump."""
+    title = 'chore: bump foo from 0.41.0 to 0.42.0'
+    for message in (ZERO_MINOR, title):
+        pr = make_pr(
+            ['uv.lock'],
+            author='dependabot[bot]',
+            title=title,
+            commits=[dependabot_commit(message)],
+        )
+        assert decide(pr, config).required == 2
+
+
 def test_indirect_update_has_no_type():
     assert update_types(fixture('dependabot-2900.txt')) == [('opentelemetry-api', None)]
 
@@ -50,7 +80,9 @@ def test_indirect_update_has_no_type():
     [
         ('chore: bump opentelemetry-api from 1.45.1 to 1.45.2 in /examples/k8s-5-observe', False),
         ('chore: bump certifi from 2025.10.5 to 2026.10.19', True),
-        ('chore: bump ruff from 0.16.9 to 0.16.10', True),
+        ('chore: bump ruff from 0.16.9 to 0.16.10', False),
+        ('chore: bump foo from 0.41.0 to 0.42.0', True),
+        ('chore: bump foo from v0 to v1', True),
         ('chore: bump actions/checkout from v6.0.2 to v7.0.0', True),
         ('chore: bump actions/checkout from v7.0.0 to v7.0.1', False),
         ('chore: update sphinxcontrib-mermaid requirement from ~=2.0 to ~=2.1', None),
@@ -86,7 +118,7 @@ CASES = [
         'title',
     ),
     ('2842', 'chore: bump opentelemetry-api from 1.45.0 to 1.45.1', True, 'title'),
-    ('2839', 'chore: bump certifi from 2025.10.5 to 2026.10.19', False, 'major or 0.x'),
+    ('2839', 'chore: bump certifi from 2025.10.5 to 2026.10.19', False, 'major bump'),
 ]
 
 

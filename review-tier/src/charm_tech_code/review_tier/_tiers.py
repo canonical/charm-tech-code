@@ -133,29 +133,39 @@ def team_tier(pr: PullRequest, cfg: Config) -> tuple[bool, str]:
 
 
 _UPDATES = re.compile(r'^updated-dependencies:\n(.*?)^\.\.\.$', re.M | re.S)
-_TITLE = re.compile(r'from v?(\d+)\S* to v?(\d+)')
+_TITLE = re.compile(r'from v?(\d+)(?:\.(\d+))?\S* to v?(\d+)(?:\.(\d+))?')
 
 
 def update_types(message: str) -> list[tuple[str, str | None]]:
-    """(dependency, semver kind or None) for each update in a Dependabot commit message."""
+    """(dependency, semver kind or None) for each update in a Dependabot commit message.
+
+    Dependabot calls a change to the second number of a 0.x version (0.41 to
+    0.42) a minor update, but on 0.x that's the number that changes when
+    something breaks, so it counts as major here, as it does for a title.
+    """
     out: list[tuple[str, str | None]] = []
     for block in _UPDATES.findall(message):
         for entry in re.split(r'^- ', block, flags=re.M)[1:]:
             name = re.search(r'dependency-name: (\S+)', entry)
             kind = re.search(r'^\s*update-type: version-update:semver-(\w+)\s*$', entry, re.M)
-            out.append((name[1] if name else '?', kind[1] if kind else None))
+            version = re.search(r'dependency-version: v?(\S+)', entry)
+            kind = kind[1] if kind else None
+            if kind == 'minor' and version and version[1].startswith('0.'):
+                kind = 'major'
+            out.append((name[1] if name else '?', kind))
     return out
 
 
 def title_is_major(title: str) -> bool | None:
-    """Whether a 'from X to Y' title crosses a major version (any 0.x change counts).
+    """Whether a 'from X to Y' title crosses a major version, or a minor one on 0.x.
 
     None if the title doesn't say.
     """
     m = _TITLE.search(title)
     if not m:
         return None
-    return m[1] != m[2] or m[1] == '0'
+    old_major, old_minor, new_major, new_minor = m.groups()
+    return old_major != new_major or (old_major == '0' and old_minor != new_minor)
 
 
 def dependabot_tier(pr: PullRequest) -> tuple[bool, str]:
@@ -173,14 +183,17 @@ def dependabot_tier(pr: PullRequest) -> tuple[bool, str]:
     updates = [u for c in pr.commits for u in update_types(c.message)]
     majors = [name for name, kind in updates if kind == 'major']
     if majors:
-        return False, f'Dependabot marks {", ".join(majors)} as a semver-major update.'
+        return False, f'{", ".join(majors)} is a semver-major update (or a minor one on 0.x).'
     if updates and all(kind for _, kind in updates):
         return True, f'every update ({len(updates)}) is minor or patch, by update-type metadata.'
     major = title_is_major(pr.title)
     if major is None:
         return False, 'there is no update-type metadata, and the title has no versions to compare.'
     if major:
-        return False, 'there is no update-type metadata, and the title is a major or 0.x bump.'
+        return False, (
+            'there is no update-type metadata, and the title is a major bump'
+            ' (or a minor one on 0.x).'
+        )
     return True, 'there is no update-type metadata, and the title is a minor or patch bump.'
 
 
