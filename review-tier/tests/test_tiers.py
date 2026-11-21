@@ -296,3 +296,9 @@ def test_reviewers_default_to_team(config):
     assert config.reviewers == config.team
     text = 'reviewers = ["Someone"]\n' + fixture('review-tier.toml')
     assert _config.parse(text).reviewers == {'someone'}
+
+
+def test_missing_config_key():
+    text = fixture('review-tier.toml').replace('line-limit = 300\n', '')
+    with pytest.raises(SystemExit, match=r"review-tier\.toml is missing the 'line-limit' key"):
+        _config.parse(text)

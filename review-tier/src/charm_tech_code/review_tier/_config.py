@@ -57,24 +57,27 @@ def parse(text: str) -> Config:
     A missing key is an error, not a default, except for `reviewers`, which is
     the team list if it isn't given, and `label`.
     """
-    d = tomllib.loads(text)
-    release, bot = d['release'], d['bot']
-    return Config(
-        team=frozenset(login.lower() for login in d['team']),
-        reviewers=frozenset(login.lower() for login in d.get('reviewers', d['team'])),
-        line_limit=int(d['line-limit']),
-        allow=tuple(d['low-risk']['allow']),
-        allow_except=tuple(d['low-risk']['except']),
-        release_author=release['author'],
-        release_branches=tuple(release['branches']),
-        release_files=frozenset(release['files']),
-        release_line_checked=frozenset(release['line-checked']),
-        release_lockfile=release['lockfile'],
-        release_packages=frozenset(release['packages']),
-        bot_author=bot['author'],
-        bot_branches={
-            name: BotBranch(frozenset(b['files']), b.get('lines'))
-            for name, b in bot['branches'].items()
-        },
-        label=d.get('label', 'full-review'),
-    )
+    try:
+        d = tomllib.loads(text)
+        release, bot = d['release'], d['bot']
+        return Config(
+            team=frozenset(login.lower() for login in d['team']),
+            reviewers=frozenset(login.lower() for login in d.get('reviewers', d['team'])),
+            line_limit=int(d['line-limit']),
+            allow=tuple(d['low-risk']['allow']),
+            allow_except=tuple(d['low-risk']['except']),
+            release_author=release['author'],
+            release_branches=tuple(release['branches']),
+            release_files=frozenset(release['files']),
+            release_line_checked=frozenset(release['line-checked']),
+            release_lockfile=release['lockfile'],
+            release_packages=frozenset(release['packages']),
+            bot_author=bot['author'],
+            bot_branches={
+                name: BotBranch(frozenset(b['files']), b.get('lines'))
+                for name, b in bot['branches'].items()
+            },
+            label=d.get('label', 'full-review'),
+        )
+    except KeyError as e:
+        raise SystemExit(f'{PATH} is missing the {e.args[0]!r} key.') from None
