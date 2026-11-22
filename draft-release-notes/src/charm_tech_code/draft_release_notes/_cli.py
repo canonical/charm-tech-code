@@ -88,6 +88,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        '--public-api',
+        default=None,
+        metavar='PATH',
+        help=(
+            'What the package exports at this release, as text, such as each public '
+            "module's __all__. The model treats it as fact, to check where a name can "
+            'be imported from rather than guess. Optional.'
+        ),
+    )
+    parser.add_argument(
         '--docs-url',
         default=None,
         metavar='URL',
@@ -171,6 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         compare_url=args.compare_url,
         commits=commits,
         newest=args.newest_release,
+        public_api=pathlib.Path(args.public_api).read_text() if args.public_api else '',
     )
     try:
         answer = tidy(call_openrouter(system, user, model, api_key))

@@ -132,6 +132,27 @@ class TestUserPrompt:
         assert '# The commit messages for this release\n\n## fix: the kettle (#101)' in prompt
         assert prompt.index('# The commit messages') < prompt.index('# Exemplar releases')
 
+    def test_adds_the_public_api_after_the_commit_messages(self):
+        prompt = user_prompt(
+            repo='canonical/operator',
+            version='3.10.0',
+            previous='3.9.0',
+            branch='main',
+            changelog=CHANGELOG,
+            exemplars='## 3.8.1\n\nA good release.\n',
+            commits='## feat: proxy config (#2832)\n\nIt is new.',
+            public_api='ops.testing: Context, ProxyConfig, State\n',
+        )
+        assert '# The public API at this release\n\nops.testing: Context, ProxyConfig' in prompt
+        assert prompt.index('# The commit messages') < prompt.index('# The public API')
+        assert prompt.index('# The public API') < prompt.index('# Exemplar releases')
+
+    def test_no_public_api_is_no_section(self):
+        prompt = user_prompt(
+            repo='r/r', version='1.0.0', previous='0.9.0', branch='main', changelog='x',
+        )  # fmt: skip
+        assert 'public API' not in prompt
+
     def test_blank_exemplars_are_no_exemplars(self):
         prompt = user_prompt(
             repo='r/r', version='1.0.0', previous='0.9.0', branch='main', changelog='x',
@@ -401,6 +422,17 @@ class TestConsoleScript:
         user = json.loads(urlopen.call_args.args[0].data)['messages'][1]['content']
         assert '## docs: a how-to for brewing (#9)\n\nBrew.' in user
         assert f'Documentation pages: {DOCS}/howto/brew/' in user
+
+    def test_sends_the_public_api(self, files, monkeypatch, tmp_path):
+        monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-test')
+        monkeypatch.setenv('OPENROUTER_MODEL', 'some/model')
+        public_api = tmp_path / 'public-api.txt'
+        public_api.write_text('ops.testing: Context, ProxyConfig\n')
+        urlopen = model_says('A routine release.')
+        with mock.patch.object(urllib.request, 'urlopen', urlopen):
+            assert self.run(files, '--public-api', str(public_api)) == 0
+        user = json.loads(urlopen.call_args.args[0].data)['messages'][1]['content']
+        assert '# The public API at this release\n\nops.testing: Context, ProxyConfig' in user
 
     def test_a_failed_call_writes_the_placeholder_and_succeeds(self, files, monkeypatch):
         monkeypatch.setenv('OPENROUTER_API_KEY', 'sk-test')

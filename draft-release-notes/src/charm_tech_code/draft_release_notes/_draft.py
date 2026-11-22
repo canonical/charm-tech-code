@@ -144,6 +144,7 @@ def user_prompt(
     compare_url: str | None = None,
     commits: str = '',
     newest: str | None = None,
+    public_api: str = '',
 ) -> str:
     """Return the user message: everything about this particular release.
 
@@ -152,6 +153,13 @@ def user_prompt(
     releases, and the newest release in the repository, which on a
     maintenance branch is how the model knows which series the fixes came
     from.
+
+    `public_api` is whatever the caller says the package exports at this
+    release, such as each public module's `__all__`, as text. The commit
+    messages name classes by the module they were written in, which is not
+    always where a charm imports them from, and without this the model can
+    only guess, or ask: the 3.10.0 draft asked whether `ProxyConfig` was in
+    `ops.testing`.
     """
     parts = [
         '# This release',
@@ -169,6 +177,8 @@ def user_prompt(
     parts += ['', '# The generated changelog for this release', '', changelog.strip()]
     if commits.strip():
         parts += ['', '# The commit messages for this release', '', commits.strip()]
+    if public_api.strip():
+        parts += ['', '# The public API at this release', '', public_api.strip()]
     if exemplars.strip():
         parts += ['', '# Exemplar releases', '', exemplars.strip()]
     return '\n'.join(parts) + '\n'
