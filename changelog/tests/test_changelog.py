@@ -59,6 +59,7 @@ from charm_tech_code.changelog._format import (
 )
 from charm_tech_code.changelog._models import Change
 from charm_tech_code.changelog._parse import code_spans, parse_git_log
+from charm_tech_code.changelog._title import title_suggestions
 from charm_tech_code.changelog._version import MINOR, PATCH, infer_bump_size, next_version
 
 # The team that maintains the repository the fixtures come from: emails,
@@ -832,6 +833,20 @@ class TestCodeSpans:
             ('a DeprecationWarning for it', 'a `DeprecationWarning` for it'),
             ('call load_config() first', 'call `load_config()` first'),
             ('read ops._private.yaml', 'read `ops._private.yaml`'),
+            # Dotted names and constants, which 3.10.0's titles left bare
+            # and its review wrapped by hand.
+            (
+                'drop typing.cast where narrowing can do the work',
+                'drop `typing.cast` where narrowing can do the work',
+            ),
+            ('ops.hookcmds returns all the data', '`ops.hookcmds` returns all the data'),
+            (
+                'use CheckLevel.UNSET in testing.CheckInfo',
+                'use `CheckLevel.UNSET` in `testing.CheckInfo`',
+            ),
+            ('update advice about uv.lock', 'update advice about `uv.lock`'),
+            ('a public event in ops.testing.', 'a public event in `ops.testing`.'),
+            ('drop unused MODEL_SETTINGS', 'drop unused `MODEL_SETTINGS`'),
         ],
     )
     def test_code_is_wrapped(self, summary: str, expected: str):
@@ -840,8 +855,13 @@ class TestCodeSpans:
     @pytest.mark.parametrize(
         'summary',
         [
-            'drop typing.cast where narrowing can do the work',
             'raise an Error when the kettle boils',
+            'encode dropped counts per OTLP/JSON',
+            'link to the docs, e.g. the how-to guides',
+            'replace links by canonical.com/juju',
+            'switch to https://documentation.ubuntu.com/ops',
+            'mention someone@example.com',
+            'upgrade the K8s tutorial to api-demo-server 3.0.0',
             'support Python 3.14 (the new one)',
             'record trace data with opentelemetry-sdk 1.45',
             'detect Pydantic dataclasses from before 2.11',
@@ -858,6 +878,64 @@ class TestCodeSpans:
     def test_running_it_twice_changes_nothing(self):
         once = code_spans("treat an _Abort(0) from the charm's __init__ as ModelError")
         assert code_spans(once) == once
+
+    def test_a_name_that_starts_a_summary_is_not_capitalised(self):
+        # 3.10.0's changelog had "Fix: Ops.hookcmds returns all the data".
+        log = git_log((FOCAL, 'fix!: ops.hookcmds returns all the data (#1)', ''))
+        [change] = parse_git_log(log, team=OPERATOR_TEAM)['breaking']
+        assert change.description == 'Fix: `ops.hookcmds` returns all the data'
+
+
+class TestTitleSuggestions:
+    def test_a_title_with_nothing_to_suggest_gets_nothing(self):
+        assert title_suggestions('fix: keep the check level when a layer omits it (#2872)') == []
+
+    def test_a_title_that_is_not_conventional_gets_nothing(self):
+        # Whether the type is right is another check's job.
+        assert title_suggestions('Fix ops.hookcmds') == []
+
+    def test_code_is_suggested_for_backticks(self):
+        assert title_suggestions('fix: use CheckLevel.UNSET in `testing.CheckInfo`') == [
+            'Put code in backticks: `CheckLevel.UNSET`.'
+        ]
+
+    @pytest.mark.parametrize(
+        ('title', 'expected'),
+        [
+            ('docs: fix small issues in K8s tutorial', 'Write "Kubernetes" rather than "K8s".'),
+            ('docs: fix the k8s tutorial', 'Write "Kubernetes" rather than "k8s".'),
+            ('docs: update example charm deps', 'Write "dependencies" rather than "deps".'),
+            ('docs: link guides, e.g. the how-to', 'Write "for example" rather than "e.g.".'),
+        ],
+    )
+    def test_an_abbreviation_is_spelled_out(self, title: str, expected: str):
+        assert title_suggestions(title) == [expected]
+
+    def test_a_product_name_in_lower_case_is_suggested(self):
+        [suggestion] = title_suggestions('docs: fix the jubilant module name')
+        assert suggestion.startswith('Write "Jubilant" with a capital')
+
+    @pytest.mark.parametrize(
+        'title',
+        [
+            'feat: model juju-*-proxy model configs',
+            'docs: move docs to canonical.com/juju/docs/ops',
+            'ci: ignore juju/4 timeouts',
+            'chore: tidy `pebble` and `k8s` imports',
+            'docs: use the Pebble and Juju names',
+        ],
+    )
+    def test_names_and_abbreviations_inside_other_things_are_left_alone(self, title: str):
+        assert title_suggestions(title) == []
+
+    def test_the_command_prints_one_suggestion_per_line(self):
+        out = io.StringIO()
+        title = 'docs: update advice about uv.lock and example charm deps'
+        with mock.patch('sys.stdin', io.StringIO(title)), contextlib.redirect_stdout(out):
+            assert _cli.main(['suggest-title']) == 0
+        assert out.getvalue() == (
+            'Put code in backticks: `uv.lock`.\nWrite "dependencies" rather than "deps".\n'
+        )
 
 
 class TestAuthorCredit:

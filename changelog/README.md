@@ -50,7 +50,7 @@ And the rules it doesn't show:
 * **A commit with no `(#N)` in its subject** - one pushed straight to the branch - renders with no reference rather than a placeholder standing in for one.
 * **A security advisory's merge is left out.** GitHub titles the commit that merges an advisory's private fork "Merge commit from fork". The fix in it has already gone out in a security release with its own hand-written entry, so listing it again (and crediting whoever pressed the button) would only be something to delete by hand.
 * **A batch of cherry-picks is broken back out.** A maintenance branch usually takes its fixes from `main` as one squash-merged pull request, which leaves one subject in the git log. Given that pull request's own commits (`--backports`, a JSON file the caller fetches, since a squash keeps none of them), the entry becomes a sentence ("Cherry-picked recent fixes from main into the 2.23-maintenance branch (#2789), including:") followed by a list of the changes, each with the pull request it was first merged in. A cherry-pick is told apart by the `(#N)` its subject still carries; the commits that adjust the batch have none and are left out, and it takes two cherry-picks to make a batch.
-* **Code gets backticks.** A name with a leading underscore (`_CharmSpec`, `__init__`), an exception or warning class (`RelationNotFoundError`), and anything followed by a call's parentheses (`load_config()`) is put in backticks, since PR titles often leave them out and a bare `__init__` renders as bold. Text already in backticks is left alone.
+* **Code gets backticks.** A name with a leading underscore (`_CharmSpec`, `__init__`), an exception or warning class (`RelationNotFoundError`), anything followed by a call's parentheses (`load_config()`), a dotted name (`ops.hookcmds`, `CheckLevel.UNSET`, `uv.lock`) and a CONSTANT_CASE name with an underscore (`JUJU_VERSION`) is put in backticks, since PR titles often leave them out and a bare `__init__` renders as bold. Text already in backticks is left alone. A summary that starts with a name keeps its case, since the backtick comes first.
 
 ## Using it
 
@@ -102,6 +102,14 @@ changelog release-title --version "$VERSION" < pr-description.md
 * **`release-title`** prints the release's title, `X.Y.Z: <summary>`, taking the summary from between the `<!-- release-title:start -->` and `<!-- release-title:end -->` markers in the same description. The version is always added here (and taken off the front of the summary if someone typed it there too), so the title can't name a different version from the release. No markers, broken markers, or `draft-release-notes`' title placeholder give the bare version, with a line on stderr saying why; it never fails, because a release can go out titled with just its version and the title can still be edited on the draft.
 
 The two that print `key=value` lines are for appending to `$GITHUB_OUTPUT`. On failure they print nothing on stdout and exit non-zero, so a failed step cannot half-write it.
+
+## Suggestions for a pull request title
+
+```shell
+printf '%s' "$PR_TITLE" | changelog suggest-title
+```
+
+A squash-merged pull request's title becomes the changelog line, so `suggest-title` reads a title and prints a suggestion per line for what a reviewer of the changelog would likely change: code that isn't in backticks, an abbreviation to spell out ("K8s", "deps", "e.g."), or a product name in lower case ("jubilant"). Each is a heuristic, so it always exits 0 and prints nothing when it has nothing to say. Show the suggestions to the author rather than failing a check on them.
 
 ## Developing
 

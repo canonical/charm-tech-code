@@ -135,13 +135,26 @@ ADVISORY_MERGE_SUBJECT = 'Merge commit from fork'
 #: * A PascalCase exception or warning name, such as `RelationNotFoundError`.
 #: * Anything immediately followed by a call's parentheses: `load_config()`,
 #:   `_Abort(0)`. The parentheses are part of the match.
+#: * A dotted name, such as `ops.hookcmds`, `CheckLevel.UNSET` or `uv.lock`.
+#:   English puts a space after a full stop, so a dot with a letter straight
+#:   after it is a name. The first part has to be at least two characters,
+#:   which leaves "e.g" alone, and anything inside a URL (preceded by a
+#:   slash, a colon or an `@`, or followed by a path) is left alone too. A
+#:   bare domain such as "juju.is" is still matched, which is rare in a
+#:   summary and reads fine as code.
+#: * A CONSTANT_CASE name with at least one underscore, such as
+#:   `JUJU_VERSION`. An acronym such as OTLP has none, and stays as it is.
 #: Text already in backticks is never looked at; see `_parse.code_spans`.
+#: Wrapping a name that starts a summary also keeps `_parse._capitalise`
+#: from turning `ops.hookcmds` into "Ops.hookcmds".
 CODE_WORD_REGEX = re.compile(
-    r'(?<![\w`.])(?:'
+    r'(?<![\w`./@:-])(?:'
     r'(?:[A-Za-z]\w*\.)*_\w+(?:\.\w+)*(?:\([^()\s]*\))?'
     r'|(?:[A-Za-z]\w*\.)*[A-Z][a-z\d]+(?:[A-Z][a-z\d]*)*(?:Error|Exception|Warning)\b'
     r'(?:\([^()\s]*\))?'
     r'|(?:[A-Za-z]\w*\.)*[A-Za-z]\w*\([^()\s]*\)'
+    r'|[A-Za-z][A-Za-z\d]+(?:\.[A-Za-z_]\w*)+\b(?![\w.]*/)'
+    r'|[A-Z][A-Z\d]*(?:_[A-Z\d]+)+\b'
     r')'
 )
 
