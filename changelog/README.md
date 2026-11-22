@@ -38,7 +38,7 @@ Release notes are the same content with `###` headings and `in #2684` in place o
 Most of the rules are visible there:
 
 * **A contributor from outside the maintaining team is credited; a maintainer is not.** The team is built in (`CHARM_TECH_TEAM` in `_constants.py`), because it is the same for every repository we maintain, so a workflow has nothing to pass. When in doubt, leave someone off the list: over-crediting is visible in the draft release, and crediting nobody is not.
-* **A handle is only sometimes recoverable.** `46688206+ducky-debugger@users.noreply.github.com` gives `@ducky-debugger`, GitHub's default for an account with a private email; where the log has no handle, the person is credited by name.
+* **A handle is only sometimes recoverable from the log.** `46688206+ducky-debugger@users.noreply.github.com` gives `@ducky-debugger`, GitHub's default for an account with a private email; where the log has no handle, the person is credited by name. With `--github-logins`, each pull request's author is looked up instead, and that login is the credit (or no credit, for someone on the team) whatever address the commit came from.
 * **`chore` is dropped on purpose.** Dependency bumps, charm pins and the release's own version bump are not what a reader came for, and `git log` still has them.
 * **The headings, their order and the commit-type map are fixed.** The format is common across our repositories, so there is nothing for an adopting repository to supply.
 
@@ -66,6 +66,8 @@ changelog changes-entry --repo "$REPO" --tag "$VERSION" < log.txt > changes-entr
 ```
 
 `next-version` prints `version=` and `size=` lines for `$GITHUB_OUTPUT`; the two that print Markdown are for redirecting into a file, because a `$GITHUB_OUTPUT` line only takes a multi-line document through a heredoc delimiter the document must not itself contain. `git-log-format` prints the `--format` string the others expect, so the separators live in one place rather than in every workflow - copy them and it works until someone drops one, at which point the log stops parsing and the release goes out with an empty changelog rather than an error.
+
+Add `--github-logins` to `release-notes` or `changes-entry` to credit contributors by their GitHub login, which takes one API request per pull request in the range. It uses `GH_TOKEN` or `GITHUB_TOKEN` if one is set.
 
 On a maintenance branch, add `--backports backports.json` to `changes-entry`, with each pull request's commits as `{"2789": [{"name": ..., "email": ..., "subject": ...}]}` (from `gh api repos/$REPO/pulls/2789/commits`).
 

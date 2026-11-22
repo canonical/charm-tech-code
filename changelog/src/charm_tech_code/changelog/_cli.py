@@ -34,13 +34,16 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import sys
 import textwrap
-from collections.abc import Sequence
+import urllib.request
+from collections.abc import Iterable, Sequence
 
 from ._constants import CHARM_TECH_TEAM, GIT_LOG_FORMAT
 from ._format import format_changes, format_release_notes
+from ._models import Change
 from ._parse import parse_git_log
 from ._release import detect_release, is_prerelease, next_dev_version, resolve_branch
 from ._release_body import (
@@ -109,6 +112,72 @@ def _backports_option(parser: argparse.ArgumentParser) -> None:
             'out to list every commit as it stands.'
         ),
     )
+
+
+def _github_logins_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        '--github-logins',
+        action='store_true',
+        help=(
+            "Credit each change by its pull request author's GitHub login, "
+            "looked up with the GitHub API, rather than by what the commit's "
+            'name and email give. A git log only has a handle for an author '
+            'who commits from a no-reply address, so without this anyone else '
+            'is credited by name. Needs --repo. A token in GH_TOKEN or '
+            'GITHUB_TOKEN is used if there is one. A pull request whose author '
+            'cannot be looked up is credited from the commit, with a line on '
+            'stderr saying so.'
+        ),
+    )
+
+
+def _fetch_logins(repo: str, numbers: Iterable[int]) -> dict[int, str]:
+    """Look up the author of each pull request, by number.
+
+    One request per pull request: a release has a few dozen, and the REST
+    API needs no more than the token a workflow already has. A failure for
+    one pull request is reported and skipped, so that it is credited from
+    its commit as it would have been without the lookup, rather than
+    stopping the release.
+    """
+    headers = {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'charm-tech-code-changelog',
+    }
+    token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    logins: dict[int, str] = {}
+    for number in sorted(set(numbers)):
+        # The URL is a literal https endpoint, with only the repository and
+        # number filled in, not a caller-controlled scheme.
+        request = urllib.request.Request(
+            f'https://api.github.com/repos/{repo}/pulls/{number}', headers=headers
+        )
+        try:
+            opened = urllib.request.urlopen(  # ruff: ignore[suspicious-url-open-usage]
+                request, timeout=30
+            )
+            with opened as response:
+                logins[number] = json.load(response)['user']['login']
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(
+                f"changelog: couldn't look up the author of #{number}, so it is credited "
+                f'from the commit: {exc}',
+                file=sys.stderr,
+            )
+    return logins
+
+
+def _pr_numbers(categories: dict[str, list[Change]]) -> set[int]:
+    """Every pull request a parsed range mentions, including those in batches."""
+    numbers: set[int] = set()
+    for changes in categories.values():
+        for change in changes:
+            for each in (change, *change.includes):
+                if each.pr_number is not None:
+                    numbers.add(each.pr_number)
+    return numbers
 
 
 def _read_backports(path: str | None) -> dict[int, list[tuple[str, str, str]]]:
@@ -185,6 +254,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _repo_option(release_notes_parser, required=False)
     _backports_option(release_notes_parser)
+    _github_logins_option(release_notes_parser)
     release_notes_parser.add_argument(
         '--compare-url',
         default=None,
@@ -206,6 +276,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _repo_option(changes_entry_parser, required=True)
     _backports_option(changes_entry_parser)
+    _github_logins_option(changes_entry_parser)
     changes_entry_parser.add_argument(
         '--tag',
         required=True,
@@ -442,16 +513,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         print(f'changelog: --backports: {exc!r}', file=sys.stderr)
         return 2
+    repo = getattr(args, 'repo', None)
+    github_logins = getattr(args, 'github_logins', False)
+    if github_logins and repo is None:
+        print('changelog: --github-logins needs --repo', file=sys.stderr)
+        return 2
+    log_text = sys.stdin.read()
     categories = parse_git_log(
-        sys.stdin.read(),
+        log_text,
         # Always the Charm Tech team: every repository that runs this is one
         # of ours, so there is no other team for a workflow to pass.
         team=CHARM_TECH_TEAM,
         # Only `release-notes` and `changes-entry` take `--repo`.
-        repo=getattr(args, 'repo', None),
+        repo=repo,
         # Only `release-notes` and `changes-entry` take `--backports`.
         backports=backports,
     )
+    if github_logins:
+        # The pull request numbers are only known once the log is parsed, and
+        # the logins change nothing but the credits, so parsing again with
+        # them is simpler than threading a lookup through the parser.
+        logins = _fetch_logins(repo, _pr_numbers(categories))
+        categories = parse_git_log(
+            log_text, team=CHARM_TECH_TEAM, repo=repo, backports=backports, logins=logins
+        )
 
     if args.command == 'bump-size':
         _emit(infer_bump_size(categories))
