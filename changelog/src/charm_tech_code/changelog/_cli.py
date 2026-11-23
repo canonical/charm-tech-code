@@ -22,6 +22,8 @@ out: a file, a network call, git itself.
 Four subcommands do not read a git log at all, because they are the version
 and release decisions a release pipeline makes after the changelog is
 written: `detect-release`, `post-release`, `release-body` and `release-title`.
+A fifth, `suggest-title`, reads a pull request title instead, so that a
+changelog line can be fixed before it is ever a commit.
 Every subcommand that answers with more than one value -- `next-version`,
 `detect-release` and `post-release` -- prints `key=value` lines, which a
 workflow step can append to `$GITHUB_OUTPUT` as they stand. Strings are printed
@@ -52,6 +54,7 @@ from ._release_body import (
     release_summary_from_description,
     release_title,
 )
+from ._title import title_suggestions
 from ._version import infer_bump_size, next_version
 
 
@@ -344,6 +347,19 @@ def _build_parser() -> argparse.ArgumentParser:
         '--version', required=True, metavar='X.Y.Z', help='The version being released.'
     )
 
+    subparsers.add_parser(
+        'suggest-title',
+        help='Print suggestions for the pull request title on stdin, one per line.',
+        description=(
+            'Read a pull request title on stdin and print a suggestion for each '
+            'thing a reviewer of the changelog would likely change: code that is '
+            'not in backticks, an abbreviation to spell out, or a product name in '
+            'lower case. Print nothing if there is nothing to suggest. The '
+            'suggestions are heuristics, so this always exits 0; show them, '
+            'rather than failing on them.'
+        ),
+    )
+
     return parser
 
 
@@ -436,6 +452,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _release_body(args)
     if args.command == 'release-title':
         return _release_title(args)
+    if args.command == 'suggest-title':
+        for suggestion in title_suggestions(sys.stdin.read()):
+            print(suggestion)
+        return 0
 
     try:
         backports = _read_backports(getattr(args, 'backports', None))
