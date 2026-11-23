@@ -39,8 +39,8 @@ from typing import Literal
 from ._constants import MINOR_BUMP_CATEGORIES, RELEASE_VERSION_REGEX
 from ._models import Change
 
-#: The two sizes a release can be inferred to be. A major bump is never
-#: inferred -- see `MINOR_BUMP_CATEGORIES` -- so it is not one of these.
+# The two sizes a release can be inferred to be. A major bump is never
+# inferred -- see `MINOR_BUMP_CATEGORIES` -- so it is not one of these.
 BumpSize = Literal['minor', 'patch']
 
 MINOR: BumpSize = 'minor'
