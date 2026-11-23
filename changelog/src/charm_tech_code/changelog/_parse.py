@@ -106,10 +106,10 @@ class _Commit(NamedTuple):
     description: str
     pr_number: int | None
     credit: str | None
-    #: The pull request this commit reverts, where it says so in its body.
+    # The pull request this commit reverts, where it says so in its body.
     reverts: int | None
-    #: The conventional-commit type of the thing being reverted, read out of
-    #: the quoted subject a revert carries: `revert: "feat: ..."` is `feat`.
+    # The conventional-commit type of the thing being reverted, read out of
+    # the quoted subject a revert carries: `revert: "feat: ..."` is `feat`.
     reverted_type: str | None
     reverted_type_is_breaking: bool
 
