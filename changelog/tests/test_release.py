@@ -66,7 +66,7 @@ A routine maintenance release: two fixes and a documentation pass.
 The kettle no longer reports itself boiled while it is still cold.
 
 <!-- release-notes:end -->
-"""  # noqa: E501 - a pull request description is not hard-wrapped.
+"""  # ruff: ignore[line-too-long] (a pull request description is not hard-wrapped)
 
 PLACEHOLDER_DESCRIPTION = (
     'Prepares the 3.8.3 release from `main`.\n'

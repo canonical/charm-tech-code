@@ -48,7 +48,7 @@ select = [
     "E",
     "W",
     # isort
-    "I001",
+    "unsorted-imports",  # I001
     # pep8-naming
     "N",
     # flake8-builtins
@@ -107,4 +107,9 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"*/tests/*" = ["D", "S101", "S105", "S106"]
+"*/tests/*" = [
+    "D",
+    "assert",  # S101
+    "hardcoded-password-string",  # S105
+    "hardcoded-password-func-arg",  # S106
+]
