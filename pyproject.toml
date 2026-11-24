@@ -18,7 +18,7 @@ package = false
 lint = [
     # Pinned to the version canonical/operator pins, since that is where this
     # code is used and where it came from.
-    "ruff==0.15.20",
+    "ruff==0.17.5",
     "zizmor>=1.30.1",
 ]
 
