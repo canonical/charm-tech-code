@@ -84,8 +84,8 @@ OPERATOR_TEAM = (
     '49699333+charm-tech-testbot[bot]@users.noreply.github.com',
 )
 
-#: The repository every fixture here comes from, and so the one the
-#: pull-request links are built against.
+# The repository every fixture here comes from, and so the one the
+# pull-request links are built against.
 REPO = 'canonical/operator'
 
 FOCAL = ('Focal Fossa', 'focal.fossa@canonical.com')
@@ -225,8 +225,8 @@ OPERATOR_REVERT_RANGE_LOG = git_log(*OPERATOR_REVERT_RANGE_COMMITS)
 class TestWholeRelease:
     """The 3.8.2 fixture, end to end."""
 
-    #: A git log carries no compare link, so a caller that wants one supplies
-    #: it. This is what `changelog release-notes --compare-url` takes.
+    # A git log carries no compare link, so a caller that wants one supplies
+    # it. This is what `changelog release-notes --compare-url` takes.
     compare_url = 'https://github.com/canonical/operator/compare/3.8.1...3.8.2'
 
     @pytest.fixture
@@ -364,8 +364,8 @@ class TestWholeRelease:
 class TestBreakingChange:
     """A `!` moves an entry into its own category, keeping its real type."""
 
-    #: Supplied by the caller, the way `--compare-url` does: see
-    #: `TestWholeRelease`.
+    # Supplied by the caller, the way `--compare-url` does: see
+    # `TestWholeRelease`.
     compare_url = 'https://github.com/canonical/operator/compare/3.7.1...3.8.0'
 
     @pytest.fixture

@@ -25,10 +25,10 @@ Neither half of the body is written here:
   generated a second time: one source of truth, so the file and the release
   cannot drift.
 
-The body ends by thanking whoever the changelog credits. That is built here
-rather than drafted with the notes, so that nobody is mentioned in the release
-pull request: a contributor should be notified about the release, not about
-the pull request that prepares it.
+The body ends by thanking whoever the changelog credits by handle. That is
+built here rather than drafted with the notes, so that nobody is mentioned in
+the release pull request: a contributor should be notified about the release,
+not about the pull request that prepares it.
 
 The title's summary comes out of the same description, from between the
 `release-title` markers, and the version in front of it is added here.
@@ -214,17 +214,22 @@ def release_body(notes: str, section: str, compare_url: str | None = None) -> st
 
 
 def thanks(section: str) -> str | None:
-    """Return a sentence thanking the people a changelog section credits.
+    """Return a sentence thanking the people a changelog section credits by handle.
 
     The credits are read back out of the section's entries rather than passed
     in, because the section is what a human has reviewed: a credit removed
     from `CHANGES.md` in the release pull request is not thanked, and one
     added there is. Each person is thanked once, in the order they first
-    appear. A section that credits nobody gives `None`, and no sentence.
+    appear. A section that credits nobody by handle gives `None`, and no
+    sentence.
+
+    Someone credited by name keeps the credit on their entry but is not
+    thanked here: a name can't be told apart from a summary that ends in
+    "by" something, and only a handle notifies them anyway.
     """
     people: list[str] = []
     for match in CHANGES_CREDIT_REGEX.finditer(section):
-        person = (match.group('handle') or match.group('name')).strip()
+        person = match.group('handle')
         if person not in people:
             people.append(person)
     if not people:

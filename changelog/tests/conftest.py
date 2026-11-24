@@ -57,7 +57,7 @@ class _NoClockModule:
     date = _NoClock
 
 
-#: The one module allowed to read the clock. See the module docstring.
+# The one module allowed to read the clock. See the module docstring.
 UNCHECKED_MODULES = frozenset({'_cli'})
 
 
