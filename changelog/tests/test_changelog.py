@@ -929,6 +929,116 @@ class TestAuthorCredit:
         assert self.parse(FOCAL, team=()) == [Change('Polish the runes', 1, 'Focal Fossa')]
 
 
+class TestLoginCredit:
+    """A pull request author's login, when the caller looked it up, decides the credit."""
+
+    def parse(self, author: tuple[str, str], logins: dict[int, str]) -> list[Change]:
+        log = git_log((author, 'fix: polish the runes (#1)', ''))
+        return parse_git_log(log, team=OPERATOR_TEAM, logins=logins)['fix']
+
+    def test_a_contributor_with_a_real_address_is_credited_by_login(self):
+        # 3.10.0 credited two contributors by name, because they commit from
+        # a real address, and both had to be changed to a handle by hand.
+        assert self.parse(BUNDLE, {1: 'bundle-ojoy'}) == [
+            Change('Polish the runes', 1, '@bundle-ojoy')
+        ]
+
+    def test_the_login_wins_over_the_no_reply_address(self):
+        assert self.parse(DUCKY, {1: 'ducky'}) == [Change('Polish the runes', 1, '@ducky')]
+
+    def test_a_team_member_is_matched_by_login(self):
+        # Matched case-insensitively, and whatever address the commit has.
+        assert self.parse(BUNDLE, {1: 'Focal-Fossa'}) == [Change('Polish the runes', 1)]
+
+    def test_a_change_with_no_login_falls_back_to_the_commit(self):
+        assert self.parse(BUNDLE, {2: 'someone-else'}) == [
+            Change('Polish the runes', 1, 'Bundle Ojoy')
+        ]
+
+    def test_a_cherry_pick_in_a_batch_is_credited_by_login_too(self):
+        log = git_log((FOCAL, 'fix: cherry-pick fixes into the 2.23 branch (#10)', ''))
+        backports = {
+            10: [
+                (*BUNDLE, 'fix: mend the runes (#3)'),
+                (*BUNDLE, 'fix: polish the runes (#4)'),
+            ]
+        }
+        [batch] = parse_git_log(
+            log, team=OPERATOR_TEAM, backports=backports, logins={3: 'bundle-ojoy'}
+        )['fix']
+        assert [change.credit for change in batch.includes] == ['@bundle-ojoy', 'Bundle Ojoy']
+
+
+class TestGitHubLoginsOption:
+    LOG = git_log(
+        (FOCAL, 'fix: mend the runes (#1)', ''),
+        (BUNDLE, 'fix: polish the runes (#2)', ''),
+    )
+
+    def run(self, argv: list[str], fetch: mock.Mock) -> tuple[int, str]:
+        out = io.StringIO()
+        with (
+            mock.patch('sys.stdin', io.StringIO(self.LOG)),
+            mock.patch.object(_cli, '_fetch_logins', fetch),
+            contextlib.redirect_stdout(out),
+        ):
+            code = _cli.main(argv)
+        return code, out.getvalue()
+
+    def test_the_logins_are_looked_up_for_every_pull_request(self):
+        fetch = mock.Mock(return_value={2: 'bundle-ojoy'})
+        code, out = self.run(['release-notes', '--repo', REPO, '--github-logins'], fetch)
+        assert code == 0
+        fetch.assert_called_once_with(REPO, {1, 2})
+        assert '* Polish the runes by @bundle-ojoy in #2\n' in out
+
+    def test_without_the_option_nothing_is_looked_up(self):
+        fetch = mock.Mock()
+        code, out = self.run(['release-notes', '--repo', REPO], fetch)
+        assert code == 0
+        fetch.assert_not_called()
+        assert '* Polish the runes by Bundle Ojoy in #2\n' in out
+
+    def test_the_option_needs_a_repository(self):
+        fetch = mock.Mock()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code, _ = self.run(['release-notes', '--github-logins'], fetch)
+        assert code == 2
+        assert '--github-logins needs --repo' in err.getvalue()
+        fetch.assert_not_called()
+
+
+class TestFetchLogins:
+    def response(self, body: bytes) -> mock.MagicMock:
+        response = mock.MagicMock()
+        response.__enter__.return_value = io.BytesIO(body)
+        return response
+
+    def test_each_author_is_read_from_the_pull_request(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv('GH_TOKEN', 'sekrit')
+        urlopen = mock.Mock(
+            side_effect=[
+                self.response(b'{"user": {"login": "ducky"}}'),
+                self.response(b'{"user": {"login": "bundle-ojoy"}}'),
+            ]
+        )
+        with mock.patch('urllib.request.urlopen', urlopen):
+            assert _cli._fetch_logins(REPO, [7, 3]) == {3: 'ducky', 7: 'bundle-ojoy'}
+        request = urlopen.call_args_list[0].args[0]
+        assert request.full_url == f'https://api.github.com/repos/{REPO}/pulls/3'
+        assert request.get_header('Authorization') == 'Bearer sekrit'
+
+    def test_a_failed_lookup_is_reported_and_skipped(self):
+        urlopen = mock.Mock(
+            side_effect=[OSError('rate limited'), self.response(b'{"user": {"login": "ducky"}}')]
+        )
+        err = io.StringIO()
+        with mock.patch('urllib.request.urlopen', urlopen), contextlib.redirect_stderr(err):
+            assert _cli._fetch_logins(REPO, [1, 2]) == {2: 'ducky'}
+        assert "couldn't look up the author of #1" in err.getvalue()
+
+
 class TestRevert:
     """Reverts.
 

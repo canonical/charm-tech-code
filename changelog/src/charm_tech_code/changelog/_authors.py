@@ -18,7 +18,13 @@
 **"Outside the team" is not "outside Canonical".** A contributor from
 another Canonical team has an `@canonical.com` address, no GitHub handle
 anyone can derive from it, and every bit as much claim to the credit as a
-stranger does. They are credited by name.
+stranger does. They are credited by name when nothing better is known.
+
+**The pull request's author is the best answer, when there is one.** A git
+log only has a name and an email, and an author who commits from a real
+address has no handle anyone can derive from them. The pull request a
+commit came from does know its author's login, so a caller who has looked
+that up passes it in, and it wins over anything the log says.
 """
 
 from __future__ import annotations
@@ -55,7 +61,9 @@ def derive_handle(email: str) -> str | None:
     return match.group('handle') if match else None
 
 
-def credit_for(name: str, email: str, team: Collection[str]) -> str | None:
+def credit_for(
+    name: str, email: str, team: Collection[str], *, login: str | None = None
+) -> str | None:
     """Work out how to credit the author of a commit, from a git log.
 
     Args:
@@ -67,13 +75,19 @@ def credit_for(name: str, email: str, team: Collection[str]) -> str | None:
             right way for this to fail: over-crediting is visible in a draft
             release and takes one edit, while crediting nobody is invisible
             until a contributor notices.
+        login: The GitHub login of the author of the pull request the commit
+            came from, if the caller looked it up. When given, it decides the
+            credit on its own, and `name` and `email` are not consulted.
 
     Returns:
-        `@handle` when a handle can be recovered from the email, the name
-        when it cannot, or `None` when this author is one of `team` and so
-        is not a guest to be thanked.
+        `@handle` when there is a login or a handle can be recovered from the
+        email, the name when neither is available, or `None` when this
+        author is one of `team` and so is not a guest to be thanked.
     """
     members = normalise_team(team)
+    if login is not None and login.strip().lstrip('@'):
+        login = login.strip().lstrip('@')
+        return None if login.casefold() in members else f'@{login}'
     handle = derive_handle(email)
     if email.strip().casefold() in members:
         return None

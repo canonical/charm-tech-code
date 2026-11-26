@@ -27,7 +27,8 @@ Three things that shapes:
   See `_cancelled`.
 * **Authors are a name and an email.** A handle is sometimes recoverable from
   the email and sometimes not, so a contributor is credited by whichever is
-  there. See `_authors`.
+  there, unless the caller has looked up the pull request's author. See
+  `_authors`.
 * **There is no compare link.** A release body ends with one; a git log has
   no equivalent, so the caller supplies it (`--compare-url`) if it wants one.
 
@@ -132,7 +133,12 @@ def _parse_reverts(body: str, repo: str | None) -> int | None:
     return int(match.group('number'))
 
 
-def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Commit | None:
+def _parse_commit(
+    record: str,
+    team: Collection[str],
+    repo: str | None,
+    logins: Mapping[int, str] | None = None,
+) -> _Commit | None:
     """One `GIT_LOG_FORMAT` record, or `None` if there is nothing to list.
 
     Nothing to list is an empty record, or a security advisory's merge
@@ -154,6 +160,9 @@ def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Comm
         pr_number = int(suffix.group(1))
         subject = subject[: suffix.start()]
 
+    login = (logins or {}).get(pr_number) if pr_number is not None else None
+    credit = credit_for(name, email, team, login=login)
+
     match = COMMIT_SUBJECT_REGEX.match(subject)
     if not match:
         if not subject or subject == ADVISORY_MERGE_SUBJECT:
@@ -163,7 +172,7 @@ def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Comm
             breaking=False,
             description=subject,
             pr_number=pr_number,
-            credit=credit_for(name, email, team),
+            credit=credit,
             reverts=_parse_reverts(body, repo),
             reverted_type=None,
             reverted_type_is_breaking=False,
@@ -187,7 +196,7 @@ def _parse_commit(record: str, team: Collection[str], repo: str | None) -> _Comm
         breaking=match.group('breaking') == '!',
         description=_capitalise(code_spans(summary)),
         pr_number=pr_number,
-        credit=credit_for(name, email, team),
+        credit=credit,
         reverts=_parse_reverts(body, repo),
         reverted_type=reverted_type,
         reverted_type_is_breaking=reverted_type_is_breaking,
@@ -224,6 +233,7 @@ def parse_git_log(
     team: Collection[str] = (),
     repo: str | None = None,
     backports: Mapping[int, Sequence[tuple[str, str, str]]] | None = None,
+    logins: Mapping[int, str] | None = None,
 ) -> dict[str, list[Change]]:
     """Parse a range of commits into categories.
 
@@ -262,6 +272,11 @@ def parse_git_log(
             author email, subject). A squash merge keeps none of that in the
             git log, so it is the caller's to fetch. A batch is listed with
             the changes it brought in under it; see `_backported`.
+        logins: The GitHub login of each pull request's author, by
+            pull-request number. A git log has no logins, so these are the
+            caller's to fetch. Where there is one, the change is credited by
+            it (or not credited, for a team member) rather than by what the
+            commit's name and email give. See `_authors.credit_for`.
 
     Returns:
         A dict of category to `Change` list, in the order they are rendered
@@ -275,7 +290,7 @@ def parse_git_log(
     for record in records:
         if not record.strip():
             continue
-        commit = _parse_commit(record, team, repo)
+        commit = _parse_commit(record, team, repo, logins)
         if commit is not None:
             commits.append(commit)
 
@@ -286,7 +301,7 @@ def parse_git_log(
             continue
         category, change = _routed(commit)
         pr_commits = (backports or {}).get(commit.pr_number or 0, ())
-        includes = _backported(commit, pr_commits, team, repo)
+        includes = _backported(commit, pr_commits, team, repo, logins)
         if includes:
             change = change._replace(
                 description=BACKPORT_VERBS_REGEX.sub(r'\1ed', change.description),
@@ -323,6 +338,7 @@ def _backported(
     pr_commits: Sequence[tuple[str, str, str]],
     team: Collection[str],
     repo: str | None,
+    logins: Mapping[int, str] | None = None,
 ) -> tuple[Change, ...]:
     """The changes a batch of cherry-picks brought in, or nothing if it is not one.
 
@@ -340,7 +356,7 @@ def _backported(
     includes: list[Change] = []
     for name, email, subject in pr_commits:
         record = GIT_LOG_FIELD_SEPARATOR.join((name, email, subject, ''))
-        commit = _parse_commit(record, team, repo)
+        commit = _parse_commit(record, team, repo, logins)
         if (
             commit is None
             or commit.pr_number is None
