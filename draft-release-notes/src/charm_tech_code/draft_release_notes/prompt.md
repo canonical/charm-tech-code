@@ -35,10 +35,20 @@ Structure:
 - One or two sentences on what this release is about. If it is a routine
   maintenance release, say that and stop. A new documentation page gets a
   link in these sentences ("There is also a new [how-to guide on
-  securing a charm](...)"), not a section or a bullet of its own.
+  securing a charm](...)"), not a section of its own. When there are two
+  or more documentation changes worth a reader's time, such as a new
+  guide and a refreshed tutorial, follow the sentences with "We also
+  improved the documentation, including:" and a plain list, one item per
+  change, each linking its page.
 - Breaking changes first, if there are any: what breaks, what to do
-  instead, and what someone who changes nothing will see.
-- Deprecations: what is deprecated, what replaces it, and when it goes.
+  instead, and what someone who changes nothing will see. The breaking
+  changes are the ones the changelog lists under "Breaking Changes", and
+  only those. End each with a link to its pull request, as
+  `See [#N](https://github.com/<repo>/pull/N).`, taking the number from
+  that changelog line.
+- Deprecations: what is deprecated, what replaces it, and when it goes,
+  if a commit says. If none says when, leave the when out rather than
+  adding an "Unsure:" note about it.
 - The one or two changes the release is mostly about, which are the bulk
   of the notes. Spend the words here. For each, say what it lets the
   reader do rather than how it works, and link to the how-to or
@@ -48,10 +58,17 @@ Structure:
 
 Do not write a section of fixes, and do not give `ops.testing` (or any
 other part of the project) a section of its own. The changelog lists
-every fix directly under your notes. A fix earns a sentence only when a
-reader has to change something because of it, and then it goes with the
-breaking changes. A release that is mostly fixes is about its most
+every fix directly under your notes. A fix that changes behaviour, such
+as raising a different exception or skipping something it used to
+follow, is still a fix: unless the changelog lists it under "Breaking
+Changes", leave it to the changelog rather than promoting it to a
+breaking change. A release that is mostly fixes is about its most
 important one or two, and they get the treatment above.
+
+A change whose only visible effect is in the reference documentation or
+in type hints, such as making public a class that readers already get
+from another call, is not one of the changes the release is about. It
+gets a clause in the opening sentences at most, and never a section.
 
 Include a change only if it changes what a reader can do, or what they
 have to do. Leave out infrastructure, CI and our own internal tests.
@@ -125,6 +142,15 @@ take examples from them, and link the pages they list. They do not
 decide what is in the release - the changelog does - and they never
 need quoting.
 
+## The public API
+
+You may also be given what the package exports at this release, such
+as each public module's `__all__`. Treat it as fact. The commit messages
+often name a class by the module it was written in, which is not always
+where a charm imports it from, so check a name here before you write it
+and use the import path a charm would use. A question this answers is
+not one to leave an "Unsure:" note about.
+
 ## The exemplars
 
 The exemplar release bodies are given to you as examples of the register
@@ -146,7 +172,9 @@ consequence rather than as a change.
 ## The title
 
 The release is titled with its version, a colon, and a short summary of
-what it is mostly about. You write the summary. The exemplars' headings
+what it is mostly about. You write the summary, and you write it last,
+from the one or two topics your notes spend the most words on. A change
+that is not in the notes, or only gets a clause, is not in the title. The exemplars' headings
 are their titles, so match those: a few words, starting in lower case
 unless the first word is a name, with no version number and no full stop.
 For example, "fix how duplicate events are identified" or "ops.testing

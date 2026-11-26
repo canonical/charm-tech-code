@@ -28,6 +28,17 @@ git log --reverse --no-merges --name-only --format='%x1e%s%x1f%b%x1f' "$PREVIOUS
 
 The commits the changelog leaves out (`chore`, and a security advisory's merge) are dropped, `ci` and `test` commits keep only their subject and files, and trailers go. With `--docs-url`, a page under `--docs-dir` (`docs` unless you say otherwise) that a commit changed is passed to the model with its published address, so that a new how-to is linked rather than left as a question for the reviewer. `docs/howto/brew.md` is taken to be published at `<docs-url>/howto/brew/`, which is how sites built with the Canonical Sphinx Stack serve pages.
 
+`--public-api` is optional too: a text file of what the package exports at this release, such as each public module's `__all__`, which the model treats as fact. Commit messages often name a class by the module it was written in rather than where a charm imports it from, and without this the model can only guess or ask. For `ops`, a script like this writes it:
+
+```python
+import ops, ops.pebble, ops.testing
+
+for module in (ops, ops.pebble, ops.testing):
+    # ops.pebble has no __all__, so fall back to its public names.
+    names = getattr(module, '__all__', None) or [n for n in dir(module) if not n.startswith('_')]
+    print(f'{module.__name__}: {", ".join(sorted(names))}')
+```
+
 `canonical/operator`'s `.github/workflows/propose-release.yaml` is the calling side, including how it fetches the exemplars and wraps the notes and the summary in the `release-notes` and `release-title` markers that the `changelog` package's `release-body` and `release-title` read them back out of.
 
 ## The prompt
