@@ -105,8 +105,11 @@ dependencies = [
 RELEASE_FILES = ['CHANGES.md', 'ops/version.py', 'testing/pyproject.toml', 'uv.lock']
 
 
-def release_pr(head_extra=None, files=RELEASE_FILES, branch='post-release-3.9.0', lock=None):
+def release_pr(
+    head_extra=None, files=RELEASE_FILES, branch='post-release-3.9.0', lock=None, base_extra=None
+):
     base = {
+        **(base_extra or {}),
         'CHANGES.md': '# 3.9.0\n',
         'ops/version.py': "version: str = '3.9.0'\n",
         'testing/pyproject.toml': PYPROJECT.format(v='8.9.0', ops='3.9.0'),
@@ -125,6 +128,28 @@ def release_pr(head_extra=None, files=RELEASE_FILES, branch='post-release-3.9.0'
 def test_release(config):
     decision = decide(release_pr(), config)
     assert (decision.tier, decision.required) == ('Automated release PRs', 1)
+
+
+def test_release_scenario_version(config):
+    # The 3.10.0 release PRs (#2948, #2950) set ops-scenario's version here too.
+    path = 'testing/src/scenario/_version.py'
+    pr = release_pr(
+        files=[*RELEASE_FILES, path],
+        base_extra={path: "version: str = '8.10.0.dev0'\n"},
+        head_extra={path: "version: str = '8.10.0'\n"},
+    )
+    decision = decide(pr, config)
+    assert (decision.tier, decision.required) == ('Automated release PRs', 1)
+
+
+def test_release_scenario_version_other_lines(config):
+    path = 'testing/src/scenario/_version.py'
+    pr = release_pr(
+        files=[*RELEASE_FILES, path],
+        base_extra={path: "version: str = '8.10.0.dev0'\n"},
+        head_extra={path: "version: str = '8.10.0'\nimport os\n"},
+    )
+    assert decide(pr, config).required == 2
 
 
 def test_release_wrong_branch(config):

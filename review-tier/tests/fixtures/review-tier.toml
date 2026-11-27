@@ -22,9 +22,13 @@ branches = ["release-prep-*", "post-release-*"]
 files = [
     "CHANGES.md", "docs/explanation/versions.md", "ops/version.py", "uv.lock",
     "pyproject.toml", "testing/pyproject.toml", "tracing/pyproject.toml",
+    "testing/src/scenario/_version.py",
 ]
 # Only version lines and pins between our own packages may change in these.
-line-checked = ["ops/version.py", "pyproject.toml", "testing/pyproject.toml", "tracing/pyproject.toml"]
+line-checked = [
+    "ops/version.py", "testing/src/scenario/_version.py",
+    "pyproject.toml", "testing/pyproject.toml", "tracing/pyproject.toml",
+]
 lockfile = "uv.lock"
 packages = ["ops", "ops-scenario", "ops-tracing"]
 
