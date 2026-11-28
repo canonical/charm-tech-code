@@ -1,0 +1,16 @@
+chore: bump rich from 14.1.0 to 15.0.0
+
+Bumps [rich](https://github.com/Textualize/rich) from 14.1.0 to 15.0.0.
+- [Release notes](https://github.com/Textualize/rich/releases)
+- [Changelog](https://github.com/Textualize/rich/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/Textualize/rich/compare/v14.1.0...v15.0.0)
+
+---
+updated-dependencies:
+- dependency-name: rich
+  dependency-version: 15.0.0
+  dependency-type: direct:development
+  update-type: version-update:semver-major
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>
