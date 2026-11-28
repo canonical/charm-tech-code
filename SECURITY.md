@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-This repository contains tooling that Charm Tech's own repositories run in their GitHub workflows. Those workflows pin it by commit SHA, so there are no releases, and only the tip of `main` gets fixes. To pick up a fix, update the pinned SHA.
+This repository contains tooling that Charm Tech's own repositories run in their GitHub workflows. There are no releases, so workflows pin this repository by commit SHA. Only the tip of `main` gets fixes. To pick up a fix, update the pinned SHA.
 
 ## Reporting a vulnerability
 
